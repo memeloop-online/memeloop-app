@@ -11,7 +11,17 @@
     "baseUrl": "./",
     "paths": {
       "@services/*": ["./src/services/*"],
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "memeloop": ["../../../memeloop/packages/memeloop/dist"],
+      "memeloop/*": ["../../../memeloop/packages/memeloop/dist/*"],
+      "memeloop-node": ["../../../memeloop/packages/memeloop-node/dist"],
+      "memeloop-node/*": ["../../../memeloop/packages/memeloop-node/dist/*"],
+      "@memeloop/protocol": ["../../../memeloop/packages/memeloop-protocol/dist"],
+      "@memeloop/protocol/*": ["../../../memeloop/packages/memeloop-protocol/dist/*"],
+      "@memeloop/ui": ["../../../memeloop/packages/memeloop-ui/dist"],
+      "@memeloop/ui/*": ["../../../memeloop/packages/memeloop-ui/dist/*"],
+      "@memeloop/prompt-editor": ["../../../memeloop/packages/memeloop-prompt-editor/dist"],
+      "@memeloop/prompt-editor/*": ["../../../memeloop/packages/memeloop-prompt-editor/dist/*"]
     },
     "skipLibCheck": true,
     /* Basic Options */

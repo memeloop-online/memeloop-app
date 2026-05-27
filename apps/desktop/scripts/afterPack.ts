@@ -112,13 +112,12 @@ export default (
       if (fs.existsSync(source)) {
         try {
           // dereference follows junctions; ignore broken symlinks by catching ENOENT
-          fs.copySync(source, dest, { dereference: true, recursive: true, errorOnExist: false });
-          console.log(`  Copied ${pkgName}`);
+          fs.copySync(source, dest, { dereference: true, errorOnExist: false });
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           console.error(`  Error copying ${pkgName}: ${errorMessage}. Trying without dereference...`);
           try {
-            fs.copySync(source, dest, { dereference: false, recursive: true, errorOnExist: false });
+            fs.copySync(source, dest, { dereference: false, errorOnExist: false });
             console.log(`  Copied ${pkgName} (non-dereferenced)`);
           } catch (secondError) {
             console.error(`  SKIP: ${pkgName} copy failed, continuing...`);
