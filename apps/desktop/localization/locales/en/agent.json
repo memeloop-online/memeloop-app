@@ -1,0 +1,768 @@
+{
+  "APILogs": {
+    "CurrentAgent": "Showing logs for agent: {{agentId}}",
+    "Description": "Debug logs for external API calls made by this agent. Enable 'External API Debug' in preferences to start logging.",
+    "ErrorDetails": "Error Details",
+    "NoLogs": "No API logs found for this agent",
+    "NoResponse": "No response",
+    "RequestDetails": "Request Details",
+    "ResponseContent": "Response Content",
+    "ResponseMetadata": "Response Metadata",
+    "StatusCancel": "Cancelled",
+    "StatusDone": "Completed",
+    "StatusError": "Error",
+    "StatusStart": "Started",
+    "StatusUpdate": "Processing",
+    "Title": "API Debug Logs"
+  },
+  "Agent": {
+    "Attachment": {
+      "AddAttachment": "Add attachment",
+      "AddImage": "📷 Add Image",
+      "NoOptions": "No options available",
+      "SearchPlaceholder": "Search...",
+      "SelectAttachment": "Select attachment"
+    },
+    "EditTitle": "Edit agent name",
+    "InvalidTabType": "Invalid tab type. A chat tab is required.",
+    "LoadingChat": "Loading conversation...",
+    "StartConversation": "Start a conversation",
+    "ThinkingProcess": "thinking",
+    "Untitled": "Untitled"
+  },
+  "Browser": {
+    "Back": "Step back",
+    "Bookmark": "Bookmark",
+    "CurrentUrl": "Current URL",
+    "EnterUrlPlaceholder": "Enter URL",
+    "Forward": "forward",
+    "Home": "Homepage",
+    "Refresh": "refresh",
+    "RenderPlaceholder": "This is the webpage rendering area."
+  },
+  "Chat": {
+    "Cancel": "Cancel",
+    "ConfigError": {
+      "AuthenticationError": "{{provider}} authentication failed. Please check your API key in Settings.",
+      "AuthenticationFailed": "{{provider}} authentication failed. Please check your API key in Settings.",
+      "GoToSettings": "Go to Settings",
+      "MissingAPIKeyError": "API key for {{provider}} not found. Please add it in Settings.",
+      "MissingBaseURLError": "{{provider}} provider requires a base URL. Please configure it in Settings.",
+      "MissingConfigError": "No AI provider or model configured. Please configure in Settings.",
+      "MissingProviderError": "Provider {{provider}} is not available. Please configure it in Settings.",
+      "ModelNoVisionSupport": "Model {{model}} does not support vision/image input. Please select a vision-capable model (look for models with 'vision' feature tag).",
+      "NoDefaultModel": "No default model configured. Please configure a default model in settings.",
+      "ProviderNotFound": "Provider {{provider}} not found. Please configure it in Settings.",
+      "Title": "Configuration Issue"
+    },
+    "FileValidation": {
+      "NotAnImage": "Selected file is not an image ({{fileType}}). Please select an image file.",
+      "TooLarge": "File size {{size}}MB exceeds the limit ({{maxSize}}MB). Please select a smaller file."
+    },
+    "InputPlaceholder": "Type a message, Ctrl+Enter to send",
+    "Send": "Send"
+  },
+  "Common": {
+    "None": "Not selected"
+  },
+  "ContextMenu": {
+    "AddToCurrentSplitView": "Add to current split view",
+    "Close": "Close",
+    "CloseAbove": "Close the tab above",
+    "CloseBelow": "Close the tab below",
+    "CloseOther": "Close other tabs",
+    "CloseTabs": "Close multiple tabs",
+    "ConvertToSplitView": "Convert to split view",
+    "CreateSplitViewWithActive": "Create split view with active tab",
+    "Duplicate": "copy",
+    "NewTabBelow": "Open a new tab below",
+    "Pin": "Pinned Tab",
+    "Refresh": "refresh",
+    "RestoreClosed": "Restore closed tab",
+    "Unpin": "Unpin"
+  },
+  "CreateAgent": {
+    "AgentName": "Agent Name",
+    "AgentNameHelper": "Enter a descriptive name for your agent",
+    "AgentNamePlaceholder": "My Custom Agent",
+    "Back": "Back",
+    "CreatingPreview": "Creating preview agent...",
+    "EditPrompt": "Edit Prompt",
+    "EditPromptDescription": "Customize the system prompt and behavior of your agent",
+    "ImmediateUse": "Test & Use",
+    "ImmediateUseDescription": "Test your agent and start using it immediately",
+    "Next": "Next",
+    "NoTemplateSelected": "Please select a template first",
+    "Preview": "(Preview)",
+    "SaveAndUse": "Save & Use Agent",
+    "SearchTemplates": "Search for agent templates...",
+    "SelectTemplate": "Choose Template",
+    "SelectTemplateDescription": "Select an existing agent as a starting template",
+    "SelectedTemplate": "Selected Template",
+    "SetupAgent": "Setup Agent",
+    "SetupAgentDescription": "Configure your new agent by choosing a name and template",
+    "Title": "Create New Agent"
+  },
+  "EditAgent": {
+    "AgentDescription": "Agent Description",
+    "AgentDescriptionHelper": "Describe the functionality and purpose of your intelligent agent.",
+    "AgentDescriptionPlaceholder": "Enter agent description...",
+    "AgentName": "Agent Name",
+    "AgentNameHelper": "Enter a descriptive name for your agent",
+    "AgentNamePlaceholder": "My Custom Agent",
+    "AgentNotFound": "Agent not found",
+    "EditBasic": "Edit Basic Info",
+    "EditBasicDescription": "Edit the basic information of your agent",
+    "EditPrompt": "Edit Prompt",
+    "EditPromptDescription": "Customize the system prompt and behavior of your agent",
+    "ImmediateUse": "Test & Use",
+    "ImmediateUseDescription": "Test your agent and start using it immediately",
+    "Loading": "Loading...",
+    "LoadingPromptConfig": "Loading prompt configuration...",
+    "PreviewChat": "Preview Chat",
+    "Save": "Save",
+    "Saving": "Saving...",
+    "Title": "Edit Agent"
+  },
+  "ModelFeature": {
+    "Embedding": "Embedding",
+    "Free": "Free",
+    "ImageGeneration": "Image Generation",
+    "Language": "Language",
+    "Reasoning": "Reasoning",
+    "Speech": "Speech",
+    "ToolCalling": "Tool Calling",
+    "Transcriptions": "Transcriptions",
+    "Vision": "Vision"
+  },
+  "ModelSelector": {
+    "Model": "model",
+    "NoModelSelected": "No model selected",
+    "SelectModel": "Select Model",
+    "Title": "model selection"
+  },
+  "NewTab": {
+    "CreateDefaultAgent": "Create Default Agent",
+    "CreateInstance": "Create Instance",
+    "CreateNewAgent": "Create New Agent",
+    "EditDefinition": "Edit Definition",
+    "NewTab": "New Tab",
+    "QuickAccess": "quick access",
+    "SearchPlaceholder": "Search for tabs or agents..."
+  },
+  "Preference": {
+    "AIAgent": "AI Agent",
+    "AIModels": "Default Models",
+    "AIAgentDescription": "Manage AI Agent conversation records database",
+    "AIAgentDescriptionDetail": "Here you can view and delete the size and location information of the AI Agent conversation records database",
+    "AIAgentManage": "Manage AI Agent",
+    "AIAgentManageDescription": "View and manage AI agent instances, schedules, and permissions",
+    "MemeloopNodePort": "Node Service Port",
+    "MemeloopNodePortDescription": "Local port for the memeloop node server (peer sync, mobile sync). Restart required to take effect.",
+    "ToolApprovalSettings": "Tool Approval & Timeout Settings",
+    "ToolApprovalSettingsDescription": "Configure per-tool approval rules, timeout limits, regex patterns, and API retry settings",
+    "ToolPermissions": "Tool Permissions (Blacklist/Whitelist)",
+    "ToolPermissionsDescription": "Manage which tools can be executed by agents",
+    "EditScheduledTask": "Edit Scheduled Task",
+    "ScheduledTaskAgent": "Agent",
+    "ScheduledTaskName": "Task name (optional)",
+    "ScheduledTaskMode": "Schedule mode",
+    "ScheduledTaskModeInterval": "Interval (every N seconds)",
+    "ScheduledTaskModeCron": "Cron expression",
+    "ScheduledTaskInterval": "Interval (seconds)",
+    "ScheduledTaskCronExpression": "Cron expression",
+    "ScheduledTaskCronHelperText": "min hour day month weekday",
+    "ScheduledTaskTimezone": "Timezone",
+    "ScheduledTaskNextRuns": "Next runs: ",
+    "ScheduledTaskWakeMessage": "Wake-up message (optional)",
+    "ScheduledTaskActiveStart": "Active hours start (optional)",
+    "ScheduledTaskActiveEnd": "Active hours end (optional)",
+    "ScheduledTaskColName": "Name",
+    "ScheduledTaskColAgent": "Agent",
+    "ScheduledTaskColType": "Type",
+    "ScheduledTaskColSchedule": "Schedule",
+    "ScheduledTaskColNextRun": "Next Run",
+    "ScheduledTaskColRuns": "Runs",
+    "ScheduledTaskColEnabled": "Enabled",
+    "ScheduledTaskColActions": "Actions",
+    "ScheduledTaskDescInterval": "Every {{seconds}}s",
+    "ScheduledTaskDescCron": "Cron: {{expr}}",
+    "ScheduledTaskDescAt": "At: {{time}}",
+    "APIKey": "API Key",
+    "AddNewModel": "Add New Model",
+    "AddNewProvider": "Add New Provider",
+    "AddProvider": "Add Provider",
+    "AgentDatabaseDescription": "All AI Agent conversation records are stored in this database, involving only conversations with AI, without affecting Wiki content, occupying {{size}}",
+    "BaseURL": "API Base URL",
+    "BaseURLRequired": "API Base URL is required",
+    "Browse": "Browse",
+    "CancelAddProvider": "Cancel Adding",
+    "ConfigureModelParameters": "configuration parameters",
+    "ConfigureProvider": "Configure {{provider}}",
+    "ConfirmDeleteAgentDatabase": "Are you sure you want to delete the database containing all AI conversation records? This action cannot be undone.",
+    "ConfirmDeleteProvider": "Confirm deletion of provider",
+    "CustomProvider": "Custom Provider",
+    "DefaultAIModelSelection": "Default AI Model Selection",
+    "DefaultAIModelSelectionDescription": "Choose the default AI provider and model to use when not specifically set",
+    "DefaultEmbeddingModelSelection": "Default Embedding Model Selection",
+    "DefaultEmbeddingModelSelectionDescription": "Choose the default embedding model to use for semantic search and vector operations",
+    "DefaultFreeModelSelection": "Default Free Model Selection",
+    "DefaultFreeModelSelectionDescription": "Free small model for generating summary titles and backup titles",
+    "DefaultImageGenerationModelSelection": "Default Image Generation Model Selection",
+    "DefaultImageGenerationModelSelectionDescription": "Choose the default image generation model to use for creating images from text",
+    "DefaultSpeechModelSelection": "Default Speech Generation Model Selection",
+    "DefaultSpeechModelSelectionDescription": "Choose the default speech generation model to use for text-to-speech operations",
+    "DefaultTranscriptionsModelSelection": "Default Transcriptions Model Selection",
+    "DefaultTranscriptionsModelSelectionDescription": "Choose the default transcriptions model to use for speech-to-text operations",
+    "DeleteAgentDatabase": "Delete AI Conversation Database",
+    "DeleteProvider": "Delete provider",
+    "DisabledProviderInfo": "This provider is disabled, and its models will not appear in the model selection list",
+    "EnableProvider": "Enable this provider",
+    "ExternalAPI": "Service Providers",
+    "ExternalAPIDebug": "Enable API Debug Logging",
+    "ExternalAPIDebugDescription": "When enabled, all API requests and responses will be logged to the database for debugging purposes",
+    "ExternalApiDatabaseDescription": "Database containing external API debug information, occupying {{size}}",
+    "FailedToAddModel": "Failed to add model",
+    "FailedToAddProvider": "Failed to add provider",
+    "FailedToDeleteProvider": "Failed to delete provider {{providerName}}",
+    "FailedToRemoveModel": "Failed to remove model",
+    "FailedToSaveSettings": "Failed to save settings",
+    "FailedToUpdateModel": "Failed to update model",
+    "FailedToUpdateProviderStatus": "Failed to update provider status",
+    "Logout": "Logout",
+    "MaxTokens": "Maximum generation length",
+    "MaxTokensDescription": "The maximum number of characters (measured in tokens) that the model can generate in a single request.",
+    "ModelAddedSuccessfully": "Model added successfully",
+    "ModelAlreadyExists": "Model already exists",
+    "ModelCaption": "Model Display Name",
+    "ModelCaptionHelp": "A friendly name to display in the interface; if left blank, the model name will be used",
+    "ModelDetails": "Model Details",
+    "ModelFeatures": "Model Features",
+    "ModelName": "Model Name",
+    "ModelNameRequired": "Model name is required",
+    "ModelParameters": "model parameters",
+    "ModelParametersDescription": "Configure the behavior parameters of generative AI models, such as temperature and token limits.",
+    "ModelRemovedSuccessfully": "Model removed successfully",
+    "ModelUpdatedSuccessfully": "Model updated successfully",
+    "Models": "Available Models",
+    "NoPresetSelected": "No preset model selected",
+    "NoProvidersAvailable": "No providers available",
+    "OpenDatabaseFolder": "Open Database Folder",
+    "BackgroundTasks": "Background Tasks",
+    "BackgroundTasksDescription": "Active scheduled agent tasks (heartbeats and alarms). These wake agents automatically on a timer.",
+    "NoBackgroundTasks": "No active background tasks.",
+    "CancelTask": "Cancel this background task",
+    "SaveToDefinition": "Save to Definition",
+    "SaveToDefinitionDescription": "Apply current prompt configuration to the agent definition so new instances also use it",
+    "PresetModels": "Preset Models",
+    "PresetProvider": "Preset Provider",
+    "ProviderAddedSuccessfully": "Provider added successfully",
+    "ProviderAlreadyExists": "Provider name already exists",
+    "ProviderClass": "Provider Interface Type",
+    "ProviderConfiguration": "Provider Configuration",
+    "ProviderConfigurationDescription": "Configure the API key and other settings for AI providers",
+    "ProviderDeleted": "Provider {{providerName}} has been deleted",
+    "ProviderDisabled": "Provider disabled",
+    "ProviderEnabled": "Provider enabled",
+    "ProviderName": "Provider Name",
+    "ProviderNameRequired": "Provider name is required",
+    "SearchEmbeddingNoEmbeddingModelError": "Please configure the default embedding model settings in the external API section first.",
+    "SelectDefaultProvider": "Select default provider",
+    "SelectFromPresets": "Select from Preset Models",
+    "SelectModel": "Select Model",
+    "SettingsSaved": "Settings saved",
+    "SystemPrompt": "System Prompt",
+    "SystemPromptDescription": "Set the system instructions sent to the AI to define its behavior and capabilities",
+    "SystemPromptPlaceholder": "System prompt placeholder",
+    "Temperature": "Temperature",
+    "TemperatureDescription": "Lower values produce more deterministic and focused responses, while higher values yield more diverse and creative responses.",
+    "TopP": "Top P",
+    "TopPDescription": "Control the randomness of responses. Lower values make responses more deterministic, while higher values allow for greater variability.",
+    "WorkflowFile": "Workflow File",
+    "WorkflowFileHelp": "Path to the ComfyUI workflow JSON file",
+    "WorkflowFilePath": "Workflow File Path",
+    "Actions": "Actions",
+    "AddCustomProvider": "Add Custom Provider",
+    "APIKeyHelp": "API authentication key (leave empty for local providers like Ollama)",
+    "BaseURLHelp": "API endpoint URL (required for OpenAI-compatible and Ollama providers)",
+    "Cancel": "Cancel",
+    "Delete": "Delete",
+    "Disabled": "Disabled",
+    "Edit": "Edit",
+    "EditProvider": "Edit Provider",
+    "Enabled": "Enabled",
+    "ProviderNameCannotBeChanged": "Provider name cannot be changed after creation",
+    "ProviderNameHelp": "Unique identifier for this provider (e.g., my-custom-provider)",
+    "GetAPIKey": "Get API Key",
+    "LoginWithBrowser": "Login in Browser",
+    "ScheduledTasks": "Scheduled Tasks",
+    "ScheduledTasksDescription": "Periodically wake agents on a schedule (interval or cron). Tasks survive app restarts.",
+    "AddScheduledTask": "Add Task",
+    "NoScheduledTasks": "No scheduled tasks. Add one to periodically wake an agent.",
+    "NodeManagement": "Node Management",
+    "NodeManagementDescription": "Manage local memeloop node identity, known nodes, and peer connections",
+    "NodeIdentity": "Node Identity",
+    "NodeIdentityDescription": "View this node's ID, keypair status and local PIN code",
+    "KnownNodes": "Trusted Nodes",
+    "KnownNodesDescription": "List of remote nodes with established trust",
+    "ConnectPeer": "Connect Node",
+    "ConnectPeerDescription": "Connect to a remote memeloop node by WebSocket URL",
+    "SyncStatus": "Sync Status",
+    "SyncStatusDescription": "Current connected peer count and sync running state",
+    "RemoteWikis": "Remote Wikis",
+    "RemoteWikisDescription": "Wikis available on connected nodes"
+  },
+  "Prompt": {
+    "AutoRefresh": "Preview auto-refreshes with input text changes",
+    "CodeEditor": "Code Editor",
+    "Edit": "Edit",
+    "Enabled": "enable",
+    "EnterEditSideBySide": "Show editor side-by-side",
+    "EnterFullScreen": "Enter full screen",
+    "EnterPreviewSideBySide": "Show preview side-by-side",
+    "ExitFullScreen": "Exit full screen",
+    "ExitSideBySide": "Exit side-by-side",
+    "Flat": "Flat View",
+    "FormEditor": "Form Editor",
+    "LastUpdated": "Last updated",
+    "Loading": "Loading preview...",
+    "NoMessages": "No message available for preview",
+    "Preview": "Prompt Preview",
+    "SchemaNotProvided": "Schema Not Provided",
+    "SchemaNotProvidedDescription": "No JSON schema was provided or could be fetched. Form cannot be rendered.",
+    "Tree": "Tree View",
+    "ValidationErrors": "Validation Errors"
+  },
+  "PromptConfig": {
+    "AddItem": "Add project",
+    "Collapse": "fold",
+    "EmptyArray": "No items have been added yet. Click the button below to add your first item.",
+    "Expand": "Expand",
+    "ItemCount": "{{count}} items",
+    "ItemIndex": "Item {{index}}",
+    "Tabs": {
+      "Plugins": "plugin",
+      "Prompts": "prompt",
+      "Response": "response"
+    },
+    "Tags": {
+      "HelperText": "Press Enter to add a tag after input, or select from predefined tags.",
+      "NoOptions": "No optional tags",
+      "Placeholder": "Input tags..."
+    }
+  },
+  "Schema": {
+    "AIConfig": {
+      "Default": "Default conversation model used",
+      "DefaultTitle": "default model",
+      "Description": "AI Conversation Settings Configuration",
+      "Embedding": "Embedding models for vector search",
+      "EmbeddingTitle": "embedding model",
+      "Free": "Low-cost models used for cost-sensitive tasks",
+      "FreeTitle": "free/low-cost models",
+      "ImageGeneration": "Models for image generation",
+      "ImageGenerationTitle": "Image generation model",
+      "Speech": "Model for text-to-speech (TTS)",
+      "SpeechTitle": "Speech synthesis model",
+      "Title": "AI Configuration",
+      "Transcriptions": "Model for Speech-to-Text (STT)",
+      "TranscriptionsTitle": "Speech-to-text model"
+    },
+    "AgentConfig": {
+      "Description": "Agent Configuration",
+      "Id": "Agent Unique Identifier",
+      "IdTitle": "Agent ID",
+      "PromptConfig": {
+        "Description": "Prompt configuration",
+        "Plugins": "Plugin Configuration List",
+        "Prompts": "Prompt Configuration List",
+        "Response": "Response Configuration List",
+        "Title": "Prompt Configuration"
+      },
+      "Title": "Agent Configuration"
+    },
+    "BaseAPIConfig": {
+      "ModelParameters": "Model parameter configuration",
+      "ModelParametersTitle": "model parameters"
+    },
+    "Common": {
+      "ToolListPosition": {
+        "Description": "Configuration for tool list insertion position in prompts",
+        "Position": "Insertion position relative to target",
+        "PositionTitle": "Position",
+        "TargetId": "ID of target element",
+        "TargetIdTitle": "Target ID"
+      },
+      "ToolListPositionTitle": "Tool List Position"
+    },
+    "DefaultAgents": {
+      "Description": "Default Agent Configuration List",
+      "Title": "default intelligent agent"
+    },
+    "FullReplacement": {
+      "Description": "Complete replacement of parameter configuration",
+      "SourceType": "source type",
+      "SourceTypeTitle": "source type",
+      "TargetId": "Target Element ID",
+      "TargetIdTitle": "Target ID",
+      "Title": "Fully replace parameters"
+    },
+    "Git": {
+      "Description": "Search Git commit logs and read specific file contents",
+      "Title": "Git Tools",
+      "Tool": {
+        "Parameters": {
+          "commitHash": {
+            "Description": "Submit hash value",
+            "Title": "Submit hash"
+          },
+          "filePath": {
+            "Description": "File path (for file search mode)",
+            "Title": "File Path"
+          },
+          "maxLines": {
+            "Description": "Maximum number of lines (default: 500)",
+            "Title": "Maximum number of lines"
+          },
+          "page": {
+            "Description": "Result page number (starting from 1)",
+            "Title": "Page"
+          },
+          "pageSize": {
+            "Description": "Number of results per page",
+            "Title": "Page Size"
+          },
+          "searchMode": {
+            "Description": "Search mode: message, file, dateRange, or none",
+            "Title": "Search Mode"
+          },
+          "searchQuery": {
+            "Description": "Search query string (for message search mode)",
+            "Title": "Search Query"
+          },
+          "since": {
+            "Description": "Start date (ISO 8601 format)",
+            "Title": "Since"
+          },
+          "until": {
+            "Description": "End date (ISO 8601 format)",
+            "Title": "Until"
+          },
+          "workspaceName": {
+            "Description": "Workspace name or ID to search",
+            "Title": "Workspace Name"
+          }
+        },
+        "ReadFile": {
+          "Parameters": {
+            "commitHash": {},
+            "filePath": {},
+            "maxLines": {},
+            "workspaceName": {}
+          }
+        }
+      }
+    },
+    "MCP": {
+      "Description": "Model Context Protocol Parameter Configuration",
+      "Id": "MCP Server ID",
+      "IdTitle": "Server ID",
+      "TimeoutMessage": "timeout message",
+      "TimeoutMessageTitle": "timeout message",
+      "TimeoutSecond": "Timeout (seconds)",
+      "TimeoutSecondTitle": "timeout period",
+      "Title": "Model Context Protocol Parameters"
+    },
+    "ModelParameters": {
+      "Description": "Model parameter configuration",
+      "MaxTokens": "Maximum number of tokens generated",
+      "MaxTokensTitle": "Maximum token count",
+      "SystemPrompt": "Model system prompt words",
+      "SystemPromptTitle": "System prompt",
+      "Temperature": "Response generation temperature (higher = more creative)",
+      "TemperatureTitle": "temperature",
+      "Title": "model parameters",
+      "TopP": "Top P sampling parameter",
+      "TopPTitle": "Top P"
+    },
+    "ModelSelection": {
+      "Description": "Select model provider and specific model name",
+      "Model": "Model name (e.g., gpt-4o, Qwen2.5-7B-Instruct)",
+      "ModelTitle": "model",
+      "Provider": "Model providers (such as OpenAI, SiliconFlow, Google, etc.)",
+      "ProviderTitle": "provider",
+      "Title": "model selection"
+    },
+    "Plugin": {},
+    "Position": {
+      "Description": "Position Parameter Configuration",
+      "TargetId": "target element ID",
+      "TargetIdTitle": "Target ID",
+      "Title": "positional arguments",
+      "Type": "Location Type",
+      "TypeTitle": "Location Type"
+    },
+    "Prompt": {
+      "Caption": "brief description",
+      "CaptionTitle": "description",
+      "Children": "The sub-prompt list will be concatenated from top to bottom, and from outer to inner, to form the final prompt text.",
+      "ChildrenTitle": "sub-prompt",
+      "Description": "Complete prompt configuration, including type and content",
+      "Enabled": "Whether to enable this prompt, only enabled ones will be incorporated into the final prompt.",
+      "EnabledTitle": "enable",
+      "Id": "The unique identifier for the prompt configuration, facilitating reference via targetId in PromptDynamicModification.",
+      "IdTitle": "ID",
+      "Role": "Prompt role for OpenAI-compatible interface",
+      "RoleTitle": "role",
+      "RoleType": {
+        "Assistant": "Assistant - AI's replies and responses",
+        "System": "System - Defines the behavioral rules and background settings for AI",
+        "User": "User - Simulate user input and requests"
+      },
+      "Source": "The source or citation of this prompt (e.g., file path, URL, etc.)",
+      "SourceTitle": "source",
+      "Tags": "Tag List",
+      "TagsTitle": "label",
+      "Text": "The prompt content can include syntax supported by wiki text, such as <<variable name>>.",
+      "TextTitle": "text",
+      "Title": "prompt"
+    },
+    "ProviderModel": {},
+    "Response": {
+      "Caption": "Response header, used to identify the response entry",
+      "CaptionTitle": "Title",
+      "Description": "The response from an external API, typically used as the target for dynamic modifications in responses, shares the same structure as the prompt. It can be filled with preset content or serve as a placeholder or container, where ResponseDynamicModification injects the specific content from the external API's response.",
+      "Id": "Unique identifier for response configuration, facilitating reference.",
+      "IdTitle": "ID",
+      "Title": "response"
+    },
+    "TiddlyWikiPlugin": {
+      "ActionsTag": {
+        "Description": "Tag marking Action Tiddlers, which AI can find to discover executable actions",
+        "Title": "Actions Tag"
+      },
+      "DataSourceTag": {
+        "Description": "Tag marking DataSource tiddlers, which AI can use to understand data fetching and filtering methods",
+        "Title": "DataSource Tag"
+      },
+      "DescribeTag": {
+        "Description": "Tag marking brief descriptions, which auto-load into prompts to help AI understand available functionality",
+        "Title": "Describe Tag"
+      },
+      "Description": "Load DataSource and Actions details for specific plugins. Describe-tagged entries auto-load as background information",
+      "EnableCache": {
+        "Description": "Enable caching to avoid re-querying wiki each time prompts are generated. Disable cache to refresh and reload descriptions",
+        "Title": "Enable Cache"
+      },
+      "Title": "TiddlyWiki Plugin",
+      "Tool": {
+        "Parameters": {
+          "pluginTitle": {
+            "Description": "Plugin title to load details for. System searches for DataSource and Actions entries containing this title",
+            "Title": "Plugin Title"
+          }
+        }
+      },
+      "WorkspaceNameOrID": {
+        "Description": "Workspace name or ID to load plugin info from (default 'wiki')",
+        "Title": "Workspace Name or ID"
+      }
+    },
+    "Tool": {
+      "Caption": "Brief description (for UI display.",
+      "CaptionTitle": "Title",
+      "Content": "Plugin content or description",
+      "ContentTitle": "content",
+      "Enabled": "Determine whether this text is incorporated into the final prompt.",
+      "EnabledTitle": "enable",
+      "ForbidOverrides": "Is it prohibited to override the parameters of this plugin at runtime?",
+      "ForbidOverridesTitle": "Do not overwrite",
+      "Id": "Plugin instance ID (unique within the same handler)",
+      "IdTitle": "Plugin instance ID",
+      "ToolId": "Select the type of tool to use",
+      "ToolIdTitle": "Tool Type"
+    },
+    "WikiOperation": {
+      "Description": "Execute Tiddler operations (add, delete, or set text) in wiki workspaces",
+      "Title": "Wiki Operation",
+      "Tool": {
+        "Parameters": {
+          "extraMeta": {
+            "Description": "JSON string of extra metadata such as tags and fields, defaults to \"{}\"",
+            "Title": "Extra Metadata"
+          },
+          "operation": {
+            "Description": "Type of operation to execute",
+            "Title": "Operation Type"
+          },
+          "options": {
+            "Description": "JSON string of operation options, defaults to \"{}\"",
+            "Title": "Operation Options"
+          },
+          "text": {
+            "Description": "Text content of the Tiddler",
+            "Title": "Tiddler Content"
+          },
+          "title": {
+            "Description": "Title of the Tiddler",
+            "Title": "Tiddler Title"
+          },
+          "variables": {
+            "Description": "Variables passed to the action tiddler, in JSON format string, default is \"{}\"",
+            "Title": "variable"
+          },
+          "workspaceName": {
+            "Description": "Name or ID of the workspace to operate on",
+            "Title": "Workspace Name"
+          }
+        }
+      },
+      "ToolResultDuration": "Number of rounds tool execution results remain visible in conversation, after which they become grayed out",
+      "ToolResultDurationTitle": "Tool Result Duration"
+    },
+    "WikiSearch": {
+      "Description": "Search for content in TiddlyWiki workspaces using filter expressions",
+      "SourceType": "Data source type",
+      "SourceTypeTitle": "source type",
+      "Title": "Wiki Search",
+      "Tool": {
+        "Description": "Search Tiddler content in Wiki workspace (supports traditional filter search and vector semantic search)",
+        "Parameters": {
+          "filter": {
+            "Description": "TiddlyWiki Filter Expressions",
+            "Title": "filter"
+          },
+          "limit": {
+            "Description": "Maximum number of results to return",
+            "Title": "limit"
+          },
+          "query": {
+            "Description": "Query text (natural language) used for vector search",
+            "Title": "query"
+          },
+          "searchType": {
+            "Description": "Choose a search mode based on rules or similarity.",
+            "Title": "search type"
+          },
+          "threshold": {
+            "Description": "Similarity threshold (0-1), vector results below this threshold will be filtered.",
+            "Title": "threshold"
+          },
+          "workspaceName": {
+            "Description": "Workspace name or ID to search for",
+            "Title": "Workspace Name"
+          }
+        },
+        "UpdateEmbeddings": {
+          "Description": "Generate or update vector embedding indexes for Wiki workspaces to enable semantic search.",
+          "forceUpdate": {
+            "Description": "Whether to forcibly regenerate the embedding index, overwriting existing embedded data (if set to true, incremental updates will be ignored).",
+            "Title": "Forced Update"
+          },
+          "workspaceName": {
+            "Description": "The name or ID of the workspace for which to generate or update vector embedding indexes.",
+            "Title": "Workspace Name"
+          }
+        }
+      },
+      "ToolResultDuration": "The number of turns during which the tool execution result remains visible in the conversation; after exceeding this number, the result will be displayed grayed out.",
+      "ToolResultDurationTitle": "Tool Result Duration Rounds"
+    },
+    "WorkspacesList": {
+      "Description": "Inject the list of available Wiki workspaces into the prompt",
+      "Position": "Insertion position: 'before' means prepend, 'after' means append.",
+      "PositionTitle": "insertion position",
+      "TargetId": "The ID of the target prompt word, the list will be inserted relative to this prompt word.",
+      "TargetIdTitle": "Target ID",
+      "Title": "Workspace List"
+    }
+  },
+  "Search": {
+    "AvailableAgents": "Available Agents",
+    "FailedToCreateChatWithAgent": "Unable to create a conversation with the agent.",
+    "FailedToFetchAgents": "Failed to retrieve the agent list",
+    "NoAgentsFound": "Agent not found",
+    "NoClosedTabsFound": "No recently closed tabs",
+    "NoTabsFound": "No tabs found",
+    "OpenTabs": "Open tabs",
+    "RecentlyClosedTabs": "Recently closed tabs"
+  },
+  "SplitView": {
+    "NoTabs": "No tabs in split-screen view"
+  },
+  "Tab": {
+    "TabList": "Tabs",
+    "Title": {
+      "CreateNewAgent": "Create New Agent",
+      "EditAgentDefinition": "Edit Agent",
+      "NewTab": "New Tab",
+      "NewWeb": "Create a new webpage",
+      "SplitView": "Split view",
+      "WikiEmbed": "Wiki"
+    }
+  },
+  "Tool": {
+    "Git": {
+      "Error": {
+        "WorkspaceNotFound": "Workspace with name or ID \"{{workspaceName}}\" does not exist"
+      }
+    },
+    "Schema": {
+      "Description": "Description",
+      "Examples": "Usage Examples",
+      "Optional": "Optional",
+      "Parameters": "Parameters",
+      "Required": "Required"
+    },
+    "TiddlyWikiPlugin": {
+      "Error": {
+        "PluginTitleRequired": "Plugin title is required",
+        "WorkspaceNotFound": "The workspace name or ID \"{{workspaceNameOrID}}\" does not exist"
+      }
+    },
+    "WikiOperation": {
+      "Error": {
+        "WorkspaceNotExist": "Workspace {{workspaceID}} does not exist",
+        "WorkspaceNotFound": "Workspace with name or ID \"{{workspaceName}}\" does not exist. Available workspaces: {{availableWorkspaces}}"
+      },
+      "Success": {
+        "ActionInvoked": "Action item \"{{actionTitle}}\" was successfully executed in the wiki workspace \"{{workspaceName}}\".",
+        "Added": "Successfully added tiddler \"{{title}}\" in wiki workspace \"{{workspaceName}}\"",
+        "Deleted": "Successfully deleted tiddler \"{{title}}\" from wiki workspace \"{{workspaceName}}\"",
+        "Updated": "Successfully set text for tiddler \"{{title}}\" in wiki workspace \"{{workspaceName}}\""
+      }
+    },
+    "WikiSearch": {
+      "Error": {
+        "ExecutionFailed": "Tool execution failed: {{error}}",
+        "FilterSearchRequiresFilter": "Filter parameters (filter) must be provided for search filtering.",
+        "VectorSearchFailed": "Vector search failed: {{error}}",
+        "VectorSearchRequiresConfig": "Vector search requires AI configuration (please configure the provider and embedding model in settings).",
+        "VectorSearchRequiresQuery": "Vector search requires providing query parameters (query).",
+        "WorkspaceNotExist": "Workspace {{workspaceID}} does not exist",
+        "WorkspaceNotFound": "Workspace with name or ID \"{{workspaceName}}\" does not exist. Available workspaces: {{availableWorkspaces}}"
+      },
+      "Success": {
+        "Completed": "Wiki search completed successfully. Found {{totalResults}} total results, showing {{shownResults}}:\n\n",
+        "NoResults": "No results found for filter \"{{filter}}\" in wiki workspace \"{{workspaceName}}\"",
+        "NoVectorResults": "No eligible vector search results were found in the Wiki workspace \"{{workspaceName}}\" (similarity threshold: {{threshold}}).",
+        "VectorCompleted": "Based on vector search, the following related content was found in the workspace {{workspaceName}}:"
+      },
+      "UpdateEmbeddings": {
+        "Error": {
+          "ExecutionFailed": "Failed to generate embedding: {{error}}",
+          "NoAIConfig": "Please configure the AI provider and embedding model first (in Settings).",
+          "WorkspaceNotExist": "Workspace {{workspaceID}} does not exist.",
+          "WorkspaceNotFound": "The workspace name or ID \"{{workspaceName}}\" does not exist. Available workspaces: {{availableWorkspaces}}"
+        },
+        "Success": {
+          "Generated": "The vector embedding index has been successfully generated for the workspace {{workspaceName}}. Total of {{totalNotes}} notes and {{totalEmbeddings}} embeddings."
+        }
+      }
+    }
+  },
+  "WikiEmbed": {
+    "Error": "Failed to embed wiki",
+    "Loading": "Loading wiki..."
+  }
+}

@@ -1,0 +1,592 @@
+import { DataTable, Then, When } from '@cucumber/cucumber';
+import { backOff } from 'exponential-backoff';
+import { parseDataTableRows } from '../supports/dataTable';
+import { HEAVY_OPERATION_TIMEOUT } from '../supports/timeouts';
+import {
+  clickElement,
+  clickElementWithText,
+  elementExists,
+  executeTiddlyWikiCode,
+  getDOMContent,
+  getTextContent,
+  isLoaded,
+  pressKey,
+  typeText,
+} from '../supports/webContentsViewHelper';
+import type { ApplicationWorld } from './application';
+
+// Backoff configuration for retries
+const BACKOFF_OPTIONS = {
+  numOfAttempts: 8,
+  startingDelay: 200,
+  timeMultiple: 1,
+  maxDelay: 200,
+};
+
+const BROWSER_VIEW_RETRY_DELAY_MS = 100;
+
+type BrowserViewBackgroundMode = 'dark' | 'light';
+
+function parseRgbColor(backgroundColor: string): { red: number; green: number; blue: number } | undefined {
+  const match = backgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (!match) {
+    return undefined;
+  }
+  return {
+    red: Number(match[1]),
+    green: Number(match[2]),
+    blue: Number(match[3]),
+  };
+}
+
+async function assertBrowserViewBodyBackground(
+  world: ApplicationWorld,
+  expectedMode: BrowserViewBackgroundMode,
+): Promise<void> {
+  if (!world.app) {
+    throw new Error('Application not launched');
+  }
+
+  const colorInfo = await executeTiddlyWikiCode<{ backgroundColor: string; paletteTitle: string }>(
+    world.app,
+    `(function() {
+      const backgroundColor = window.getComputedStyle(document.body).backgroundColor || '';
+      let paletteTitle = '';
+      try {
+        if (typeof $tw !== 'undefined' && $tw.wiki) {
+          paletteTitle = $tw.wiki.getTiddlerText('$:/palette', '') || '';
+        }
+      } catch {
+        paletteTitle = '';
+      }
+      return { backgroundColor, paletteTitle };
+    })()`,
+    world.currentWindow,
+    200,
+  );
+
+  if (!colorInfo) {
+    throw new Error('Failed to read browser view background color');
+  }
+
+  const rgb = parseRgbColor(colorInfo.backgroundColor);
+  if (!rgb) {
+    throw new Error(`Unexpected background color format: ${colorInfo.backgroundColor}; palette=${colorInfo.paletteTitle}`);
+  }
+
+  const { red, green, blue } = rgb;
+  const isDark = red < 128 && green < 128 && blue < 128;
+  const isLight = red > 200 && green > 200 && blue > 200;
+
+  if (expectedMode === 'dark' && !isDark) {
+    throw new Error(`Expected dark background in browser view, got ${colorInfo.backgroundColor}; palette=${colorInfo.paletteTitle}`);
+  }
+
+  if (expectedMode === 'light' && !isLight) {
+    throw new Error(`Expected light background in browser view, got ${colorInfo.backgroundColor}; palette=${colorInfo.paletteTitle}`);
+  }
+}
+
+async function clickBrowserViewElementWithRetry(
+  world: ApplicationWorld,
+  selector: string,
+  elementComment: string,
+): Promise<void> {
+  if (!world.app) {
+    throw new Error('Application not launched');
+  }
+
+  await backOff(
+    async () => {
+      const exists = await elementExists(world.app!, selector, world.currentWindow);
+      if (!exists) {
+        throw new Error(`Element "${elementComment}" with selector "${selector}" not found yet`);
+      }
+
+      const hasTextMatch = selector.match(/^(.+):has-text\(['"](.+)['"]\)$/);
+
+      if (hasTextMatch) {
+        const baseSelector = hasTextMatch[1];
+        const textContent = hasTextMatch[2];
+        await clickElementWithText(world.app!, baseSelector, textContent, world.currentWindow);
+      } else {
+        await clickElement(world.app!, selector, world.currentWindow);
+      }
+    },
+    { ...BACKOFF_OPTIONS, numOfAttempts: 20, startingDelay: 200, maxDelay: 200 },
+  ).catch((error: unknown) => {
+    throw new Error(`Failed to click ${elementComment} element with selector "${selector}" in browser view: ${String(error)}`);
+  });
+}
+
+Then('I should see {string} in the browser view content', async function(this: ApplicationWorld, expectedText: string) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  if (!this.currentWindow) {
+    throw new Error('No current window available');
+  }
+
+  await backOff(
+    async () => {
+      const content = await getTextContent(this.app!, this.currentWindow);
+      if (!content || !content.includes(expectedText)) {
+        throw new Error(`Expected text "${expectedText}" not found`);
+      }
+    },
+    BACKOFF_OPTIONS,
+  ).catch(async () => {
+    const finalContent = await getTextContent(this.app!, this.currentWindow);
+    throw new Error(
+      `Expected text "${expectedText}" not found in browser view content. Actual content: ${finalContent ? finalContent.substring(0, 200) + '...' : 'null'}`,
+    );
+  });
+});
+
+Then('I should see {string} in the browser view DOM', async function(this: ApplicationWorld, expectedText: string) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  if (!this.currentWindow) {
+    throw new Error('No current window available');
+  }
+
+  await backOff(
+    async () => {
+      const domContent = await getDOMContent(this.app!, this.currentWindow);
+      if (!domContent || !domContent.includes(expectedText)) {
+        throw new Error(`Expected text "${expectedText}" not found in DOM`);
+      }
+    },
+    BACKOFF_OPTIONS,
+  ).catch(async () => {
+    const finalDomContent = await getDOMContent(this.app!, this.currentWindow);
+    throw new Error(
+      `Expected text "${expectedText}" not found in browser view DOM. Actual DOM: ${finalDomContent ? finalDomContent.substring(0, 200) + '...' : 'null'}`,
+    );
+  });
+});
+
+Then('the browser view should be loaded and visible', async function(this: ApplicationWorld) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  if (!this.currentWindow) {
+    throw new Error('No current window available');
+  }
+
+  // Use a longer retry window because WebContentsView creation is async and can take
+  // several seconds after workspace activation. Each attempt is fast (< 10ms) when the
+  // view doesn't exist yet, so we need many more attempts to cover the full wait budget.
+  const longRetryAttempts = Math.floor((HEAVY_OPERATION_TIMEOUT - 4000) / BROWSER_VIEW_RETRY_DELAY_MS);
+
+  await backOff(
+    async () => {
+      const content = await getTextContent(this.app!, this.currentWindow);
+      if (!content || content.trim().length === 0) {
+        throw new Error('Browser view content not available yet');
+      }
+    },
+    {
+      ...BACKOFF_OPTIONS,
+      numOfAttempts: longRetryAttempts,
+      startingDelay: BROWSER_VIEW_RETRY_DELAY_MS,
+      maxDelay: BROWSER_VIEW_RETRY_DELAY_MS,
+    },
+  ).catch(async () => {
+    // Gather diagnostics for failure analysis
+    let diagnostics = '';
+    try {
+      const loaded = await isLoaded(this.app!, this.currentWindow);
+      const content = await getTextContent(this.app!, this.currentWindow);
+      diagnostics = `isLoaded=${loaded}, textContent=${content ? `"${content.substring(0, 100)}..."` : 'null'}`;
+    } catch (diagError) {
+      diagnostics = `diagnostics failed: ${String(diagError)}`;
+    }
+    throw new Error(
+      `Browser view is not loaded or visible after ${longRetryAttempts} attempts ` +
+        `(budget: ${Math.round(HEAVY_OPERATION_TIMEOUT / 1000)}s). ${diagnostics}`,
+    );
+  });
+});
+
+When('I click on {string} element in browser view with selector {string}', async function(this: ApplicationWorld, elementComment: string, selector: string) {
+  await clickBrowserViewElementWithRetry(this, selector, elementComment);
+});
+
+When('I click on {string} elements in browser view with selectors:', async function(this: ApplicationWorld, _elementDescriptions: string, dataTable: DataTable) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  const rows = dataTable.raw();
+  const dataRows = parseDataTableRows(rows, 2);
+  const errors: string[] = [];
+
+  if (dataRows[0]?.length !== 2) {
+    throw new Error('Table must have exactly 2 columns: | element description | selector |');
+  }
+
+  for (const [elementComment, selector] of dataRows) {
+    try {
+      await clickBrowserViewElementWithRetry(this, selector, elementComment);
+    } catch (error) {
+      errors.push(`Failed to click ${elementComment} element with selector "${selector}" in browser view: ${error as Error}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Failed to click elements in browser view:\n${errors.join('\n')}`);
+  }
+});
+
+Then('I wait for {string} element in browser view with selector {string}', async function(
+  this: ApplicationWorld,
+  elementComment: string,
+  selector: string,
+) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  await backOff(
+    async () => {
+      const exists = await elementExists(this.app!, selector, this.currentWindow);
+      if (!exists) {
+        throw new Error(`Element "${elementComment}" with selector "${selector}" not found yet`);
+      }
+    },
+    { ...BACKOFF_OPTIONS, numOfAttempts: 20, startingDelay: 200 },
+  ).catch(() => {
+    throw new Error(`Element "${elementComment}" with selector "${selector}" did not appear in browser view after multiple attempts`);
+  });
+});
+
+When('I type {string} in {string} element in browser view with selector {string}', async function(this: ApplicationWorld, text: string, elementComment: string, selector: string) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  try {
+    await typeText(this.app, selector, text, this.currentWindow);
+  } catch (error) {
+    throw new Error(`Failed to type in ${elementComment} element with selector "${selector}" in browser view: ${error as Error}`);
+  }
+});
+
+When('I press {string} in browser view', async function(this: ApplicationWorld, key: string) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  try {
+    await pressKey(this.app, key, this.currentWindow);
+  } catch (error) {
+    throw new Error(`Failed to press key "${key}" in browser view: ${error as Error}`);
+  }
+});
+
+Then('I should not see {string} in the browser view content', async function(this: ApplicationWorld, unexpectedText: string) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  if (!this.currentWindow) {
+    throw new Error('No current window available');
+  }
+
+  // Wait a bit for UI to update
+  await new Promise(resolve => setTimeout(resolve, 500));
+
+  // Check that text does not exist in content
+  const content = await getTextContent(this.app, this.currentWindow);
+  if (content && content.includes(unexpectedText)) {
+    throw new Error(`Unexpected text "${unexpectedText}" found in browser view content`);
+  }
+});
+
+Then('I should not see a(n) {string} element in browser view with selector {string}', async function(this: ApplicationWorld, elementComment: string, selector: string) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  if (!this.currentWindow) {
+    throw new Error('No current window available');
+  }
+
+  await backOff(
+    async () => {
+      const exists: boolean = await elementExists(this.app!, selector, this.currentWindow);
+      if (exists) {
+        throw new Error('Element still exists');
+      }
+    },
+    BACKOFF_OPTIONS,
+  ).catch(() => {
+    throw new Error(`Element "${elementComment}" with selector "${selector}" was found in browser view after multiple attempts, but should not be visible`);
+  });
+});
+
+Then('I should see a(n) {string} element in browser view with selector {string}', async function(this: ApplicationWorld, elementComment: string, selector: string) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  if (!this.currentWindow) {
+    throw new Error('No current window available');
+  }
+
+  await backOff(
+    async () => {
+      const exists: boolean = await elementExists(this.app!, selector, this.currentWindow);
+      if (!exists) {
+        throw new Error('Element does not exist yet');
+      }
+    },
+    BACKOFF_OPTIONS,
+  ).catch(() => {
+    throw new Error(`Element "${elementComment}" with selector "${selector}" not found in browser view after multiple attempts`);
+  });
+});
+
+Then('I should see {string} elements in browser view with selectors:', async function(this: ApplicationWorld, _elementDescriptions: string, dataTable: DataTable) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  if (!this.currentWindow) {
+    throw new Error('No current window available');
+  }
+
+  const rows = dataTable.raw();
+  const dataRows = parseDataTableRows(rows, 2);
+  const errors: string[] = [];
+
+  if (dataRows[0]?.length !== 2) {
+    throw new Error('Table must have exactly 2 columns: | element description | selector |');
+  }
+
+  await Promise.all(dataRows.map(async ([elementComment, selector]) => {
+    try {
+      await backOff(
+        async () => {
+          const exists: boolean = await elementExists(this.app!, selector, this.currentWindow);
+          if (!exists) {
+            throw new Error('Element does not exist yet');
+          }
+        },
+        BACKOFF_OPTIONS,
+      );
+    } catch (error) {
+      errors.push(`Element "${elementComment}" with selector "${selector}" not found in browser view: ${error as Error}`);
+    }
+  }));
+
+  if (errors.length > 0) {
+    throw new Error(`Failed to find elements in browser view:\n${errors.join('\n')}`);
+  }
+});
+
+When('I open tiddler {string} in browser view', async function(this: ApplicationWorld, tiddlerTitle: string) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  /**
+   * Use flat 200 ms retries instead of exponential back-off.
+   * During a wiki restart, executeTiddlyWikiCode hangs for ~200 ms per attempt
+   * (webContents navigating), then needs a delay before the next try.
+   * Flat 200 ms gives ~12 attempts in the 5 s Cucumber step budget, which is
+   * enough to bridge the gap when the wiki becomes ready late into the step.
+   */
+  await backOff(
+    async () => {
+      await executeTiddlyWikiCode(
+        this.app!,
+        `(function() {
+          const title = "${tiddlerTitle.replace(/"/g, '\\"')}";
+          try { if ($tw?.wiki?.removeFromStory) $tw.wiki.removeFromStory(title); } catch {}
+          $tw.wiki.addToStory(title);
+          return true;
+        })()`,
+        this.currentWindow,
+      );
+    },
+    { ...BACKOFF_OPTIONS, numOfAttempts: 8, startingDelay: 200, timeMultiple: 1, maxDelay: 200 },
+  ).catch((error: unknown) => {
+    throw new Error(`Failed to open tiddler "${tiddlerTitle}" in browser view: ${error as Error}`);
+  });
+});
+
+/**
+ * Create a new tiddler with title and optional tags via TiddlyWiki UI.
+ * This step handles all the UI interactions: click add button, set title, add tags, and confirm.
+ */
+When('I create a tiddler {string} with tag {string} in browser view', async function(
+  this: ApplicationWorld,
+  tiddlerTitle: string,
+  tagName: string,
+) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  // Use TiddlyWiki API directly — the DOM-based approach (typeText / pressKey)
+  // doesn't reliably trigger TW5's custom input handling for the title editor.
+  const script = `(function() {
+    var now = $tw.utils.stringifyDate(new Date());
+    $tw.wiki.addTiddler(new $tw.Tiddler({
+      title: ${JSON.stringify(tiddlerTitle)},
+      tags: ${JSON.stringify(tagName)},
+      text: '',
+      type: 'text/vnd.tiddlywiki',
+      created: now,
+      modified: now
+    }));
+    return true;
+  })()`;
+  await executeTiddlyWikiCode(this.app, script, this.currentWindow);
+  // Give syncer time to pick up the change and write to disk
+  await new Promise(resolve => setTimeout(resolve, 1500));
+});
+
+/**
+ * Create a new tiddler with title and custom field via TiddlyWiki UI.
+ */
+When('I create a tiddler {string} with field {string} set to {string} in browser view', async function(
+  this: ApplicationWorld,
+  tiddlerTitle: string,
+  fieldName: string,
+  fieldValue: string,
+) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  // Use TiddlyWiki API directly for reliability.
+  const script = `(function() {
+    var now = $tw.utils.stringifyDate(new Date());
+    var fields = {
+      title: ${JSON.stringify(tiddlerTitle)},
+      text: '',
+      type: 'text/vnd.tiddlywiki',
+      created: now,
+      modified: now
+    };
+    fields[${JSON.stringify(fieldName)}] = ${JSON.stringify(fieldValue)};
+    $tw.wiki.addTiddler(new $tw.Tiddler(fields));
+    return true;
+  })()`;
+  await executeTiddlyWikiCode(this.app, script, this.currentWindow);
+  // Give syncer time to pick up the change and write to disk
+  await new Promise(resolve => setTimeout(resolve, 1500));
+});
+
+/**
+ * Execute TiddlyWiki code in browser view
+ * Useful for programmatic wiki operations
+ */
+When('I execute TiddlyWiki code in browser view: {string}', async function(this: ApplicationWorld, code: string) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  try {
+    // Wrap the code to avoid returning non-serializable objects
+    const wrappedCode = `(function() { ${code}; return true; })()`;
+    await executeTiddlyWikiCode(this.app, wrappedCode, this.currentWindow);
+  } catch (error) {
+    throw new Error(`Failed to execute TiddlyWiki code in browser view: ${error as Error}`);
+  }
+});
+
+Then('image {string} should be loaded in browser view', async function(this: ApplicationWorld, imageName: string) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  const tiddlerTitle = imageName;
+  let lastDiagnostic = '';
+  await backOff(
+    async () => {
+      let isImageLoaded = false;
+      try {
+        const diagnostic = await executeTiddlyWikiCode<{
+          loaded: boolean;
+          hasContainer: boolean;
+          hasImage: boolean;
+          src: string;
+          complete: boolean;
+          naturalWidth: number;
+          naturalHeight: number;
+          canonicalUri: string;
+        }>(
+          this.app!,
+          `(function() {
+              const title = ${JSON.stringify(tiddlerTitle)};
+              const container = document.querySelector("[data-tiddler-title='" + title.replace(/'/g, "\\'") + "']");
+              if (!container) {
+                try { if (typeof $tw !== 'undefined' && $tw.wiki) $tw.wiki.addToStory(title); } catch {}
+                return {
+                  loaded: false,
+                  hasContainer: false,
+                  hasImage: false,
+                  src: '',
+                  complete: false,
+                  naturalWidth: 0,
+                  naturalHeight: 0,
+                  canonicalUri: (typeof $tw !== 'undefined' && $tw.wiki && $tw.wiki.getTiddler(title)?.fields?._canonical_uri) || '',
+                };
+              }
+              const image = container.querySelector('img');
+              if (!image) {
+                return {
+                  loaded: false,
+                  hasContainer: true,
+                  hasImage: false,
+                  src: '',
+                  complete: false,
+                  naturalWidth: 0,
+                  naturalHeight: 0,
+                  canonicalUri: (typeof $tw !== 'undefined' && $tw.wiki && $tw.wiki.getTiddler(title)?.fields?._canonical_uri) || '',
+                };
+              }
+              return {
+                loaded: Boolean(image.complete && image.naturalWidth > 0 && image.naturalHeight > 0),
+                hasContainer: true,
+                hasImage: true,
+                src: image.currentSrc || image.src || '',
+                complete: Boolean(image.complete),
+                naturalWidth: Number(image.naturalWidth || 0),
+                naturalHeight: Number(image.naturalHeight || 0),
+                canonicalUri: (typeof $tw !== 'undefined' && $tw.wiki && $tw.wiki.getTiddler(title)?.fields?._canonical_uri) || '',
+              };
+            })()`,
+          this.currentWindow,
+          200,
+        );
+        lastDiagnostic = JSON.stringify(diagnostic);
+        isImageLoaded = Boolean(diagnostic?.loaded);
+      } catch {
+        isImageLoaded = false;
+      }
+
+      if (!isImageLoaded) {
+        throw new Error(`Image ${imageName} is not loaded yet`);
+      }
+    },
+    { numOfAttempts: 100, startingDelay: 150, timeMultiple: 1, maxDelay: 150 },
+  ).catch(() => {
+    throw new Error(`Image ${imageName} is not loaded correctly in browser view. Last diagnostic: ${lastDiagnostic}`);
+  });
+});
+
+Then('browser view body background should be {string}', async function(this: ApplicationWorld, mode: string) {
+  if (mode !== 'dark' && mode !== 'light') {
+    throw new Error(`Unsupported browser view background mode: ${mode}. Use "dark" or "light".`);
+  }
+  await assertBrowserViewBodyBackground(this, mode);
+});

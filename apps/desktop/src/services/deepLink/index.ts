@@ -1,0 +1,135 @@
+import { TIDGI_PROTOCOL_SCHEME } from '@/constants/protocol';
+import { logger } from '@services/libs/log';
+import serviceIdentifier from '@services/serviceIdentifier';
+import type { IWorkspaceService } from '@services/workspaces/interface';
+import { app } from 'electron';
+import { inject, injectable } from 'inversify';
+import path from 'node:path';
+import type { IDeepLinkService } from './interface';
+
+@injectable()
+export class DeepLinkService implements IDeepLinkService {
+  private pendingDeepLink: string | undefined;
+
+  constructor(
+    @inject(serviceIdentifier.Workspace) private readonly workspaceService: IWorkspaceService,
+  ) {}
+  /**
+   * Sanitize tiddler name to prevent injection attacks.
+   * This escapes potentially dangerous characters while preserving the original content.
+   * TiddlyWiki recommends avoiding: | [ ] { } in tiddler titles
+   *
+   * And in the place that use this (wikiOperations/executor/scripts/*.ts), we also use JSON.stringify to exclude "`".
+   * @param tiddlerName The tiddler name to sanitize
+   * @returns Sanitized tiddler name
+   */
+  private sanitizeTiddlerName(tiddlerName: string): string {
+    let sanitized = tiddlerName;
+
+    // Remove null bytes (these should never appear in valid text)
+    sanitized = sanitized.replace(/\0/g, '');
+
+    // Replace newlines and tabs with spaces to prevent breaking out of string context
+    sanitized = sanitized.replace(/[\r\n\t]/g, ' ');
+
+    // Remove HTML tags to prevent XSS
+    sanitized = sanitized.replace(/<\/?[^>]+(>|$)/g, '');
+
+    // Remove TiddlyWiki special characters that could cause parsing issues
+    sanitized = sanitized.replace(/[|[\]{}]/g, '');
+
+    // Trim whitespace
+    sanitized = sanitized.trim();
+
+    // Limit length to prevent DoS
+    if (sanitized.length > 1000) {
+      sanitized = sanitized.substring(0, 1000);
+      logger.warn(`Tiddler name truncated to 1000 characters for security`, { original: tiddlerName.substring(0, 50), function: 'sanitizeTiddlerName' });
+    }
+
+    return sanitized;
+  }
+
+  /**
+   * Handle link and open the workspace.
+   * @param requestUrl like `tidgi://lxqsftvfppu_z4zbaadc0/#:Index` or `tidgi://lxqsftvfppu_z4zbaadc0/#%E6%96%B0%E6%9D%A1%E7%9B%AE`
+   */
+  private readonly deepLinkHandler: (requestUrl: string) => Promise<void> = async (requestUrl) => {
+    logger.info(`Receiving deep link`, { requestUrl, function: 'deepLinkHandler' });
+    try {
+      // Deep link to wiki workspace is no longer supported in memeloop-desktop
+      logger.info(`Deep link ignored: wiki workspace feature removed`, { requestUrl, function: 'deepLinkHandler' });
+    } catch (error) {
+      logger.error(`Invalid URL`, { requestUrl, error, function: 'deepLinkHandler' });
+    }
+  };
+
+  /**
+   * Process any pending deep link after workspaces are initialized
+   */
+  public async processPendingDeepLink(): Promise<void> {
+    if (this.pendingDeepLink) {
+      const url = this.pendingDeepLink;
+      this.pendingDeepLink = undefined;
+      logger.info(`Processing pending deep link`, { url, function: 'processPendingDeepLink' });
+      await this.deepLinkHandler(url);
+    }
+  }
+
+  public initializeDeepLink(protocol: string) {
+    if (process.defaultApp) {
+      if (process.argv.length >= 2) {
+        app.setAsDefaultProtocolClient(protocol, process.execPath, [path.resolve(process.argv[1])]);
+      }
+    } else {
+      app.setAsDefaultProtocolClient(protocol);
+    }
+
+    if (process.platform === 'darwin') {
+      this.setupMacOSHandler();
+    } else {
+      this.setupWindowsLinuxHandler();
+    }
+  }
+
+  private setupMacOSHandler(): void {
+    app.on('open-url', (_event, url) => {
+      _event.preventDefault();
+      void this.deepLinkHandler(url);
+    });
+  }
+
+  private setupWindowsLinuxHandler(): void {
+    const gotTheLock = app.requestSingleInstanceLock();
+
+    if (gotTheLock) {
+      // Handle second instance (when app is already running)
+      app.on('second-instance', (_event, commandLine) => {
+        const url = commandLine.pop();
+        if (url !== undefined && url !== '') {
+          void this.deepLinkHandler(url);
+        }
+      });
+
+      // Handle first instance startup with URL parameter
+      // On Windows/Linux, protocol URLs are passed as command line arguments
+      if (process.argv.length >= 2) {
+        // Find the protocol URL in command line arguments
+        const protocolUrl = process.argv.find(argument => argument.startsWith(`${TIDGI_PROTOCOL_SCHEME}://`));
+        if (protocolUrl) {
+          logger.info(`Processing initial deep link from command line`, { protocolUrl, function: 'setupWindowsLinuxHandler' });
+          // Process after app is ready
+          if (app.isReady()) {
+            void this.deepLinkHandler(protocolUrl);
+          } else {
+            app.once('ready', () => {
+              void this.deepLinkHandler(protocolUrl);
+            });
+          }
+        }
+      }
+    } else {
+      app.quit();
+    }
+  }
+}

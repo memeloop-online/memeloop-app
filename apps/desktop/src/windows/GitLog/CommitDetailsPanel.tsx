@@ -1,0 +1,849 @@
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import Divider from '@mui/material/Divider';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemText from '@mui/material/ListItemText';
+import { styled } from '@mui/material/styles';
+import Tab from '@mui/material/Tab';
+import Tabs from '@mui/material/Tabs';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import { getFileStatusStyles, type GitFileStatus } from './fileStatusStyles';
+import type { GitLogEntry, IGitCheckpointInfo } from './types';
+
+const Panel = styled(Box)`
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+`;
+
+const TabsWrapper = styled(Box)`
+  border-bottom: 1px solid ${({ theme }) => theme.palette.divider};
+  padding: 0 16px;
+`;
+
+const TabContent = styled(Box)`
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+`;
+
+const EmptyState = styled(Box)`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: ${({ theme }) => theme.palette.text.secondary};
+`;
+
+const FileListWrapper = styled(Box)`
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+`;
+
+const ActionsWrapper = styled(Box)`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+const FileStatusBadge = styled(Box)<{ $status?: GitFileStatus }>`
+  display: inline-block;
+  font-size: 0.6rem;
+  padding: 1px 4px;
+  margin-right: 4px;
+  border-radius: 2px;
+  font-weight: 600;
+  text-transform: uppercase;
+  ${({ $status, theme }) => getFileStatusStyles($status, theme)}
+`;
+
+interface ICommitDetailsPanelProps {
+  commit: GitLogEntry | null;
+  isLatestCommit?: boolean;
+  workspaceID: string;
+  onCommitSuccess?: () => void;
+  showSnackbar?: (message: string, severity?: 'success' | 'error' | 'info') => void;
+  onFileSelect?: (file: string | null, event?: React.MouseEvent) => void;
+  onRevertSuccess?: () => void;
+  onUndoSuccess?: () => void;
+  selectedFile?: string | null;
+  selectedFiles?: string[];
+  selectedCommits?: GitLogEntry[];
+}
+
+export function CommitDetailsPanel(
+  {
+    commit,
+    isLatestCommit: _isLatestCommit,
+    workspaceID,
+    onCommitSuccess,
+    showSnackbar,
+    onFileSelect,
+    onRevertSuccess,
+    onUndoSuccess,
+    selectedFile,
+    selectedFiles = [],
+    selectedCommits = [],
+  }: ICommitDetailsPanelProps,
+): React.JSX.Element {
+  const { t } = useTranslation();
+  const [currentTab, setCurrentTab] = useState<'details' | 'actions'>('details');
+  const [isReverting, setIsReverting] = useState(false);
+  const [isUndoing, setIsUndoing] = useState(false);
+  const [isCommitting, setIsCommitting] = useState(false);
+  const [isAIEnabled, setIsAIEnabled] = useState(false);
+  const [isCommittingWithAI, setIsCommittingWithAI] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isEditMessageOpen, setIsEditMessageOpen] = useState(false);
+  const [newCommitMessage, setNewCommitMessage] = useState('');
+  const [isAmending, setIsAmending] = useState(false);
+  const [checkpoints, setCheckpoints] = useState<IGitCheckpointInfo[]>([]);
+  const [isCheckpointDialogOpen, setIsCheckpointDialogOpen] = useState(false);
+  const [checkpointLabel, setCheckpointLabel] = useState('');
+  const [isCreatingCheckpoint, setIsCreatingCheckpoint] = useState(false);
+  const [isRestoringCheckpoint, setIsRestoringCheckpoint] = useState(false);
+
+  const reportProgress = (message: string, severity: 'success' | 'error' | 'info' = 'info') => {
+    showSnackbar?.(message, severity);
+  };
+
+  const loadCheckpoints = async (): Promise<IGitCheckpointInfo[]> => {
+    const workspace = await window.service.workspace.get(workspaceID);
+    if (!workspace || !('wikiFolderLocation' in workspace)) {
+      setCheckpoints([]);
+      return [];
+    }
+
+    const result = await window.service.git.listCheckpoints(workspace.wikiFolderLocation!);
+    setCheckpoints(result);
+    return result;
+  };
+
+  // Bridge real sync progress text from git-sync-js (published by main process through gitSyncProgress$)
+  // to GitLog snackbar, but only while a commit/sync action from this panel is running.
+  useEffect(() => {
+    const observable = window.observables?.git?.gitSyncProgress$;
+    if (!observable) return;
+    let lastMessage = '';
+    const subscription = observable.subscribe({
+      next: (progressEvent) => {
+        if (!progressEvent) return;
+        if (progressEvent.workspaceID !== workspaceID) return;
+        if (!isCommitting && !isCommittingWithAI && !isSyncing) return;
+        if (progressEvent.message === lastMessage) return;
+        lastMessage = progressEvent.message;
+        reportProgress(progressEvent.message, 'info');
+      },
+    });
+    return () => {
+      subscription?.unsubscribe?.();
+    };
+  }, [workspaceID, isCommitting, isCommittingWithAI, isSyncing]);
+
+  // Use files from commit entry (already loaded in useGitLogData)
+  const fileChanges = commit?.files ?? [];
+  const commitsForActions = useMemo(() => selectedCommits.length > 0 ? selectedCommits : commit ? [commit] : [], [commit, selectedCommits]);
+  const committedSelections = commitsForActions.filter((entry) => entry.hash !== '');
+  const hasMultipleCommitsSelected = commitsForActions.length > 1;
+  const hasUncommittedSelection = commitsForActions.some((entry) => entry.hash === '');
+
+  // Auto-select the first file if none is selected
+  useEffect(() => {
+    if (fileChanges.length > 0 && !selectedFile && selectedFiles.length === 0 && onFileSelect) {
+      onFileSelect(fileChanges[0].path);
+    }
+  }, [commit, fileChanges, onFileSelect, selectedFile, selectedFiles.length]);
+
+  // Check if AI commit message generation is enabled
+  useEffect(() => {
+    const checkAIEnabled = async () => {
+      try {
+        const enabled = await window.service.git.isAIGenerateBackupTitleEnabled();
+        setIsAIEnabled(enabled);
+      } catch (error) {
+        console.error('Failed to check AI generation status:', error);
+        setIsAIEnabled(false);
+      }
+    };
+
+    void checkAIEnabled();
+  }, []);
+
+  useEffect(() => {
+    const syncCheckpoints = async () => {
+      try {
+        await loadCheckpoints();
+      } catch (error) {
+        void window.service.native.log('error', '[test-id-checkpoint-load-failed]', {
+          workspaceID,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        console.error('Failed to load checkpoints:', error);
+      }
+    };
+
+    void syncCheckpoints();
+  }, [workspaceID, commit?.hash]);
+
+  useEffect(() => {
+    void window.service.native.log('debug', '[test-id-checkpoint-panel-state]', {
+      workspaceID,
+      currentTab,
+      commitHash: commit?.hash ?? null,
+      checkpointsCount: checkpoints.length,
+      isCheckpointDialogOpen,
+    });
+  }, [workspaceID, currentTab, commit?.hash, checkpoints.length, isCheckpointDialogOpen]);
+
+  const handleRevert = async () => {
+    if (committedSelections.length === 0 || isReverting) {
+      void window.service.native.log('warn', 'handleRevert: no commit selected or already reverting', { commitCount: committedSelections.length, isReverting });
+      return;
+    }
+
+    setIsReverting(true);
+    try {
+      const workspace = await window.service.workspace.get(workspaceID);
+      if (!workspace) {
+        void window.service.native.log('error', 'handleRevert: workspace not found', { workspaceID });
+        return;
+      }
+      if (!('wikiFolderLocation' in workspace)) {
+        void window.service.native.log('error', 'handleRevert: workspace does not have wikiFolderLocation', { workspaceID, workspace });
+        return;
+      }
+
+      for (const selectedEntry of committedSelections) {
+        void window.service.native.log('debug', 'handleRevert: calling revertCommit', { workspaceID, commitHash: selectedEntry.hash });
+        await window.service.git.revertCommit(workspace.wikiFolderLocation!, selectedEntry.hash, selectedEntry.message);
+      }
+      // Notify parent to select the new revert commit
+      if (onRevertSuccess) {
+        onRevertSuccess();
+      }
+    } catch (error) {
+      void window.service.native.log('error', 'handleRevert: Failed to revert commit', {
+        error: String(error),
+        workspaceID,
+        commitHashes: committedSelections.map((entry) => entry.hash),
+      });
+    } finally {
+      setIsReverting(false);
+    }
+  };
+
+  const handleUndo = async () => {
+    if (committedSelections.length === 0 || isUndoing) return;
+
+    setIsUndoing(true);
+    try {
+      const workspace = await window.service.workspace.get(workspaceID);
+      if (!workspace || !('wikiFolderLocation' in workspace)) return;
+
+      // Pass hashes newest-first (committedSelections is derived from entries which are newest-first).
+      await window.service.git.undoCommits(
+        workspace.wikiFolderLocation!,
+        committedSelections.map((entry) => entry.hash),
+      );
+      if (onUndoSuccess) {
+        onUndoSuccess();
+      }
+    } catch (error) {
+      console.error('Failed to undo commit:', error);
+    } finally {
+      setIsUndoing(false);
+    }
+  };
+
+  const handleOpenEditMessage = (): void => {
+    if (!commit || hasMultipleCommitsSelected) return;
+    setNewCommitMessage(commit.message || '');
+    setIsEditMessageOpen(true);
+  };
+
+  const handleConfirmEditMessage = async (): Promise<void> => {
+    if (isAmending || !commit) return;
+    // Validate that commit message is not empty after trimming
+    const trimmedMessage = newCommitMessage.trim();
+    if (!trimmedMessage) {
+      return;
+    }
+    setIsAmending(true);
+    try {
+      const workspace = await window.service.workspace.get(workspaceID);
+      if (!workspace || !('wikiFolderLocation' in workspace)) return;
+
+      await window.service.git.amendCommitMessage(workspace.wikiFolderLocation!, trimmedMessage);
+      setIsEditMessageOpen(false);
+      if (onCommitSuccess) {
+        onCommitSuccess();
+      }
+    } catch (error) {
+      console.error('Failed to amend commit message:', error);
+    } finally {
+      setIsAmending(false);
+    }
+  };
+
+  const handleCloseEditMessage = (): void => {
+    setIsEditMessageOpen(false);
+  };
+
+  const handleCommitNow = async () => {
+    if (isCommitting) return;
+
+    setIsCommitting(true);
+    reportProgress(t('GitLog.Committing'), 'info');
+    try {
+      const workspace = await window.service.workspace.get(workspaceID);
+      if (!workspace || !('wikiFolderLocation' in workspace)) return;
+
+      // Use gitService.commitAndSync directly (commitOnly=true) — same code path as the
+      // context-menu "BackupNow" button, so both stay in sync automatically.
+      await window.service.git.commitAndSync(workspace, {
+        dir: workspace.wikiFolderLocation!,
+        commitOnly: true,
+        commitMessage: t('LOG.CommitBackupMessage'),
+      });
+      // Notify parent to select the new commit
+      if (onCommitSuccess) {
+        onCommitSuccess();
+      }
+      reportProgress(t('LOG.CommitComplete'), 'success');
+    } catch (error) {
+      console.error('Failed to commit:', error);
+      reportProgress(t('Sync.Failure', { error: error instanceof Error ? error.message : 'Unknown error' }), 'error');
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
+  const handleCommitNowWithAI = async () => {
+    if (isCommittingWithAI) return;
+
+    setIsCommittingWithAI(true);
+    reportProgress(t('GitLog.Committing'), 'info');
+    try {
+      const workspace = await window.service.workspace.get(workspaceID);
+      if (!workspace || !('wikiFolderLocation' in workspace)) return;
+
+      // Same code path as context-menu "BackupNow (AI)" — omit commitMessage to trigger AI.
+      await window.service.git.commitAndSync(workspace, {
+        dir: workspace.wikiFolderLocation!,
+        commitOnly: true,
+      });
+      // Notify parent to select the new commit
+      if (onCommitSuccess) {
+        onCommitSuccess();
+      }
+      reportProgress(t('LOG.CommitComplete'), 'success');
+    } catch (error) {
+      console.error('Failed to commit with AI:', error);
+      reportProgress(t('Sync.Failure', { error: error instanceof Error ? error.message : 'Unknown error' }), 'error');
+    } finally {
+      setIsCommittingWithAI(false);
+    }
+  };
+
+  /** Commit all uncommitted changes AND push to remote in one step. */
+  const handleSyncToRemote = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    reportProgress(t('GitLog.Syncing'), 'info');
+    try {
+      const workspace = await window.service.workspace.get(workspaceID);
+      if (!workspace || !('wikiFolderLocation' in workspace)) {
+        reportProgress(t('Sync.Failure', { error: 'workspace not found' }), 'error');
+        return;
+      }
+      void window.service.native.log('info', 'GitLog handleSyncToRemote: calling syncWikiIfNeeded', {
+        workspaceID,
+        storageService: String((workspace as unknown as Record<string, unknown>).storageService),
+      });
+      // Pass force:true so user-explicit sync always bypasses the draft check.
+      await window.service.sync.syncWikiIfNeeded(workspace, { commitMessage: t('LOG.CommitBackupMessage'), force: true });
+      if (onCommitSuccess) {
+        onCommitSuccess();
+      }
+      reportProgress(t('Log.SynchronizationFinish'), 'success');
+    } catch (error) {
+      console.error('Failed to sync to remote:', error);
+      void window.service.native.log('error', 'GitLog handleSyncToRemote failed', { error: error instanceof Error ? error.message : String(error), workspaceID });
+      reportProgress(t('Sync.Failure', { error: error instanceof Error ? error.message : 'Unknown error' }), 'error');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleCopyHash = () => {
+    if (commitsForActions.length === 0) return;
+    void navigator.clipboard.writeText(commitsForActions.map((entry) => entry.hash).join('\n'));
+  };
+
+  const handleCreateCheckpoint = async () => {
+    if (isCreatingCheckpoint) return;
+    setIsCreatingCheckpoint(true);
+    try {
+      const workspace = await window.service.workspace.get(workspaceID);
+      if (!workspace || !('wikiFolderLocation' in workspace)) return;
+      await window.service.git.createCheckpoint(workspace.wikiFolderLocation!, checkpointLabel || commit?.message);
+      const loaded = await loadCheckpoints();
+      void window.service.native.log('info', '[test-id-checkpoint-created]', {
+        workspaceID,
+        commitHash: commit?.hash ?? null,
+        loadedCount: loaded.length,
+        loadedMessages: loaded.map((item) => item.message),
+      });
+      setCheckpointLabel('');
+      setIsCheckpointDialogOpen(false);
+      reportProgress('Checkpoint created', 'success');
+    } catch (error) {
+      console.error('Failed to create checkpoint:', error);
+      reportProgress(`Failed to create checkpoint: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setIsCreatingCheckpoint(false);
+    }
+  };
+
+  const handleRestoreCheckpoint = async (checkpointHash: string) => {
+    if (isRestoringCheckpoint) return;
+    setIsRestoringCheckpoint(true);
+    try {
+      const workspace = await window.service.workspace.get(workspaceID);
+      if (!workspace || !('wikiFolderLocation' in workspace)) return;
+      await window.service.git.restoreCheckpoint(workspace.wikiFolderLocation!, checkpointHash);
+      await loadCheckpoints();
+      reportProgress('Checkpoint restored', 'success');
+      onUndoSuccess?.();
+    } catch (error) {
+      console.error('Failed to restore checkpoint:', error);
+      reportProgress(`Failed to restore checkpoint: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setIsRestoringCheckpoint(false);
+    }
+  };
+
+  const handleOpenInGitHub = async () => {
+    if (!commit || hasMultipleCommitsSelected) return;
+    try {
+      const workspace = await window.service.workspace.get(workspaceID);
+      if (!workspace || !('wikiFolderLocation' in workspace) || !('gitUrl' in workspace)) return;
+
+      if (workspace.gitUrl) {
+        const githubUrl = workspace.gitUrl
+          .replace(/\.git$/, '')
+          .replace(/^git@github\.com:/, 'https://github.com/');
+        const commitUrl = `${githubUrl}/commit/${commit.hash}`;
+        window.open(commitUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('Failed to open in GitHub:', error);
+    }
+  };
+
+  if (!commit) {
+    return (
+      <Panel>
+        <EmptyState>
+          <Typography variant='body2'>{t('GitLog.SelectCommit')}</Typography>
+        </EmptyState>
+      </Panel>
+    );
+  }
+
+  const renderDetailsTab = () => (
+    <TabContent>
+      <Box mb={1}>
+        <Typography variant='caption' color='textSecondary'>
+          {t('GitLog.Hash')}
+        </Typography>
+        <Typography
+          variant='body2'
+          fontFamily='monospace'
+          fontSize='0.75rem'
+          sx={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {commit.hash}
+        </Typography>
+      </Box>
+
+      <Box mb={1}>
+        <Typography variant='caption' color='textSecondary'>
+          {t('GitLog.Message')}
+        </Typography>
+        <Typography variant='body2' sx={{ wordBreak: 'break-word' }}>
+          {commit.message}
+        </Typography>
+      </Box>
+
+      {hasMultipleCommitsSelected && (
+        <Box mb={1}>
+          <Typography variant='caption' color='textSecondary'>
+            Selected commits
+          </Typography>
+          <Typography variant='body2'>{commitsForActions.length}</Typography>
+        </Box>
+      )}
+
+      {commit.author && (
+        <Box mb={1}>
+          <Typography variant='caption' color='textSecondary'>
+            {t('GitLog.Author')}
+          </Typography>
+          <Typography
+            variant='body2'
+            sx={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {commit.author.name}
+            {commit.author.email && ` <${commit.author.email}>`}
+          </Typography>
+        </Box>
+      )}
+
+      <Box mb={1}>
+        <Typography variant='caption' color='textSecondary'>
+          {t('GitLog.Date')}
+        </Typography>
+        <Typography variant='body2' fontSize='0.875rem'>
+          {commit.committerDate}
+        </Typography>
+      </Box>
+
+      <Divider sx={{ my: 1 }} />
+
+      <Typography variant='subtitle2' gutterBottom>
+        {t('GitLog.FilesChanged', { count: fileChanges.length })}
+      </Typography>
+
+      {fileChanges.length > 0
+        ? (
+          <FileListWrapper>
+            <List dense disablePadding>
+              {fileChanges.map((file, index) => (
+                <ListItem key={index} disablePadding>
+                  <ListItemButton
+                    selected={selectedFiles.includes(file.path) || file.path === selectedFile}
+                    onClick={(event) => {
+                      onFileSelect?.(file.path, event);
+                    }}
+                    data-testid={`git-file-row-${index}`}
+                  >
+                    <ListItemText
+                      primary={
+                        <>
+                          <FileStatusBadge $status={file.status}>{file.status.charAt(0)}</FileStatusBadge>
+                          {file.path}
+                        </>
+                      }
+                      slotProps={{
+                        primary: {
+                          variant: 'body2',
+                          fontFamily: 'monospace',
+                          fontSize: '0.75rem',
+                          sx: {
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          },
+                        },
+                      }}
+                    />
+                  </ListItemButton>
+                </ListItem>
+              ))}
+            </List>
+          </FileListWrapper>
+        )
+        : (
+          <Typography variant='body2' color='textSecondary'>
+            {t('GitLog.NoFilesChanged')}
+          </Typography>
+        )}
+    </TabContent>
+  );
+
+  const renderActionsTab = () => {
+    // Check if this is an uncommitted state (hash would be empty or special)
+    const isUncommitted = commitsForActions.length > 0 &&
+      commitsForActions.every((entry) => entry.hash === '' || entry.message.includes('未提交') || entry.message.includes('Uncommitted'));
+    const revertLabel = hasMultipleCommitsSelected ? `${t('GitLog.RevertCommit')} (${committedSelections.length})` : t('GitLog.RevertCommit');
+    const copyHashLabel = hasMultipleCommitsSelected ? `${t('GitLog.CopyHash')} (${commitsForActions.length})` : t('GitLog.CopyHash');
+
+    return (
+      <TabContent>
+        <ActionsWrapper>
+          {isUncommitted && (
+            <>
+              <Button
+                variant='contained'
+                color='success'
+                onClick={handleCommitNow}
+                fullWidth
+                disabled={isCommitting}
+                data-testid='commit-now-button'
+                startIcon={isCommitting ? <CircularProgress size={16} color='inherit' /> : undefined}
+              >
+                {isCommitting ? t('GitLog.Committing') : t('ContextMenu.BackupNow')}
+              </Button>
+              {isAIEnabled && (
+                <Button
+                  variant='contained'
+                  color='primary'
+                  onClick={handleCommitNowWithAI}
+                  fullWidth
+                  disabled={isCommittingWithAI}
+                  data-testid='commit-now-ai-button'
+                  startIcon={isCommittingWithAI ? <CircularProgress size={16} color='inherit' /> : undefined}
+                >
+                  {isCommittingWithAI ? t('GitLog.Committing') : t('ContextMenu.BackupNow') + t('ContextMenu.WithAI')}
+                </Button>
+              )}
+              <Divider sx={{ my: 1 }} />
+            </>
+          )}
+
+          {!isUncommitted && (
+            <>
+              {!hasMultipleCommitsSelected && commit.isUnpushed && (
+                <Button
+                  variant='contained'
+                  color='warning'
+                  onClick={handleSyncToRemote}
+                  fullWidth
+                  disabled={isSyncing}
+                  data-testid='sync-to-remote-button'
+                  startIcon={isSyncing ? <CircularProgress size={16} color='inherit' /> : undefined}
+                >
+                  {isSyncing ? t('GitLog.Syncing') : t('ContextMenu.SyncNow')}
+                </Button>
+              )}
+
+              <Button
+                variant='contained'
+                color='error'
+                onClick={handleUndo}
+                fullWidth
+                disabled={isUndoing || committedSelections.length === 0 || hasUncommittedSelection}
+                startIcon={isUndoing ? <CircularProgress size={16} color='inherit' /> : undefined}
+                data-testid='undo-commit-button'
+              >
+                {isUndoing ? t('GitLog.Undoing') : hasMultipleCommitsSelected ? `${t('GitLog.UndoCommit')} (${committedSelections.length})` : t('GitLog.UndoCommit')}
+              </Button>
+
+              <Button
+                variant='contained'
+                color='warning'
+                onClick={handleRevert}
+                fullWidth
+                disabled={isReverting || committedSelections.length === 0}
+                startIcon={isReverting ? <CircularProgress size={16} color='inherit' /> : undefined}
+                data-testid={hasMultipleCommitsSelected ? 'batch-revert-button' : undefined}
+              >
+                {isReverting ? t('GitLog.Reverting') : revertLabel}
+              </Button>
+
+              {_isLatestCommit && !hasMultipleCommitsSelected && (
+                <Button
+                  variant='contained'
+                  color='info'
+                  onClick={handleOpenEditMessage}
+                  fullWidth
+                  disabled={isAmending}
+                >
+                  {t('GitLog.EditCommitMessage')}
+                </Button>
+              )}
+
+              <Button variant='outlined' onClick={handleCopyHash} fullWidth>
+                {copyHashLabel}
+              </Button>
+
+              <Button
+                variant='outlined'
+                onClick={() => {
+                  setCheckpointLabel(commit.message);
+                  setIsCheckpointDialogOpen(true);
+                }}
+                fullWidth
+                data-testid='create-checkpoint-button'
+              >
+                Create Checkpoint
+              </Button>
+
+              <Button variant='outlined' onClick={handleOpenInGitHub} fullWidth disabled={hasMultipleCommitsSelected}>
+                {t('GitLog.OpenInGitHub')}
+              </Button>
+
+              <Divider sx={{ my: 1 }} />
+              <Typography variant='caption' color='textSecondary'>
+                Checkpoints
+              </Typography>
+              <List dense disablePadding data-testid='checkpoint-list'>
+                {checkpoints.length > 0
+                  ? checkpoints.slice(0, 5).map((checkpoint) => (
+                      <ListItem
+                        key={checkpoint.hash}
+                        disablePadding
+                        data-testid={`checkpoint-row-${checkpoint.hash}`}
+                        secondaryAction={
+                          <Button
+                            size='small'
+                            onClick={() => {
+                              void handleRestoreCheckpoint(checkpoint.hash);
+                            }}
+                            disabled={isRestoringCheckpoint}
+                            data-testid='restore-checkpoint-button'
+                          >
+                            Restore
+                          </Button>
+                        }
+                      >
+                        <ListItemText
+                          primary={checkpoint.message}
+                          secondary={checkpoint.timestamp}
+                          slotProps={{
+                            primary: { variant: 'body2', sx: { wordBreak: 'break-word' } },
+                            secondary: { variant: 'caption' },
+                          }}
+                        />
+                      </ListItem>
+                    ))
+                  : (
+                      <ListItem disablePadding data-testid='checkpoint-empty-state'>
+                        <ListItemText
+                          primary='No checkpoints yet'
+                          slotProps={{
+                            primary: { variant: 'body2', color: 'text.secondary' },
+                          }}
+                        />
+                      </ListItem>
+                    )}
+              </List>
+
+              <Divider sx={{ my: 1 }} />
+
+              <Typography variant='caption' color='textSecondary'>
+                {t('GitLog.WarningMessage')}
+              </Typography>
+            </>
+          )}
+        </ActionsWrapper>
+      </TabContent>
+    );
+  };
+
+  return (
+    <Panel>
+      <TabsWrapper>
+        <Tabs
+          value={currentTab}
+          onChange={(_event: React.SyntheticEvent, newValue: 'details' | 'actions') => {
+            setCurrentTab(newValue);
+          }}
+        >
+          <Tab label={t('GitLog.Details')} value='details' />
+          <Tab label={t('GitLog.Actions')} value='actions' />
+        </Tabs>
+      </TabsWrapper>
+
+      {currentTab === 'details' ? renderDetailsTab() : renderActionsTab()}
+
+      {/* Edit Commit Message Modal */}
+      <Dialog open={isEditMessageOpen} onClose={handleCloseEditMessage} fullWidth maxWidth='sm'>
+        <DialogTitle>{t('GitLog.EditCommitMessageTitle')}</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin='dense'
+            label={t('GitLog.EditCommitMessagePlaceholder')}
+            type='text'
+            fullWidth
+            value={newCommitMessage}
+            onChange={(event) => {
+              setNewCommitMessage(event.target.value);
+            }}
+          />
+          <Typography variant='caption' color='text.secondary'>
+            {t('GitLog.EditCommitMessageHint')}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseEditMessage}>{t('Common.Cancel')}</Button>
+          <Button onClick={handleConfirmEditMessage} disabled={isAmending || !newCommitMessage.trim()} variant='contained'>
+            {isAmending ? t('GitLog.Committing') : t('GitLog.EditCommitMessageConfirm')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={isCheckpointDialogOpen}
+        onClose={() => {
+          setIsCheckpointDialogOpen(false);
+        }}
+        fullWidth
+        maxWidth='sm'
+      >
+        <DialogTitle>Create Checkpoint</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin='dense'
+            label='Checkpoint label'
+            type='text'
+            fullWidth
+            value={checkpointLabel}
+            onChange={(event) => {
+              setCheckpointLabel(event.target.value);
+            }}
+            slotProps={{
+              htmlInput: {
+                'data-testid': 'checkpoint-label-input',
+              },
+            }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setIsCheckpointDialogOpen(false);
+            }}
+            data-testid='cancel-checkpoint-button'
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              void handleCreateCheckpoint();
+            }}
+            disabled={isCreatingCheckpoint}
+            variant='contained'
+            data-testid='confirm-create-checkpoint-button'
+          >
+            {isCreatingCheckpoint ? 'Creating…' : 'Create'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Panel>
+  );
+}

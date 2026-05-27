@@ -1,0 +1,140 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+declare module '@fetsorn/vite-node-worker' {
+  import type { Plugin } from 'vite';
+  export function workerPlugin(): Plugin;
+}
+
+// Electron Forge Vite Plugin 提供的全局变量
+// https://www.electronforge.io/config/plugins/vite
+declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
+declare const MAIN_WINDOW_VITE_NAME: string;
+declare const MAIN_WINDOW_PRELOAD_VITE_ENTRY: string;
+
+declare module 'errio' {
+  export function parse(error: Error): Error;
+  export function stringify(error: Error): string;
+  export function register(error: ErrorConstructor): void;
+}
+
+declare module 'espree' {
+  // https://github.com/eslint/espree#options
+  export interface Options {
+    comment?: boolean;
+    ecmaFeatures?: {
+      globalReturn?: boolean;
+      impliedStrict?: boolean;
+      jsx?: boolean;
+    };
+    ecmaVersion?:
+      | 3
+      | 5
+      | 6
+      | 7
+      | 8
+      | 9
+      | 10
+      | 11
+      | 12
+      | 2015
+      | 2016
+      | 2017
+      | 2018
+      | 2019
+      | 2020
+      | 2021
+      | 2022
+      | 'latest';
+    loc?: boolean;
+    range?: boolean;
+    sourceType?: 'script' | 'module';
+    tokens?: boolean;
+  }
+  // https://github.com/eslint/espree#options
+  export function parse(code: string, options?: Options): any;
+  // https://github.com/eslint/espree#tokenize
+  export function tokenize(code: string, options?: Options): any;
+}
+
+declare module 'threads-plugin' {
+  const value: any;
+  export default value;
+}
+declare module 'v8-compile-cache-lib' {
+  export namespace __TEST__ {
+    export function getMainName(): string;
+    // eslint-disable-next-line unicorn/prevent-abbreviations
+    export function getCacheDir(): string;
+    export function supportsCachedData(): boolean;
+  }
+  export function install(options?: {
+    cacheDir?: string;
+    prefix?: string;
+  }): {
+    uninstall(): void;
+  } | undefined;
+}
+declare module 'webpack2-externals-plugin' {
+  const value: any;
+  export default value;
+}
+declare module '*.png' {
+  const value: string;
+  export default value;
+}
+declare module '*.svg' {
+  const value: string;
+  export default value;
+}
+
+interface IDefaultGatewayInfo {
+  gateway: string;
+  interface: 'WLAN';
+}
+declare module 'default-gateway/ibmi' {
+  export function v4(): Promise<IDefaultGatewayInfo>;
+}
+declare module 'default-gateway/android' {
+  export function v4(): Promise<IDefaultGatewayInfo>;
+}
+declare module 'default-gateway/darwin' {
+  export function v4(): Promise<IDefaultGatewayInfo>;
+}
+declare module 'default-gateway/freebsd' {
+  export function v4(): Promise<IDefaultGatewayInfo>;
+}
+declare module 'default-gateway/linux' {
+  export function v4(): Promise<IDefaultGatewayInfo>;
+}
+declare module 'default-gateway/openbsd' {
+  export function v4(): Promise<IDefaultGatewayInfo>;
+}
+declare module 'default-gateway/sunos' {
+  export function v4(): Promise<IDefaultGatewayInfo>;
+}
+declare module 'default-gateway/win32' {
+  export function v4(): Promise<IDefaultGatewayInfo>;
+}
+
+declare module '@modelcontextprotocol/sdk/client/index.js' {
+  export const Client: {
+    new(info: { name: string; version: string }, options: { capabilities: Record<string, unknown> }): {
+      connect(transport: unknown): Promise<void>;
+      listTools(): Promise<{ tools?: Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }> }>;
+      callTool(request: { name: string; arguments?: Record<string, unknown> }): Promise<unknown>;
+      close?(): Promise<void>;
+    };
+  };
+}
+
+declare module '@modelcontextprotocol/sdk/client/stdio.js' {
+  export const StdioClientTransport: {
+    new(options: { command: string; args?: string[] }): unknown;
+  };
+}
+
+declare module '@modelcontextprotocol/sdk/client/sse.js' {
+  export const SSEClientTransport: {
+    new(url: URL): unknown;
+  };
+}

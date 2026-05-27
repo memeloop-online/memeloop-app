@@ -1,0 +1,394 @@
+import { uninstall } from './helpers/installV8Cache';
+import 'source-map-support/register';
+import 'reflect-metadata';
+import './helpers/singleInstance';
+import './services/database/configSetting';
+import { app, ipcMain, powerMonitor, protocol } from 'electron';
+import unhandled from 'electron-unhandled';
+import inspector from 'node:inspector';
+import { initJsonRepairLogger, initTidgiConfigLogger } from './services/database/configSetting';
+
+import { MainChannel } from '@/constants/channels';
+import { isDevelopmentOrTest, isTest } from '@/constants/environment';
+import { TIDGI_PROTOCOL_SCHEME } from '@/constants/protocol';
+import { container } from '@services/container';
+import { initRendererI18NHandler } from '@services/libs/i18n';
+import { destroyLogger, logger } from '@services/libs/log';
+import { buildLanguageMenu } from '@services/menu/buildLanguageMenu';
+
+// Initialize loggers for modules that can't directly import logger (to avoid electron in worker bundles)
+initJsonRepairLogger(logger);
+initTidgiConfigLogger(logger);
+
+import { bindServiceAndProxy } from '@services/libs/bindServiceAndProxy';
+import serviceIdentifier from '@services/serviceIdentifier';
+import { WindowNames } from '@services/windows/WindowProperties';
+
+import type { IAgentDefinitionService } from '@services/agentDefinition/interface';
+import { AgentInstanceService } from '@services/agentInstance';
+import type { IAgentInstanceService } from '@services/agentInstance/interface';
+import type { IContextService } from '@services/context/interface';
+import type { IDatabaseService } from '@services/database/interface';
+import type { IDeepLinkService } from '@services/deepLink/interface';
+import type { IGitService } from '@services/git/interface';
+import { initializeObservables } from '@services/libs/initializeObservables';
+import type { IMemeloopNodeService } from '@services/memeloopNode/interface';
+import type { INativeService } from '@services/native/interface';
+import { reportErrorToGithubWithTemplates } from '@services/native/reportError';
+import type { IProviderRegistryService } from '@services/providerRegistry/interface';
+import type { IThemeService } from '@services/theme/interface';
+import type { IUpdaterService } from '@services/updater/interface';
+import type { IViewService } from '@services/view/interface';
+import EventEmitter from 'events';
+import { initDevelopmentExtension } from './debug';
+import { isLinux } from './helpers/system';
+import type { IPreferenceService } from './services/preferences/interface';
+import type { IWindowService } from './services/windows/interface';
+
+logger.info('App booting', { pid: process.pid });
+// Label the Node.js main process so it stands out in the OS process list
+process.title = 'TidGi [Node-Main]';
+
+// Early fatal error handlers - must install BEFORE any async initialization
+process.on('uncaughtException', (error) => {
+  console.error('[FATAL uncaughtException]', String(error?.stack ?? error));
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL unhandledRejection]', String((reason as Error)?.stack ?? reason));
+});
+if (process.env.DEBUG_MAIN === 'true') {
+  inspector.open();
+  inspector.waitForDebugger();
+  // eslint-disable-next-line no-debugger
+  debugger;
+}
+
+// fix (node:9024) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 destroyed listeners added to [WebContents]. Use emitter.setMaxListeners() to increase limit (node:9024) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 devtools-reload-page listeners added to [WebContents]. Use emitter.setMaxListeners() to increase limit
+EventEmitter.defaultMaxListeners = 150;
+const appAvailable = typeof app === 'object' && app !== null && typeof app.commandLine === 'object';
+if (appAvailable) {
+  app.commandLine.appendSwitch('--disable-web-security');
+  app.commandLine.appendSwitch('--unsafely-disable-devtools-self-xss-warnings');
+}
+// Use different protocol scheme for test mode to avoid conflicts
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'http',
+    privileges: {
+      standard: true,
+      bypassCSP: true,
+      allowServiceWorkers: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+  {
+    scheme: 'https',
+    privileges: {
+      standard: true,
+      bypassCSP: true,
+      allowServiceWorkers: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+  {
+    scheme: TIDGI_PROTOCOL_SCHEME,
+    privileges: {
+      standard: true,
+      bypassCSP: true,
+      allowServiceWorkers: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+  {
+    scheme: 'open',
+    privileges: {
+      bypassCSP: true,
+      allowServiceWorkers: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+  {
+    scheme: 'file',
+    privileges: {
+      bypassCSP: true,
+      allowServiceWorkers: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+  { scheme: 'mailto', privileges: { standard: true } },
+]);
+bindServiceAndProxy();
+
+// Get services - DO NOT use them until commonInit() is called
+const contextService = container.get<IContextService>(
+  serviceIdentifier.Context,
+);
+const databaseService = container.get<IDatabaseService>(
+  serviceIdentifier.Database,
+);
+const memeloopNodeService = container.get<IMemeloopNodeService>(
+  serviceIdentifier.MemeloopNode,
+);
+const preferenceService = container.get<IPreferenceService>(
+  serviceIdentifier.Preference,
+);
+const updaterService = container.get<IUpdaterService>(
+  serviceIdentifier.Updater,
+);
+const windowService = container.get<IWindowService>(serviceIdentifier.Window);
+const deepLinkService = container.get<IDeepLinkService>(
+  serviceIdentifier.DeepLink,
+);
+const agentDefinitionService = container.get<IAgentDefinitionService>(
+  serviceIdentifier.AgentDefinition,
+);
+const providerRegistryService = container.get<IProviderRegistryService>(
+  serviceIdentifier.ProviderRegistry,
+);
+const gitService = container.get<IGitService>(serviceIdentifier.Git);
+const themeService = container.get<IThemeService>(
+  serviceIdentifier.ThemeService,
+);
+const viewService = container.get<IViewService>(serviceIdentifier.View);
+const nativeService = container.get<INativeService>(
+  serviceIdentifier.NativeService,
+);
+
+let beforeQuitCleanupPromise: Promise<void> | undefined;
+let shouldSkipBeforeQuitInterception = false;
+
+const runBeforeQuitCleanup = async (): Promise<void> => {
+  logger.info('App before-quit - starting cleanup');
+  try {
+    try {
+      const agentInstanceService = container.get<IAgentInstanceService>(
+        serviceIdentifier.AgentInstance,
+      ) as AgentInstanceService;
+      await agentInstanceService.disposeMemeLoopWorker();
+      logger.info('App before-quit - MemeLoop worker disposed');
+    } catch (error) {
+      logger.error('App before-quit - MemeLoop worker dispose failed', {
+        error,
+      });
+    }
+
+    // Stop memeloop node server
+    try {
+      await memeloopNodeService.stopServer();
+      logger.info('App before-quit - memeloop node server stopped');
+    } catch (error) {
+      logger.error('App before-quit - memeloop node server stop failed', {
+        error,
+      });
+    }
+
+    // Then do remaining cleanup in parallel
+    await Promise.all([
+      databaseService.closeAllDatabases(),
+      databaseService.immediatelyStoreSettingsToFile(),
+      // Clean up tidgi mini window before quit to ensure tray is destroyed
+      windowService.closeTidgiMiniWindow(true),
+      windowService.clearWindowsReference(),
+    ]);
+    logger.info('App before-quit - all cleanup completed');
+  } catch (error) {
+    logger.error('Error during before-quit cleanup', { error });
+  } finally {
+    // Always destroy logger and uninstall at the end
+    destroyLogger();
+    uninstall?.uninstall();
+  }
+};
+
+app.on('second-instance', async () => {
+  // see also src/helpers/singleInstance.ts
+  // Someone tried to run a second instance, for example, when `runOnBackground` is true, we should focus our window.
+  await windowService.open(WindowNames.main);
+});
+app.on('activate', async () => {
+  await windowService.open(WindowNames.main);
+});
+
+const commonInit = async (): Promise<void> => {
+  await app.whenReady();
+  await initDevelopmentExtension();
+
+  // Initialize context service - loads language maps after app is ready. This ensures LOCALIZATION_FOLDER path is correct (process.resourcesPath is stable)
+  await contextService.initialize();
+  // Initialize database - all other services depend on it
+  await databaseService.initializeForApp();
+  // Initialize i18n early so error messages can be translated
+  await initRendererI18NHandler();
+
+  // Apply preferences that need to be set early
+  const useHardwareAcceleration = await preferenceService.get(
+    'useHardwareAcceleration',
+  );
+  if (!useHardwareAcceleration) {
+    app.disableHardwareAcceleration();
+  }
+
+  const ignoreCertificateErrors = await preferenceService.get(
+    'ignoreCertificateErrors',
+  );
+  if (ignoreCertificateErrors) {
+    // https://www.electronjs.org/docs/api/command-line-switches
+    app.commandLine.appendSwitch('ignore-certificate-errors');
+  }
+
+  // Initialize agent-related services after database is ready
+  await Promise.all([
+    agentDefinitionService.initialize(),
+    providerRegistryService.initialize(),
+  ]);
+
+  // Start memeloop node server
+  try {
+    const memeloopPort = await preferenceService.get('memeloopNodePort');
+    const port = typeof memeloopPort === 'number' ? memeloopPort : 5200;
+    await memeloopNodeService.startServer(port);
+    logger.info('Memeloop node server started', { port });
+  } catch (error) {
+    logger.error('Failed to start memeloop node server', { error });
+  }
+
+  // if user want a tidgi mini window, we create a new window for that
+  // handle workspace name + tiddler name in uri https://www.electronjs.org/docs/latest/tutorial/launch-app-from-url-in-another-app
+  // Use different protocol for test mode to avoid conflicts with production
+  deepLinkService.initializeDeepLink(TIDGI_PROTOCOL_SCHEME);
+
+  await windowService.open(WindowNames.main);
+
+  // Initialize services that depend on windows being created
+  await Promise.all([
+    gitService.initialize(),
+    themeService.initialize(),
+    viewService.initialize(),
+    nativeService.initialize(),
+  ]);
+
+  initializeObservables();
+
+  // Initialize tidgi mini window if enabled
+  await windowService.initializeTidgiMiniWindow();
+
+  // Process any pending deep link
+  await deepLinkService.processPendingDeepLink();
+
+  ipcMain.emit('request-update-pause-notifications-info');
+  // Fix webview is not resized automatically
+  // when window is maximized on Linux
+  // https://github.com/atomery/webcatalog/issues/561
+  // run it here not in mainWindow.createAsync()
+  // because if the `mainWindow` is maximized or minimized
+  // before the workspaces's WebContentsView fully loaded
+  // error will occur
+  // see https://github.com/atomery/webcatalog/issues/637
+  if (isLinux) {
+    const mainWindow = windowService.get(WindowNames.main);
+    if (mainWindow !== undefined) {
+      const handleMaximize = (): void => {
+        // getContentSize is not updated immediately
+        // try once after 0.2s (for fast computer), another one after 1s (to be sure)
+      // Window resize handling without workspace view
+      };
+      mainWindow.on('maximize', handleMaximize);
+      mainWindow.on('unmaximize', handleMaximize);
+    }
+  }
+  // trigger whenTrulyReady
+  ipcMain.emit(MainChannel.commonInitFinished);
+};
+
+/**
+ * When loading wiki with https, we need to allow insecure https
+ * // TODO: ask user upload certificate to be used by browser view
+ * @url https://stackoverflow.com/questions/44658269/electron-how-to-allow-insecure-https
+ */
+app.on(
+  'certificate-error',
+  (event, _webContents, _url, _error, _certificate, callback) => {
+    // Prevent having error
+    event.preventDefault();
+    // and continue
+    callback(true);
+  },
+);
+app.on('ready', async () => {
+  powerMonitor.on('shutdown', () => {
+    app.quit();
+  });
+  await commonInit();
+  try {
+    // buildLanguageMenu needs menuService which is initialized in commonInit
+    await buildLanguageMenu();
+    await updaterService.checkForUpdates();
+  } catch (error) {
+    logger.error('Error during app ready handler', {
+      function: "app.on('ready')",
+      error,
+    });
+  }
+});
+app.on(MainChannel.windowAllClosed, async () => {
+  // prevent quit on MacOS. But also quit if we are in test.
+  if (isTest || !(await preferenceService.get('runOnBackground'))) {
+    app.quit();
+  }
+});
+app.on('before-quit', (event): void => {
+  if (shouldSkipBeforeQuitInterception) {
+    return;
+  }
+
+  event.preventDefault();
+
+  if (beforeQuitCleanupPromise === undefined) {
+    // Safety net: if cleanup hangs (e.g. a wiki worker never terminates), force-exit after 15 s.
+    const forceExitTimer = setTimeout(() => {
+      logger.warn('before-quit cleanup timed out after 15 s, forcing exit');
+      shouldSkipBeforeQuitInterception = true;
+      app.exit(0);
+    }, 15_000);
+    // Allow the process to exit even if this timer is still pending.
+    forceExitTimer.unref();
+
+    beforeQuitCleanupPromise = runBeforeQuitCleanup()
+      .catch((error: unknown) => {
+        logger.error('before-quit cleanup failed unexpectedly', { error });
+      })
+      .finally(() => {
+        clearTimeout(forceExitTimer);
+        shouldSkipBeforeQuitInterception = true;
+        app.exit(0);
+      });
+  }
+});
+
+unhandled({
+  showDialog: !isDevelopmentOrTest,
+  logger: (error: Error) => {
+    logger.error('unhandled', { error });
+  },
+  reportButton: (error) => {
+    reportErrorToGithubWithTemplates(error);
+  },
+});
+
+// Handle Windows Squirrel events (install/update/uninstall)
+// Using inline implementation to avoid ESM/CommonJS compatibility issues
+import squirrelStartup from './helpers/squirrelStartup';
+if (squirrelStartup) {
+  app.quit();
+}

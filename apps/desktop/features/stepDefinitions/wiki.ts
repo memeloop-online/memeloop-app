@@ -1,0 +1,1708 @@
+import { DataTable, Given, Then, When } from '@cucumber/cucumber';
+import { exec as gitExec } from 'dugite';
+import { backOff } from 'exponential-backoff';
+import fs from 'fs-extra';
+import path from 'path';
+import { WindowNames } from '../../src/services/windows/WindowProperties';
+import type { IWikiWorkspace, IWorkspace } from '../../src/services/workspaces/interface';
+import { parseDataTableRows } from '../supports/dataTable';
+import { getLogPath, getSettingsPath, getWikiTestRootPath, getWikiTestWikiPath } from '../supports/paths';
+import { HEAVY_LOG_MARKER_WAIT_TIMEOUT, LOG_MARKER_WAIT_TIMEOUT } from '../supports/timeouts';
+// Scenario-specific paths are computed via helper functions
+import type { ApplicationWorld } from './application';
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚠️  CRITICAL WARNING FOR ALL AI AGENTS - READ THIS BEFORE ANY MODIFICATION ⚠️
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * ABSOLUTE RULES - NO EXCEPTIONS:
+ *
+ * 1. NEVER INCREASE TIMEOUT VALUES! TIMEOUT = FAILURE = REAL BUG!
+ * 2. MAXIMUM TIMEOUTS: Local 5s, CI 10s (exactly 2x, NO MORE)
+ * 3. BEFORE MODIFYING: Read docs/Testing.md, find REAL BUG, fix APPLICATION
+ * 4. THIS HAS BEEN VIOLATED 3 TIMES - DO NOT MAKE IT 4!
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+// Type guard for wiki workspace (accepts unknown to safely handle undefined from IPC)
+function isWikiWorkspace(workspace: unknown): workspace is IWikiWorkspace {
+  return typeof workspace === 'object' && workspace !== null && 'wikiFolderLocation' in workspace && (workspace as IWikiWorkspace).wikiFolderLocation !== undefined;
+}
+
+// Backoff configuration for retries
+const BACKOFF_OPTIONS = {
+  numOfAttempts: 24,
+  startingDelay: 200,
+  timeMultiple: 1,
+};
+
+/**
+ * Generic function to wait for a log marker to appear in wiki log files.
+ *
+ * ⚠️ IMPORTANT FOR AI AGENTS ⚠️
+ * DO NOT increase timeout values to "fix" test failures!
+ * Per Testing.md: "Timeout usually because of expected element not present."
+ * Timeout means the expected condition was NEVER met - this indicates a REAL BUG in the code,
+ * not a timing issue. Increasing timeouts only masks the underlying problem.
+ *
+ * If a test times out, you MUST:
+ * 1. Read the test logs in test-artifacts/{scenarioSlug}/userData-test/logs/
+ * 2. Find the REAL error (SQLite constraint, page load failure, missing element, etc.)
+ * 3. Fix the actual code bug, not the test timeout
+ *
+ * Before attempting ANY timeout changes, RE-READ docs/Testing.md completely.
+ *
+ * You can add test-id for debugging, And remove unused test-id before you finish the work. Also remove test-id that interval is smaller than 2s.
+ */
+export async function waitForLogMarker(world: ApplicationWorld, searchString: string, errorMessage: string, maxWaitMs = 10000, logFilePattern = '*'): Promise<void> {
+  const logPath = getLogPath(world);
+  // Support multiple patterns separated by '|', and '*' for all log files
+  const patterns = logFilePattern.split('|');
+  const matchAll = patterns.includes('*');
+
+  try {
+    await backOff(
+      async () => {
+        try {
+          const files = await fs.readdir(logPath);
+          // Case-insensitive matching for log file patterns, or match all .log files if '*' is specified
+          const logFiles = files.filter(f => {
+            if (!f.endsWith('.log')) return false;
+            if (matchAll) return true;
+            return patterns.some(p => f.toLowerCase().startsWith(p.toLowerCase()));
+          });
+
+          for (const file of logFiles) {
+            const content = await fs.readFile(path.join(logPath, file), 'utf-8');
+            if (content.includes(searchString)) {
+              return;
+            }
+          }
+        } catch {
+          // Log directory might not exist yet, continue retrying
+        }
+
+        throw new Error('Log marker not found yet');
+      },
+      {
+        numOfAttempts: Math.ceil(maxWaitMs / 100),
+        startingDelay: 100,
+        timeMultiple: 1,
+        maxDelay: 100,
+        delayFirstAttempt: false,
+      },
+    );
+  } catch {
+    // If backOff fails, throw the user-friendly error message
+    throw new Error(errorMessage);
+  }
+}
+
+When('I cleanup test wiki so it could create a new one on start', async function(this: ApplicationWorld) {
+  // Clean up main wiki folder
+  if (fs.existsSync(getWikiTestWikiPath(this))) fs.removeSync(getWikiTestWikiPath(this));
+
+  // Clean up all sub-wiki folders in wiki-test directory (SubWiki*, SubWikiPreload, SubWikiTagTree, SubWikiFilter, etc.)
+  if (fs.existsSync(getWikiTestRootPath(this))) {
+    const entries = fs.readdirSync(getWikiTestRootPath(this), { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory() && entry.name !== 'wiki') {
+        const subWikiPath = path.join(getWikiTestRootPath(this), entry.name);
+        try {
+          fs.removeSync(subWikiPath);
+        } catch (error) {
+          console.warn(`Failed to remove sub-wiki folder ${entry.name}:`, error);
+        }
+      }
+    }
+  }
+
+  /**
+   * Clean up log files to prevent reading stale logs from previous scenarios.
+   * This is critical for tests that wait for log markers like [test-id-WATCH_FS_STABILIZED] or [test-id-git-commit-complete],
+   * as Node.js file system caching can cause tests to read old log content.
+   * Must clean both wiki- and TidGi- log files for git-related tests.
+   */
+  const logDirectory = getLogPath(this);
+  if (fs.existsSync(logDirectory)) {
+    const logFiles = fs.readdirSync(logDirectory).filter(f => (f.startsWith('wiki-') || f.startsWith('TidGi-')) && f.endsWith('.log'));
+    for (const logFile of logFiles) {
+      fs.removeSync(path.join(logDirectory, logFile));
+    }
+  }
+
+  type SettingsFile = { workspaces?: Record<string, IWorkspace> } & Record<string, unknown>;
+  if (!fs.existsSync(getSettingsPath(this))) return;
+
+  // Retry logic with exponential backoff for reading settings.json - it might be temporarily locked or corrupted
+  let settings: SettingsFile;
+
+  try {
+    settings = await backOff(
+      async () => {
+        return fs.readJsonSync(getSettingsPath(this)) as SettingsFile;
+      },
+      {
+        numOfAttempts: 3,
+        startingDelay: 100,
+        timeMultiple: 2,
+        maxDelay: 500,
+        retry: (error: Error, attemptNumber: number) => {
+          console.warn(`Attempt ${attemptNumber}/3 failed to read settings.json:`, error);
+
+          // If file is corrupted, don't retry - handle it in catch block
+          if (error instanceof SyntaxError || error.message.includes('Unexpected end of JSON input')) {
+            return false;
+          }
+
+          return true;
+        },
+      },
+    );
+  } catch (error) {
+    // If file is corrupted or all retries failed, create empty settings
+    console.warn('Settings file is corrupted or failed to read after retries, recreating with empty workspaces', error);
+    settings = { workspaces: {} };
+  }
+
+  const workspaces: Record<string, IWorkspace> = settings.workspaces ?? {};
+  const filtered: Record<string, IWorkspace> = {};
+  for (const id of Object.keys(workspaces)) {
+    const ws = workspaces[id];
+    // Keep only page-type workspaces (agent, help, guide, add), remove all wiki workspaces
+    // This includes main wiki and all sub-wikis
+    if ('pageType' in ws && ws.pageType) {
+      filtered[id] = ws;
+    }
+  }
+
+  // Write with exponential backoff retry logic to handle file locks
+  try {
+    await backOff(
+      async () => {
+        fs.writeJsonSync(getSettingsPath(this), { ...settings, workspaces: filtered }, { spaces: 2 });
+      },
+      {
+        numOfAttempts: 3,
+        startingDelay: 100,
+        timeMultiple: 2,
+        maxDelay: 500,
+        retry: (_error: Error, attemptNumber: number) => {
+          console.warn(`Attempt ${attemptNumber}/3 failed to write settings.json:`, _error);
+          return true;
+        },
+      },
+    );
+  } catch (error) {
+    console.error('Failed to write settings.json after 3 attempts, continuing anyway', error);
+  }
+});
+
+/** Files in the wiki root that are non-TiddlyWiki project artefacts and should be removed. */
+const NON_TW_ROOT_FILES_TO_REMOVE = new Set([
+  'README.md',
+  'README_zh-CN.md',
+  'package.json',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
+  'renovate.json',
+  'vercel.json',
+  'workbox-config.js',
+  '.editorconfig',
+  '.prettierrc.js',
+  'tiddlywiki.info',
+]);
+
+/** Directories in the wiki root that are non-TiddlyWiki project artefacts and should be removed. */
+const NON_TW_ROOT_DIRS_TO_REMOVE = new Set(['.github', 'public', 'scripts', 'node_modules']);
+
+When('I flatten default wiki to simplified root structure', async function(this: ApplicationWorld) {
+  const wikiPath = getWikiTestWikiPath(this);
+  const tiddlersPath = path.join(wikiPath, 'tiddlers');
+
+  if (!await fs.pathExists(wikiPath)) {
+    throw new Error(`Wiki path does not exist: ${wikiPath}`);
+  }
+
+  const tiddlersExists = await fs.pathExists(tiddlersPath);
+  if (!tiddlersExists) {
+    const rootEntriesWhenMissing = await fs.readdir(wikiPath);
+    const hasTidFilesInRoot = rootEntriesWhenMissing.some(entry => entry.endsWith('.tid') || entry.endsWith('.meta'));
+    if (!hasTidFilesInRoot) {
+      throw new Error(`tiddlers folder does not exist: ${tiddlersPath}`);
+    }
+  }
+
+  // Move every entry inside tiddlers/ (including the system/ subfolder) up to wiki root.
+  if (tiddlersExists) {
+    const tiddlerEntries = await fs.readdir(tiddlersPath, { withFileTypes: true });
+    for (const entry of tiddlerEntries) {
+      const sourcePath = path.join(tiddlersPath, entry.name);
+      const targetPath = path.join(wikiPath, entry.name);
+      await fs.move(sourcePath, targetPath, { overwrite: true });
+    }
+    await fs.remove(tiddlersPath);
+  }
+
+  // Remove non-TiddlyWiki project files from the wiki root.
+  const rootEntries = await fs.readdir(wikiPath, { withFileTypes: true });
+  for (const entry of rootEntries) {
+    const entryPath = path.join(wikiPath, entry.name);
+    if (entry.isDirectory()) {
+      if (NON_TW_ROOT_DIRS_TO_REMOVE.has(entry.name)) {
+        try {
+          await fs.remove(entryPath);
+        } catch { /* non-critical */ }
+      }
+      // .github etc. are also caught by name-based check, everything else kept.
+    } else {
+      if (NON_TW_ROOT_FILES_TO_REMOVE.has(entry.name)) {
+        await fs.remove(entryPath);
+      }
+    }
+  }
+
+  // Normalize external attachment canonical URIs so they resolve from wiki root.
+  // In simplified format, relative `files/...` may be resolved against hash routes,
+  // producing broken URLs like `tidgi://<id>#:.../files/...`.
+  const rootFiles = await fs.readdir(wikiPath);
+  for (const fileName of rootFiles) {
+    if (!fileName.endsWith('.tid')) {
+      continue;
+    }
+    const tidPath = path.join(wikiPath, fileName);
+    const tidText = await fs.readFile(tidPath, 'utf8');
+    const normalized = tidText.replace(/^_canonical_uri:\s+files\//m, '_canonical_uri: /files/');
+    if (normalized !== tidText) {
+      await fs.writeFile(tidPath, normalized, 'utf8');
+    }
+  }
+});
+
+/**
+ * Helper function to get directory tree structure
+ */
+async function getDirectoryTree(directory: string, prefix = '', maxDepth = 3, currentDepth = 0): Promise<string> {
+  if (currentDepth >= maxDepth || !(await fs.pathExists(directory))) {
+    return '';
+  }
+
+  let tree = '';
+  try {
+    const items = await fs.readdir(directory);
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      const isLast = index === items.length - 1;
+      const itemPath = path.join(directory, item);
+      const connector = isLast ? '└── ' : '├── ';
+
+      try {
+        const stat = await fs.stat(itemPath);
+        tree += `${prefix}${connector}${item}${stat.isDirectory() ? '/' : ''}\n`;
+
+        if (stat.isDirectory()) {
+          const newPrefix = prefix + (isLast ? '    ' : '│   ');
+          tree += await getDirectoryTree(itemPath, newPrefix, maxDepth, currentDepth + 1);
+        }
+      } catch {
+        tree += `${prefix}${connector}${item} [error reading]\n`;
+      }
+    }
+  } catch {
+    // Directory not readable
+  }
+
+  return tree;
+}
+
+/**
+ * Verify file exists in directory
+ */
+Then('file {string} should exist in {string}', async function(this: ApplicationWorld, fileName: string, simpleDirectoryPath: string) {
+  // Replace {tmpDir} with wiki test root (not wiki subfolder)
+  let directoryPath = simpleDirectoryPath.replace('{tmpDir}', getWikiTestRootPath(this));
+
+  // If path doesn't contain {tmpDir} and doesn't start with test-artifacts,
+  // treat it as relative to scenario-specific test-artifacts directory
+  if (!simpleDirectoryPath.includes('{tmpDir}') && !simpleDirectoryPath.startsWith('test-artifacts')) {
+    directoryPath = path.resolve(process.cwd(), 'test-artifacts', this.scenarioSlug, simpleDirectoryPath);
+  }
+
+  // Resolve symlinks on all platforms to handle sub-wikis correctly
+  // On Linux, symlinks might point to the real path, so we need to follow them
+  if (await fs.pathExists(directoryPath)) {
+    try {
+      directoryPath = fs.realpathSync(directoryPath);
+    } catch {
+      // If realpathSync fails, continue with the original path
+    }
+  }
+
+  const filePath = path.join(directoryPath, fileName);
+
+  try {
+    await backOff(
+      async () => {
+        if (await fs.pathExists(filePath)) {
+          return;
+        }
+        throw new Error('File not found yet');
+      },
+      BACKOFF_OPTIONS,
+    );
+  } catch {
+    // Get 1 level up from actualPath
+    const oneLevelsUp = path.resolve(directoryPath, '..');
+    const tree = await getDirectoryTree(oneLevelsUp);
+
+    // Also read all .tid files in the actualPath directory
+    let tidFilesContent = '';
+    try {
+      if (await fs.pathExists(directoryPath)) {
+        const files = await fs.readdir(directoryPath);
+        const tidFiles = files.filter(f => f.endsWith('.tid'));
+
+        if (tidFiles.length > 0) {
+          tidFilesContent = '\n\n.tid files in directory:\n';
+          for (const tidFile of tidFiles) {
+            const tidPath = path.join(directoryPath, tidFile);
+            const content = await fs.readFile(tidPath, 'utf-8');
+            tidFilesContent += `\n=== ${tidFile} ===\n${content}\n`;
+          }
+        }
+      }
+    } catch (readError) {
+      tidFilesContent = `\n\nError reading .tid files: ${String(readError)}`;
+    }
+
+    throw new Error(
+      `File "${fileName}" not found in directory: ${directoryPath}\n\n` +
+        `Directory tree (1 level up from ${oneLevelsUp}):\n${tree}${tidFilesContent}`,
+    );
+  }
+});
+
+Then(
+  'file {string} should not exist in {string}',
+  async function(this: ApplicationWorld, fileName: string, simpleDirectoryPath: string) {
+    // Replace {tmpDir} with wiki test root (not wiki subfolder)
+    let directoryPath = simpleDirectoryPath.replace('{tmpDir}', getWikiTestRootPath(this));
+
+    // Resolve symlinks on all platforms to handle sub-wikis correctly
+    if (await fs.pathExists(directoryPath)) {
+      try {
+        directoryPath = fs.realpathSync(directoryPath);
+      } catch {
+        // If realpathSync fails, continue with the original path
+      }
+    }
+
+    const filePath = path.join(directoryPath, fileName);
+
+    try {
+      await backOff(
+        async () => {
+          if (!(await fs.pathExists(filePath))) {
+            return;
+          }
+          throw new Error('File still exists');
+        },
+        BACKOFF_OPTIONS,
+      );
+    } catch {
+      throw new Error(
+        `File "${fileName}" should not exist but was found in directory: ${directoryPath}`,
+      );
+    }
+  },
+);
+
+/**
+ * Verify that a workspace in settings.json has a specific property set to a specific value
+ */
+Then('settings.json should have workspace {string} with {string} set to {string}', async function(
+  this: ApplicationWorld,
+  workspaceName: string,
+  propertyName: string,
+  expectedValue: string,
+) {
+  await backOff(
+    async () => {
+      if (!await fs.pathExists(getSettingsPath(this))) {
+        throw new Error(`settings.json not found at ${getSettingsPath(this)}`);
+      }
+
+      type SettingsFile = { workspaces?: Record<string, IWorkspace> } & Record<string, unknown>;
+      const settings = await fs.readJson(getSettingsPath(this)) as SettingsFile;
+
+      if (!settings.workspaces) {
+        throw new Error('No workspaces found in settings.json');
+      }
+
+      // Find the workspace by name (check both settings.json and tidgi.config.json)
+      let workspace: IWorkspace | undefined;
+      for (const ws of Object.values(settings.workspaces)) {
+        if (ws.name === workspaceName) {
+          workspace = ws;
+          break;
+        }
+        // Also check tidgi.config.json for wiki workspaces
+        if (isWikiWorkspace(ws)) {
+          try {
+            const tidgiConfigPath = path.join(ws.wikiFolderLocation, 'tidgi.config.json');
+            if (await fs.pathExists(tidgiConfigPath)) {
+              const tidgiConfig = await fs.readJson(tidgiConfigPath) as { name?: string };
+              if (tidgiConfig.name === workspaceName) {
+                workspace = ws;
+                break;
+              }
+            }
+          } catch {
+            // Ignore
+          }
+        }
+      }
+      if (!workspace) {
+        throw new Error(`Workspace "${workspaceName}" not found in settings.json or tidgi.config.json`);
+      }
+
+      // Get the property value - check both settings.json and tidgi.config.json
+      let actualValue = (workspace as unknown as Record<string, unknown>)[propertyName];
+
+      // If not found in settings.json, check tidgi.config.json for wiki workspaces
+      if (actualValue === undefined && isWikiWorkspace(workspace)) {
+        try {
+          const tidgiConfigPath = path.join(workspace.wikiFolderLocation, 'tidgi.config.json');
+          if (await fs.pathExists(tidgiConfigPath)) {
+            const tidgiConfig = await fs.readJson(tidgiConfigPath) as Record<string, unknown>;
+            actualValue = tidgiConfig[propertyName];
+          }
+        } catch {
+          // Ignore errors reading tidgi.config.json
+        }
+      }
+
+      // Convert expected value to appropriate type for comparison
+      let parsedExpectedValue: unknown = expectedValue;
+      if (expectedValue === 'true') parsedExpectedValue = true;
+      else if (expectedValue === 'false') parsedExpectedValue = false;
+      else if (expectedValue === 'null') parsedExpectedValue = null;
+      else if (!isNaN(Number(expectedValue))) parsedExpectedValue = Number(expectedValue);
+
+      if (actualValue !== parsedExpectedValue) {
+        throw new Error(`Expected "${propertyName}" to be "${expectedValue}" but got "${String(actualValue)}"`);
+      }
+    },
+    BACKOFF_OPTIONS,
+  );
+});
+
+/**
+ * Verify that a workspace in settings.json has a property array that contains a specific value
+ */
+Then('settings.json should have workspace {string} with {string} containing {string}', async function(
+  this: ApplicationWorld,
+  workspaceName: string,
+  propertyName: string,
+  expectedValue: string,
+) {
+  await backOff(
+    async () => {
+      if (!await fs.pathExists(getSettingsPath(this))) {
+        throw new Error(`settings.json not found at ${getSettingsPath(this)}`);
+      }
+
+      type SettingsFile = { workspaces?: Record<string, IWorkspace> } & Record<string, unknown>;
+      const settings = await fs.readJson(getSettingsPath(this)) as SettingsFile;
+
+      if (!settings.workspaces) {
+        throw new Error('No workspaces found in settings.json');
+      }
+
+      // Find the workspace by name (check both settings.json and tidgi.config.json)
+      let workspace: IWorkspace | undefined;
+      for (const ws of Object.values(settings.workspaces)) {
+        if (ws.name === workspaceName) {
+          workspace = ws;
+          break;
+        }
+        // Also check tidgi.config.json for wiki workspaces
+        if (isWikiWorkspace(ws)) {
+          try {
+            const tidgiConfigPath = path.join(ws.wikiFolderLocation, 'tidgi.config.json');
+            if (await fs.pathExists(tidgiConfigPath)) {
+              const tidgiConfig = await fs.readJson(tidgiConfigPath) as { name?: string };
+              if (tidgiConfig.name === workspaceName) {
+                workspace = ws;
+                break;
+              }
+            }
+          } catch {
+            // Ignore
+          }
+        }
+      }
+      if (!workspace) {
+        throw new Error(`Workspace "${workspaceName}" not found in settings.json or tidgi.config.json`);
+      }
+
+      // Get the property value - check both settings.json and tidgi.config.json
+      let actualValue = (workspace as unknown as Record<string, unknown>)[propertyName];
+
+      // If not found in settings.json, check tidgi.config.json for wiki workspaces
+      if (actualValue === undefined && isWikiWorkspace(workspace)) {
+        try {
+          const tidgiConfigPath = path.join(workspace.wikiFolderLocation, 'tidgi.config.json');
+          if (await fs.pathExists(tidgiConfigPath)) {
+            const tidgiConfig = await fs.readJson(tidgiConfigPath) as Record<string, unknown>;
+            actualValue = tidgiConfig[propertyName];
+          }
+        } catch {
+          // Ignore errors reading tidgi.config.json
+        }
+      }
+
+      if (!Array.isArray(actualValue)) {
+        throw new Error(`Expected "${propertyName}" to be an array but got "${typeof actualValue}"`);
+      }
+
+      if (!actualValue.includes(expectedValue)) {
+        throw new Error(`Expected "${propertyName}" to contain "${expectedValue}" but got [${actualValue.join(', ')}]`);
+      }
+    },
+    BACKOFF_OPTIONS,
+  );
+});
+
+/**
+ * Cleanup function for sub-wiki routing test
+ * Removes test workspaces created during the test
+ */
+async function clearSubWikiRoutingTestData(scenarioRoot?: string) {
+  const root = scenarioRoot || process.cwd();
+  const settingsPath = path.resolve(root, 'userData-test', 'settings', 'settings.json');
+  const wikiTestWikiPath = path.resolve(root, 'wiki-test');
+
+  if (!(await fs.pathExists(settingsPath))) return;
+
+  type SettingsFile = { workspaces?: Record<string, IWorkspace> } & Record<string, unknown>;
+  const settings = await fs.readJson(settingsPath) as SettingsFile;
+  const workspaces: Record<string, IWorkspace> = settings.workspaces ?? {};
+  const filtered: Record<string, IWorkspace> = {};
+
+  // Remove test workspaces (SubWiki, etc from sub-wiki routing tests)
+  for (const id of Object.keys(workspaces)) {
+    const ws = workspaces[id];
+    const name = ws.name;
+    // Keep workspaces that don't match test patterns
+    if (name !== 'SubWiki') {
+      filtered[id] = ws;
+    }
+  }
+
+  await fs.writeJson(settingsPath, { ...settings, workspaces: filtered }, { spaces: 2 });
+
+  // Remove test wiki folders from filesystem
+  const testFolders = ['SubWiki'];
+  for (const folder of testFolders) {
+    const wikiPath = path.join(wikiTestWikiPath, folder);
+    if (await fs.pathExists(wikiPath)) {
+      await fs.remove(wikiPath);
+    }
+  }
+}
+
+/**
+/**
+ * Generic step to wait for any log marker
+ * @param description - Human-readable description of what we're waiting for (comes first for readability)
+ * @param marker - The test-id marker to look for in logs
+ *
+ * This searches in all log files (TidGi-, wiki-, and any workspace-named logs)
+ *
+ * CRITICAL WARNING FOR ALL AI AGENTS:
+ * DO NOT MODIFY TIMEOUT VALUES! NEVER!
+ * If a test times out, it means there is a REAL BUG to fix, not a timeout to increase.
+ * Timeout is a symptom, not the disease. Fix the root cause.
+ * Read docs/Testing.md section "Key E2E Testing Patterns" point 6 before attempting any changes.
+ * Maximum allowed timeouts: Local 5s, CI 10s (exactly 2x local, no more)
+ */
+Then('I wait for {string} log marker {string}', async function(this: ApplicationWorld, description: string, marker: string) {
+  // Search in all log files using '*' pattern (includes TidGi-, wiki-, and workspace-named logs like WikiRenamed-)
+  await waitForLogMarker(this, marker, `Log marker "${marker}" not found. Expected: ${description}`, HEAVY_LOG_MARKER_WAIT_TIMEOUT, '*');
+});
+
+/**
+ * Wait for multiple log markers in sequence using a DataTable
+ * This is useful when you need to wait for several related log markers (e.g., after workspace restart)
+ * Example usage:
+ *   Then I wait for log markers:
+ *     | description                      | marker                                   |
+ *     | main wiki restarted              | [test-id-MAIN_WIKI_RESTARTED_AFTER_SUBWIKI] |
+ *     | watch-fs stabilized after restart| [test-id-WATCH_FS_STABILIZED]            |
+ *     | SSE ready after restart          | [test-id-SSE_READY]                      |
+ */
+Then('I wait for log markers:', async function(this: ApplicationWorld, dataTable: DataTable) {
+  const rows = dataTable.raw();
+  const dataRows = parseDataTableRows(rows, 2);
+
+  if (dataRows[0]?.length !== 2) {
+    throw new Error('Table must have exactly 2 columns: | description | marker |');
+  }
+  const errors: string[] = [];
+
+  // Wait for markers sequentially to maintain order
+  for (const [description, marker] of dataRows) {
+    try {
+      await waitForLogMarker(this, marker, `Log marker "${marker}" not found. Expected: ${description}`, HEAVY_LOG_MARKER_WAIT_TIMEOUT, '*');
+    } catch (error) {
+      errors.push(`Failed to find log marker "${marker}" (${description}): ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Failed to wait for log markers:\n${errors.join('\n')}`);
+  }
+});
+
+/**
+ * Convenience step for waiting for SSE and watch-fs to be ready
+ * This is commonly used in Background sections
+ */
+Then('I wait for SSE and watch-fs to be ready', async function(this: ApplicationWorld) {
+  await waitForLogMarker(this, '[test-id-WATCH_FS_STABILIZED]', 'watch-fs did not become ready within timeout', HEAVY_LOG_MARKER_WAIT_TIMEOUT);
+  try {
+    await waitForLogMarker(this, '[test-id-SSE_READY]', 'SSE backend did not become ready within timeout', HEAVY_LOG_MARKER_WAIT_TIMEOUT);
+  } catch (error) {
+    // Gather SSE diagnostics from the BrowserView to aid debugging
+    let diagnostics = 'no diagnostics';
+    if (this.app) {
+      try {
+        const { executeTiddlyWikiCode } = await import('../supports/webContentsViewHelper');
+        diagnostics = await executeTiddlyWikiCode(
+          this.app,
+          `JSON.stringify({
+          hasSyncadaptor: !!$tw.syncadaptor,
+          sseSubscribed: !!$tw.syncadaptor?.sseSubscribed,
+          hasObservables: !!window.observables,
+          hasWikiObservables: !!window.observables?.wiki,
+          hasGetWikiChangeObserver: typeof window.observables?.wiki?.getWikiChangeObserver$ === 'function',
+        })`,
+        ) ?? 'executeTiddlyWikiCode returned null';
+      } catch (diagError) {
+        diagnostics = `diagnostics failed: ${String(diagError)}`;
+      }
+    }
+    throw new Error(`${(error as Error).message}. SSE diagnostics: ${diagnostics}`);
+  }
+});
+
+/**
+ * Remove log lines containing specific text from all log files (TidGi- and wiki- prefixed).
+ * This is useful when you need to wait for a log marker that may have appeared earlier in the scenario,
+ * and you want to ensure you're waiting for a new occurrence of that marker.
+ * @param marker - The text pattern to remove from log files
+ */
+When('I clear log lines containing {string}', async function(this: ApplicationWorld, marker: string) {
+  const logDirectory = getLogPath(this);
+  if (!fs.existsSync(logDirectory)) return;
+
+  // Clear from both TidGi- and wiki- prefixed log files
+  const logFiles = fs.readdirSync(logDirectory).filter(f => (f.startsWith('TidGi-') || f.startsWith('wiki')) && f.endsWith('.log'));
+
+  for (const logFile of logFiles) {
+    const logPath = path.join(logDirectory, logFile);
+    try {
+      const content = fs.readFileSync(logPath, 'utf-8');
+      // Remove lines containing the marker
+      const filteredLines = content.split('\n').filter(line => !line.includes(marker));
+      fs.writeFileSync(logPath, filteredLines.join('\n'), 'utf-8');
+    } catch (error) {
+      console.warn(`Failed to clear log lines from ${logFile}:`, error);
+    }
+  }
+});
+
+/**
+ * Convenience steps for waiting for tiddler operations detected by watch-fs
+ * These use dynamic markers that include the tiddler name
+ */
+Then('I wait for tiddler {string} to be added by watch-fs', async function(this: ApplicationWorld, tiddlerTitle: string) {
+  await waitForLogMarker(
+    this,
+    `[test-id-WATCH_FS_TIDDLER_ADDED] ${tiddlerTitle}`,
+    `Tiddler "${tiddlerTitle}" was not added within timeout`,
+  );
+});
+
+Then('I wait for tiddler {string} to be updated by watch-fs', async function(this: ApplicationWorld, tiddlerTitle: string) {
+  await waitForLogMarker(
+    this,
+    `[test-id-WATCH_FS_TIDDLER_UPDATED] ${tiddlerTitle}`,
+    `Tiddler "${tiddlerTitle}" was not updated within timeout`,
+  );
+});
+
+Then('I wait for tiddler {string} to be deleted by watch-fs', async function(this: ApplicationWorld, tiddlerTitle: string) {
+  await waitForLogMarker(
+    this,
+    `[test-id-WATCH_FS_TIDDLER_DELETED] ${tiddlerTitle}`,
+    `Tiddler "${tiddlerTitle}" was not deleted within timeout`,
+  );
+});
+
+// File manipulation step definitions
+
+When('I create file {string} with content:', async function(this: ApplicationWorld, filePath: string, content: string) {
+  // Replace {tmpDir} placeholder with actual temp directory
+  const actualPath = filePath.replace('{tmpDir}', getWikiTestRootPath(this));
+
+  // Ensure directory exists
+  await fs.ensureDir(path.dirname(actualPath));
+
+  // Write the file with the provided content
+  await fs.writeFile(actualPath, content, 'utf-8');
+});
+
+When('I modify file {string} to contain {string}', async function(this: ApplicationWorld, filePath: string, content: string) {
+  // Replace {tmpDir} placeholder with actual temp directory
+  let actualPath = filePath.replace('{tmpDir}', getWikiTestRootPath(this));
+
+  // If path doesn't contain {tmpDir} and is relative, resolve to scenario-specific directory
+  if (!filePath.includes('{tmpDir}') && !path.isAbsolute(filePath)) {
+    actualPath = path.resolve(process.cwd(), 'test-artifacts', this.scenarioSlug, filePath);
+  }
+
+  // Read the existing file
+  let fileContent = await fs.readFile(actualPath, 'utf-8');
+
+  // TiddlyWiki .tid files have a format: headers followed by blank line and text
+  // We need to preserve headers and only modify the text part
+  // Split by both \n and \r\n to handle different line endings
+  const lines = fileContent.split(/\r?\n/);
+
+  const blankLineIndex = lines.findIndex(line => line.trim() === '');
+
+  if (blankLineIndex >= 0) {
+    // File has headers and content separated by blank line
+    // Keep headers, replace text after blank line
+    const headers = lines.slice(0, blankLineIndex + 1);
+
+    // Note: We intentionally do NOT update the modified field here
+    // This simulates a real user editing the file in an external editor,
+    // where the modified field would not be automatically updated
+    // The echo prevention mechanism should detect this as a real external change
+    // because the content changed but the modified timestamp stayed the same
+
+    fileContent = [...headers, content].join('\n');
+  } else {
+    // File has only headers, no content yet (no blank line separator)
+    // We need to add the blank line separator and the content
+    // Again, we don't modify the modified field
+    fileContent = [...lines, '', content].join('\n');
+  }
+
+  // Write the modified content back
+  await fs.writeFile(actualPath, fileContent, 'utf-8');
+});
+
+When('I modify file {string} to contain:', async function(this: ApplicationWorld, filePath: string, content: string) {
+  // Replace {tmpDir} placeholder with actual temp directory
+  let actualPath = filePath.replace('{tmpDir}', getWikiTestRootPath(this));
+
+  // If path doesn't contain {tmpDir} and is relative, resolve to scenario-specific directory
+  if (!filePath.includes('{tmpDir}') && !path.isAbsolute(filePath)) {
+    actualPath = path.resolve(process.cwd(), 'test-artifacts', this.scenarioSlug, filePath);
+  }
+
+  // For multi-line content with headers, just write the content directly
+  // (assumes the content includes all headers and structure)
+  await fs.writeFile(actualPath, content, 'utf-8');
+});
+
+When('I delete file {string}', async function(this: ApplicationWorld, filePath: string) {
+  // Replace {tmpDir} placeholder with actual temp directory
+  const actualPath = filePath.replace('{tmpDir}', getWikiTestRootPath(this));
+
+  // Delete the file
+  await fs.remove(actualPath);
+});
+
+When('I delete file {string} in {string}', async function(this: ApplicationWorld, fileName: string, simpleDirectoryPath: string) {
+  // Replace {tmpDir} with wiki test root
+  const directoryPath = simpleDirectoryPath.replace('{tmpDir}', getWikiTestRootPath(this));
+  const filePath = path.join(directoryPath, fileName);
+
+  // Delete the file
+  await fs.remove(filePath);
+});
+
+When('I rename file {string} to {string}', async function(this: ApplicationWorld, oldPath: string, newPath: string) {
+  // Replace {tmpDir} placeholder with actual temp directory
+  const actualOldPath = oldPath.replace('{tmpDir}', getWikiTestRootPath(this));
+  const actualNewPath = newPath.replace('{tmpDir}', getWikiTestRootPath(this));
+
+  // Ensure the target directory exists
+  await fs.ensureDir(path.dirname(actualNewPath));
+
+  // Rename/move the file
+  await fs.rename(actualOldPath, actualNewPath);
+});
+
+When('I modify file {string} to add field {string}', async function(this: ApplicationWorld, filePath: string, fieldLine: string) {
+  // Replace {tmpDir} placeholder with actual temp directory
+  const actualPath = filePath.replace('{tmpDir}', getWikiTestRootPath(this));
+
+  // Read the existing file
+  const fileContent = await fs.readFile(actualPath, 'utf-8');
+
+  // TiddlyWiki .tid files have headers followed by a blank line and text
+  // We need to add the field to the headers section
+  const lines = fileContent.split('\n');
+  const blankLineIndex = lines.findIndex(line => line.trim() === '');
+
+  if (blankLineIndex >= 0) {
+    // Insert the new field before the blank line
+    lines.splice(blankLineIndex, 0, fieldLine);
+  } else {
+    // No blank line found, add to the beginning
+    lines.unshift(fieldLine);
+  }
+
+  // Write the modified content back
+  await fs.writeFile(actualPath, lines.join('\n'), 'utf-8');
+});
+
+When('I open edit workspace window for workspace with name {string}', async function(this: ApplicationWorld, workspaceName: string) {
+  if (!this.app) {
+    throw new Error('Application is not available');
+  }
+
+  // Use backOff to retry finding the workspace, as tidgi.config.json might be written asynchronously
+  let targetWorkspaceId: string | undefined;
+
+  // Use extended backoff for workspace lookup as app may take time to sync settings
+  const extendedBackoffOptions = {
+    numOfAttempts: 15,
+    startingDelay: 500,
+    timeMultiple: 1.5,
+  };
+
+  await backOff(
+    async () => {
+      // Read settings file to get workspace info
+      const settings = await fs.readJson(getSettingsPath(this)) as { workspaces?: Record<string, IWorkspace> };
+      const workspaces: Record<string, IWorkspace> = settings.workspaces ?? {};
+
+      // Find workspace by name or by wikiFolderLocation (in case name is removed from settings.json)
+      for (const [id, workspace] of Object.entries(workspaces)) {
+        if (workspace.pageType) continue; // Skip page workspaces
+
+        // Try to match by name (if available in settings.json)
+        if (workspace.name === workspaceName) {
+          targetWorkspaceId = id;
+          return;
+        }
+
+        // Try to read name from tidgi.config.json
+        if (isWikiWorkspace(workspace)) {
+          if (path.basename(workspace.wikiFolderLocation) === workspaceName) {
+            targetWorkspaceId = id;
+            return;
+          }
+
+          try {
+            const tidgiConfigPath = path.join(workspace.wikiFolderLocation, 'tidgi.config.json');
+            if (await fs.pathExists(tidgiConfigPath)) {
+              const tidgiConfig = await fs.readJson(tidgiConfigPath) as { name?: string };
+              if (tidgiConfig.name === workspaceName) {
+                targetWorkspaceId = id;
+                return;
+              }
+            }
+          } catch {
+            // Ignore errors reading tidgi.config.json
+          }
+        }
+      }
+
+      // If not found, throw error to trigger retry
+      throw new Error(`Workspace "${workspaceName}" not found yet, will retry...`);
+    },
+    extendedBackoffOptions,
+  );
+
+  if (!targetWorkspaceId) {
+    throw new Error(`No workspace found with name: ${workspaceName}`);
+  }
+
+  const mainWindow = await this.getWindow('main');
+  if (!mainWindow) {
+    throw new Error('Main window not found');
+  }
+
+  await mainWindow.evaluate(async ({ workspaceId, windowName }: { workspaceId: string; windowName: string }) => {
+    const serviceWindow = (window as Window & {
+      service: {
+        window: {
+          open: (windowName: string, meta: { workspaceID: string }, config: { recreate: boolean }) => Promise<void>;
+        };
+      };
+    }).service.window;
+    const openWindow = serviceWindow.open;
+    await openWindow(windowName, { workspaceID: workspaceId }, { recreate: true });
+  }, { workspaceId: targetWorkspaceId, windowName: WindowNames.editWorkspace });
+
+  // Wait for the edit workspace window to appear
+  const success = await this.waitForWindowCondition(
+    'editWorkspace',
+    (window) => window !== undefined && !window.isClosed(),
+  );
+
+  if (!success) {
+    throw new Error('Edit workspace window did not appear after opening');
+  }
+});
+
+When('I create a new wiki workspace with name {string}', async function(this: ApplicationWorld, workspaceName: string) {
+  if (!this.app) {
+    throw new Error('Application is not available');
+  }
+
+  // Construct the full wiki path
+  const wikiPath = path.join(getWikiTestRootPath(this), workspaceName);
+
+  // Create the wiki folder using the template (same filter as createWiki in wiki/index.ts)
+  const templatePath = path.join(process.cwd(), 'template', 'wiki');
+  await fs.copy(templatePath, wikiPath, {
+    filter: (source: string) => {
+      // Skip .git folder
+      if (source.endsWith('.git')) return false;
+      // Skip template's tidgi.config.json so new wiki gets a clean name
+      if (path.basename(source) === 'tidgi.config.json') return false;
+      return true;
+    },
+  });
+
+  // Initialize fresh git repository for the new wiki using dugite
+  try {
+    // Initialize git repository with master branch
+    await gitExec(['init', '-b', 'master'], wikiPath);
+
+    // Configure git user
+    await gitExec(['config', 'user.email', 'test@tidgi.test'], wikiPath);
+    await gitExec(['config', 'user.name', 'TidGi Test'], wikiPath);
+
+    // Add all files and create initial commit
+    await gitExec(['add', '.'], wikiPath);
+    await gitExec(['commit', '-m', 'Initial commit'], wikiPath);
+  } catch (error) {
+    // Git initialization is not critical for the test, continue anyway
+    console.log('Git initialization skipped:', (error as Error).message);
+  }
+
+  // Now create workspace configuration
+  await this.app.evaluate(async ({ BrowserWindow }, { wikiName, wikiFullPath }: { wikiName: string; wikiFullPath: string }) => {
+    const windows = BrowserWindow.getAllWindows();
+    const mainWindow = windows.find(win => !win.isDestroyed() && win.webContents && win.webContents.getURL().includes('index.html'));
+
+    if (!mainWindow) {
+      throw new Error('Main window not found');
+    }
+
+    // Call workspace service to create new workspace
+    // Safely pass parameters using JSON serialization to avoid string interpolation vulnerability
+    await mainWindow.webContents.executeJavaScript(`
+      (async () => {
+        await window.service.workspace.create({
+          name: ${JSON.stringify(wikiName)},
+          wikiFolderLocation: ${JSON.stringify(wikiFullPath)},
+          isSubWiki: false,
+          storageService: 'local',
+        });
+      })();
+    `);
+  }, { wikiName: workspaceName, wikiFullPath: wikiPath });
+
+  // Wait for workspace to appear in UI
+  await this.app.evaluate(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  });
+});
+
+/**
+ * Restart a workspace wiki worker
+ */
+When('I restart workspace {string}', async function(this: ApplicationWorld, workspaceName: string) {
+  if (!this.app) throw new Error('Application is not available');
+
+  const result = await this.app.evaluate(async ({ BrowserWindow }, name: string) => {
+    const windows = BrowserWindow.getAllWindows();
+    const mainWindow = windows.find(win => !win.isDestroyed() && win.webContents?.getURL().includes('index.html'));
+    if (!mainWindow) throw new Error('Main window not found');
+
+    return await mainWindow.webContents.executeJavaScript(`
+      (async () => {
+        var backslash = String.fromCharCode(92);
+        function getFolderName(loc) {
+          if (!loc) return undefined;
+          var i = Math.max(loc.lastIndexOf('/'), loc.lastIndexOf(backslash));
+          return i >= 0 ? loc.substring(i + 1) : loc;
+        }
+        var all = await window.service.workspace.getWorkspacesAsList();
+        var workspace = all.find(function(ws) {
+          if (ws.pageType) return false;
+          if (ws.name === ${JSON.stringify(name)}) return true;
+          return getFolderName('wikiFolderLocation' in ws ? ws.wikiFolderLocation : '') === ${JSON.stringify(name)};
+        }) || null;
+        if (!workspace) return { success: false, error: 'Workspace not found' };
+        try {
+          await window.service.wiki.restartWiki(workspace);
+          // Reload view to show fresh content from disk after wiki restart
+          await window.service.view.reloadViewsWebContents(workspace.id);
+          return { success: true };
+        } catch (error) {
+          return { success: false, error: error.message };
+        }
+      })();
+    `) as Promise<{ success: boolean; error?: string }>;
+  }, workspaceName);
+
+  if (!result.success) throw new Error(`Failed to restart: ${result.error ?? 'Unknown error'}`);
+});
+
+/**
+ * Update workspace settings dynamically after app launch
+ * This is useful for enabling features like enableFileSystemWatch in tests
+ *
+ * Usage:
+ * When I update workspace "wiki" settings:
+ *   | property                 | value |
+ *   | enableFileSystemWatch    | true  |
+ *   | syncOnInterval           | false |
+ */
+When('I update workspace {string} settings:', async function(this: ApplicationWorld, workspaceName: string, dataTable: DataTable) {
+  if (!this.app) {
+    throw new Error('Application is not available');
+  }
+
+  // Parse settings from DataTable
+  const rows = dataTable.hashes();
+  const settingsUpdate: Record<string, unknown> = {};
+
+  for (const row of rows) {
+    const { property, value } = row;
+
+    // Convert value to appropriate type
+    let parsedValue: unknown = value;
+    if (value === 'true') parsedValue = true;
+    else if (value === 'false') parsedValue = false;
+    else if (value === 'null') parsedValue = null;
+    else if (!isNaN(Number(value))) parsedValue = Number(value);
+    // Try to parse as JSON array
+    else if (value.startsWith('[') && value.endsWith(']')) {
+      try {
+        parsedValue = JSON.parse(value);
+      } catch {
+        // Keep as string if JSON parse fails
+      }
+    }
+
+    settingsUpdate[property] = parsedValue;
+  }
+
+  // Helper JS snippet for renderer-side workspace lookup by name or folder basename.
+  // Uses String.fromCharCode(92) for backslash to avoid template-literal escaping issues.
+  const findWorkspaceJS = (targetName: string) => `
+    (async () => {
+      var backslash = String.fromCharCode(92);
+      function getFolderName(loc) {
+        if (!loc) return undefined;
+        var i1 = loc.lastIndexOf('/');
+        var i2 = loc.lastIndexOf(backslash);
+        var i = Math.max(i1, i2);
+        return i >= 0 ? loc.substring(i + 1) : loc;
+      }
+      var workspaces = await window.service.workspace.getWorkspacesAsList();
+      var found = workspaces.find(function(ws) {
+        if (ws.pageType) return false;
+        if (ws.name === ${JSON.stringify(targetName)}) return true;
+        var fn = 'wikiFolderLocation' in ws ? getFolderName(ws.wikiFolderLocation) : undefined;
+        return fn === ${JSON.stringify(targetName)};
+      });
+      if (!found && ${JSON.stringify(targetName)} === 'wiki') {
+        found = workspaces.find(function(ws) {
+          return !ws.pageType && !ws.isSubWiki;
+        });
+      }
+      return found || null;
+    })()
+  `;
+
+  // Resolve workspace from the live renderer to avoid stale IDs from the settings file.
+  const runtimeWorkspace = await this.app.evaluate(async ({ BrowserWindow }, name: string) => {
+    const windows = BrowserWindow.getAllWindows();
+    const mainWindow = windows.find(win => !win.isDestroyed() && win.webContents && win.webContents.getURL().includes('index.html'));
+    if (!mainWindow) return null;
+    return await mainWindow.webContents.executeJavaScript(name) as Promise<IWorkspace | null>;
+  }, findWorkspaceJS(workspaceName));
+
+  if (!runtimeWorkspace) {
+    throw new Error(`No workspace found with name: ${workspaceName}`);
+  }
+  const targetWorkspaceId = runtimeWorkspace.id;
+
+  // If enableFileSystemWatch is being changed, check current state BEFORE updating
+  let watchFsCurrentlyEnabled = false;
+  if ('enableFileSystemWatch' in settingsUpdate) {
+    watchFsCurrentlyEnabled = isWikiWorkspace(runtimeWorkspace) && (runtimeWorkspace.enableFileSystemWatch ?? false);
+  }
+
+  // Update workspace settings via main window
+  await this.app.evaluate(async ({ BrowserWindow }, { workspaceId, updates }: { workspaceId: string; updates: Record<string, unknown> }) => {
+    const windows = BrowserWindow.getAllWindows();
+    const mainWindow = windows.find(win => !win.isDestroyed() && win.webContents && win.webContents.getURL().includes('index.html'));
+    if (!mainWindow) throw new Error('Main window not found');
+    await mainWindow.webContents.executeJavaScript(`
+      (async () => {
+        await window.service.workspace.update(${JSON.stringify(workspaceId)}, ${JSON.stringify(updates)});
+      })();
+    `);
+  }, { workspaceId: targetWorkspaceId, updates: settingsUpdate });
+
+  // Wait for settings to propagate
+  await this.app.evaluate(async () => {
+    await new Promise(resolve => setTimeout(resolve, 500));
+  });
+
+  // If enableFileSystemWatch or enableHTTPAPI was changed, we need to restart the wiki
+  const needsRestart = 'enableFileSystemWatch' in settingsUpdate || 'enableHTTPAPI' in settingsUpdate;
+  if (needsRestart) {
+    // Ensure the wiki worker has fully started before attempting restart,
+    // otherwise stopWiki() may miss the worker (not yet registered) and startWiki()
+    // will race with the in-progress boot, causing DoubleWikiInstanceError (E-4).
+    // Use default 10s timeout (not LOG_MARKER_WAIT_TIMEOUT which is 3s) because
+    // wiki worker initialization can take several seconds.
+    await waitForLogMarker(this, '[test-id-WIKI_WORKER_STARTED]', 'wiki worker not started before restart attempt');
+
+    // Wait for watch-fs to stabilize before restarting to avoid nsfw crash.
+    // If watch-fs was already enabled OR is being enabled in this update, the wiki worker
+    // may have started nsfw already (it reads updated settings on start). We must wait for
+    // it to fully initialize before calling terminateWorker, otherwise the native nsfw
+    // polling thread may try to callback into a destroyed JS environment (FATAL napi error).
+    if (watchFsCurrentlyEnabled || settingsUpdate.enableFileSystemWatch === true) {
+      await waitForLogMarker(this, '[test-id-WATCH_FS_STABILIZED]', 'watch-fs not ready before restart', LOG_MARKER_WAIT_TIMEOUT);
+    }
+
+    // Clear log markers to ensure we wait for fresh ones after restart
+    await clearLogLinesContaining(this, '[test-id-WATCH_FS_STABILIZED]');
+
+    // Restart the wiki using the runtime-resolved workspace ID
+    const restartResult = await this.app.evaluate(async ({ BrowserWindow }, workspaceId: string) => {
+      const windows = BrowserWindow.getAllWindows();
+      const mainWindow = windows.find(win => !win.isDestroyed() && win.webContents && win.webContents.getURL().includes('index.html'));
+      if (!mainWindow) throw new Error('Main window not found');
+      const result = await mainWindow.webContents.executeJavaScript(`
+        (async () => {
+          var workspace = await window.service.workspace.get(${JSON.stringify(workspaceId)});
+          if (!workspace) return { success: false, error: 'Workspace not found for id=' + ${JSON.stringify(workspaceId)} };
+          try {
+            await window.service.wiki.restartWiki(workspace);
+            return { success: true };
+          } catch (error) {
+            return { success: false, error: error.message };
+          }
+        })();
+      `) as Promise<{ success: boolean; error?: string }>;
+      return result;
+    }, targetWorkspaceId);
+
+    if (!restartResult.success) {
+      throw new Error(`Failed to restart wiki: ${restartResult.error ?? 'Unknown error'}`);
+    }
+
+    // Wait for wiki to restart and watch-fs to stabilize
+    // Only wait if enableFileSystemWatch was set to true
+    if (settingsUpdate.enableFileSystemWatch === true) {
+      await waitForLogMarker(this, '[test-id-WATCH_FS_STABILIZED]', 'watch-fs did not stabilize after restart', LOG_MARKER_WAIT_TIMEOUT);
+    }
+  }
+});
+
+/**
+ * Clean up hibernation test data - remove wiki2 folder and its workspace config
+ */
+async function clearHibernationTestData(scenarioRoot?: string) {
+  const root = scenarioRoot || process.cwd();
+  const wikiTestRootPath = path.resolve(root, 'wiki-test');
+  const settingsPath = path.resolve(root, 'userData-test', 'settings', 'settings.json');
+  const wiki2Path = path.join(wikiTestRootPath, 'wiki2');
+
+  // Remove wiki2 folder
+  if (await fs.pathExists(wiki2Path)) {
+    try {
+      await fs.remove(wiki2Path);
+    } catch (error) {
+      console.warn('Failed to remove wiki2 folder in hibernation cleanup:', error);
+    }
+  }
+
+  // Remove wiki2 workspace config from settings.json
+  if (await fs.pathExists(settingsPath)) {
+    try {
+      type SettingsFile = { workspaces?: Record<string, IWorkspace> } & Record<string, unknown>;
+      const settings = await fs.readJson(settingsPath) as SettingsFile;
+      if (settings.workspaces) {
+        // Find and remove wiki2 workspace by folder location
+        const wiki2WorkspaceId = Object.keys(settings.workspaces).find(id => {
+          const workspace = settings.workspaces?.[id];
+          return workspace && 'wikiFolderLocation' in workspace && workspace.wikiFolderLocation === wiki2Path;
+        });
+
+        if (wiki2WorkspaceId && settings.workspaces) {
+          delete settings.workspaces[wiki2WorkspaceId];
+          await fs.writeJson(settingsPath, settings, { spaces: 2 });
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to remove wiki2 workspace config in hibernation cleanup:', error);
+    }
+  }
+}
+
+/**
+ * Setup a sub-wiki with optional settings and multiple pre-existing tiddlers.
+ * This creates the sub-wiki folder, tiddler files, and settings configuration
+ * so the app loads everything on first startup.
+ *
+ * @param subWikiName - Name of the sub-wiki folder
+ * @param tagName - Tag name for the sub-wiki routing
+ * @param options - Optional settings: includeTagTree, fileSystemPathFilter
+ * @param tiddlers - Array of {title, tags, content} objects from DataTable.hashes()
+ */
+async function setupSubWiki(
+  scenarioSlug: string,
+  subWikiName: string,
+  tagName: string,
+  options: {
+    includeTagTree?: boolean;
+    fileSystemPathFilter?: string;
+  },
+  tiddlers: Record<string, string>[],
+) {
+  const wikiTestRootPath = path.resolve(process.cwd(), 'test-artifacts', scenarioSlug, 'wiki-test');
+  const wikiTestWikiPath = path.resolve(wikiTestRootPath, 'wiki');
+  const settingsPath = path.resolve(process.cwd(), 'test-artifacts', scenarioSlug, 'userData-test', 'settings', 'settings.json');
+  const settingsDirectory = path.dirname(settingsPath);
+
+  // 1. Create sub-wiki folder
+  const subWikiPath = path.join(wikiTestRootPath, subWikiName);
+  await fs.ensureDir(subWikiPath);
+
+  // 2. Create tiddler files
+  const now = new Date();
+  const timestamp = now.toISOString().replace(/[-:T.Z]/g, '').slice(0, 17);
+
+  for (const tiddler of tiddlers) {
+    const tiddlerFilePath = path.join(subWikiPath, `${tiddler.title}.tid`);
+    const tiddlerFileContent = `created: ${timestamp}
+modified: ${timestamp}
+tags: ${tiddler.tags}
+title: ${tiddler.title}
+
+${tiddler.content}
+`;
+    await fs.writeFile(tiddlerFilePath, tiddlerFileContent, 'utf-8');
+  }
+
+  // 2.5. Create tidgi.config.json for sub-wiki (so step can find workspace by name)
+  const subWikiTidgiConfigPath = path.join(subWikiPath, 'tidgi.config.json');
+  await fs.writeJson(subWikiTidgiConfigPath, { name: subWikiName }, { spaces: 2 });
+
+  // 3. Create main wiki folder structure (if not exists)
+  const mainWikiPath = wikiTestWikiPath;
+  const templatePath = path.join(process.cwd(), 'template', 'wiki');
+  if (!await fs.pathExists(mainWikiPath)) {
+    await fs.copy(templatePath, mainWikiPath);
+    // Remove .git from template
+    await fs.remove(path.join(mainWikiPath, '.git')).catch(() => {/* ignore */});
+  }
+
+  // 4. Update settings.json with both main wiki and sub-wiki workspaces
+  await fs.ensureDir(settingsDirectory);
+  let settings: { workspaces?: Record<string, IWorkspace> } & Record<string, unknown> = {};
+  if (await fs.pathExists(settingsPath)) {
+    settings = await fs.readJson(settingsPath) as { workspaces?: Record<string, IWorkspace> };
+  }
+
+  // Generate unique IDs
+  const mainWikiId = 'main-wiki-test-id';
+  const subWikiId = `sub-wiki-${subWikiName}-test-id`;
+
+  // Create main wiki workspace if not exists
+  if (!settings.workspaces) {
+    settings.workspaces = {};
+  }
+
+  // Check if main wiki already exists
+  const existingMainWiki = Object.values(settings.workspaces).find(
+    ws => 'wikiFolderLocation' in ws && ws.wikiFolderLocation === mainWikiPath,
+  );
+
+  const mainWikiIdToUse = existingMainWiki?.id ?? mainWikiId;
+
+  if (!existingMainWiki) {
+    settings.workspaces[mainWikiId] = {
+      id: mainWikiId,
+      name: 'wiki',
+      wikiFolderLocation: mainWikiPath,
+      isSubWiki: false,
+      storageService: 'local',
+      backupOnInterval: true,
+      excludedPlugins: [],
+      enableHTTPAPI: false,
+      includeTagTree: false,
+      fileSystemPathFilterEnable: false,
+      fileSystemPathFilter: null,
+      tagNames: [],
+      userName: '',
+      order: 0,
+      port: 5212,
+      readOnlyMode: false,
+      tokenAuth: false,
+      tagName: null,
+      mainWikiToLink: null,
+      mainWikiID: null,
+      enableFileSystemWatch: true,
+      lastNodeJSArgv: [],
+      homeUrl: `tidgi://${mainWikiId}`,
+      gitUrl: null,
+      active: true,
+      hibernated: false,
+      hibernateWhenUnused: false,
+      lastUrl: null,
+      picturePath: null,
+      syncOnInterval: false,
+      syncOnStartup: true,
+      transparentBackground: false,
+    } as unknown as IWorkspace;
+  }
+
+  // Create sub-wiki workspace with optional settings
+  settings.workspaces[subWikiId] = {
+    id: subWikiId,
+    name: subWikiName,
+    wikiFolderLocation: subWikiPath,
+    isSubWiki: true,
+    mainWikiToLink: mainWikiPath,
+    mainWikiID: mainWikiIdToUse,
+    storageService: 'local',
+    backupOnInterval: true,
+    excludedPlugins: [],
+    enableHTTPAPI: false,
+    includeTagTree: options.includeTagTree ?? false,
+    fileSystemPathFilterEnable: Boolean(options.fileSystemPathFilter),
+    fileSystemPathFilter: options.fileSystemPathFilter ?? null,
+    tagNames: [tagName],
+    userName: '',
+    order: 1,
+    port: 5213,
+    readOnlyMode: false,
+    tokenAuth: false,
+    enableFileSystemWatch: true,
+    lastNodeJSArgv: [],
+    homeUrl: `tidgi://${subWikiId}`,
+    gitUrl: null,
+    active: false,
+    hibernated: false,
+    hibernateWhenUnused: false,
+    lastUrl: null,
+    picturePath: null,
+    syncOnInterval: false,
+    syncOnStartup: true,
+    transparentBackground: false,
+  } as unknown as IWorkspace;
+
+  await fs.writeJson(settingsPath, settings, { spaces: 2 });
+}
+
+/**
+ * Setup a sub-wiki with tiddlers (basic, no special options)
+ */
+Given('I setup a sub-wiki {string} with tag {string} and tiddlers:', async function(
+  this: ApplicationWorld,
+  subWikiName: string,
+  tagName: string,
+  dataTable: DataTable,
+) {
+  const rows = dataTable.hashes();
+  await setupSubWiki(this.scenarioSlug, subWikiName, tagName, {}, rows);
+});
+
+/**
+ * Setup a sub-wiki with includeTagTree enabled and tiddlers
+ */
+Given('I setup a sub-wiki {string} with tag {string} and includeTagTree enabled and tiddlers:', async function(
+  this: ApplicationWorld,
+  subWikiName: string,
+  tagName: string,
+  dataTable: DataTable,
+) {
+  const rows = dataTable.hashes();
+  await setupSubWiki(this.scenarioSlug, subWikiName, tagName, { includeTagTree: true }, rows);
+});
+
+/**
+ * Setup a sub-wiki with custom filter and tiddlers
+ */
+Given('I setup a sub-wiki {string} with tag {string} and filter {string} and tiddlers:', async function(
+  this: ApplicationWorld,
+  subWikiName: string,
+  tagName: string,
+  filter: string,
+  dataTable: DataTable,
+) {
+  const rows = dataTable.hashes();
+  await setupSubWiki(this.scenarioSlug, subWikiName, tagName, { fileSystemPathFilter: filter }, rows);
+});
+
+export { clearHibernationTestData, clearSubWikiRoutingTestData, clearTestIdLogs };
+
+/**
+ * Clear all test-id markers from log files to ensure fresh logs for next test phase
+ */
+async function clearTestIdLogs(world: ApplicationWorld) {
+  const logPath = getLogPath(world);
+
+  if (!await fs.pathExists(logPath)) {
+    return;
+  }
+
+  const logFiles = await fs.readdir(logPath);
+
+  for (const file of logFiles) {
+    if (file.endsWith('.log')) {
+      const filePath = path.join(logPath, file);
+      try {
+        const content = await fs.readFile(filePath, 'utf-8');
+        // Remove all lines containing [test-id-
+        const lines = content.split('\n');
+        const filteredLines = lines.filter(line => !line.includes('[test-id-'));
+        await fs.writeFile(filePath, filteredLines.join('\n'), 'utf-8');
+      } catch (error) {
+        console.warn(`Failed to clear test-id markers from ${file}:`, error);
+      }
+    }
+  }
+}
+
+When('I clear test-id markers from logs', async function(this: ApplicationWorld) {
+  await clearTestIdLogs(this);
+});
+
+/**
+ * Clear log lines containing a specific marker from all log files.
+ * This is more targeted than clearTestIdLogs - it only removes lines matching the marker.
+ * @param marker - The text pattern to remove from log files
+ */
+async function clearLogLinesContaining(world: ApplicationWorld, marker: string) {
+  const logDirectory = getLogPath(world);
+  if (!await fs.pathExists(logDirectory)) return;
+
+  const logFiles = (await fs.readdir(logDirectory)).filter(f => f.endsWith('.log'));
+
+  for (const logFile of logFiles) {
+    const logFilePath = path.join(logDirectory, logFile);
+    try {
+      const content = await fs.readFile(logFilePath, 'utf-8');
+      const filteredLines = content.split('\n').filter(line => !line.includes(marker));
+      await fs.writeFile(logFilePath, filteredLines.join('\n'), 'utf-8');
+    } catch (error) {
+      console.warn(`Failed to clear log lines from ${logFile}:`, error);
+    }
+  }
+}
+
+/**
+ * Verify JSON file contains expected values using JSONPath
+ * Example:
+ *   Then file "config-test-wiki/tidgi.config.json" should contain JSON with:
+ *     | jsonPath       | value          |
+ *     | $.name         | ConfigTestWiki |
+ *     | $.port         | 5300           |
+ */
+Then('file {string} should contain JSON with:', async function(this: ApplicationWorld, fileName: string, dataTable: DataTable) {
+  const rows = dataTable.hashes();
+  const filePath = path.join(getWikiTestRootPath(this), fileName);
+
+  await backOff(
+    async () => {
+      if (!await fs.pathExists(filePath)) {
+        throw new Error(`File not found: ${filePath}`);
+      }
+
+      const content = await fs.readFile(filePath, 'utf-8');
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const json = JSON.parse(content);
+
+      for (const row of rows) {
+        const jsonPath = row.jsonPath;
+        const expectedValue = row.value;
+
+        // Simple JSONPath implementation for basic paths like $.name, $.port
+        const pathParts = jsonPath.replace(/^\$\./, '').split('.');
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        let actualValue = json;
+
+        for (const part of pathParts) {
+          if (actualValue && typeof actualValue === 'object' && part in actualValue) {
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+            actualValue = actualValue[part];
+          } else {
+            throw new Error(`Path ${jsonPath} not found in JSON`);
+          }
+        }
+
+        // Convert to string for comparison
+        const actualValueString = String(actualValue);
+        if (actualValueString !== expectedValue) {
+          throw new Error(`Expected ${jsonPath} to be "${expectedValue}", but got "${actualValueString}"`);
+        }
+      }
+    },
+    BACKOFF_OPTIONS,
+  );
+});
+
+/**
+ * Remove workspace without deleting files (via API)
+ */
+When('I remove workspace {string} keeping files', async function(this: ApplicationWorld, workspaceName: string) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  if (!await fs.pathExists(getSettingsPath(this))) {
+    throw new Error(`Settings file not found at ${getSettingsPath(this)}`);
+  }
+
+  // Read settings file to get workspace ID
+  const settings = await fs.readJson(getSettingsPath(this)) as { workspaces?: Record<string, IWorkspace> };
+  const workspaces: Record<string, IWorkspace> = settings.workspaces ?? {};
+
+  // Find workspace by name - check both settings.json and tidgi.config.json
+  let targetWorkspaceId: string | undefined;
+  for (const [id, workspace] of Object.entries(workspaces)) {
+    if (workspace.pageType) continue; // Skip page workspaces
+
+    let workspaceName_: string | undefined = workspace.name;
+
+    // If name is not in settings.json, try to read from tidgi.config.json
+    if (!workspaceName_ && isWikiWorkspace(workspace)) {
+      try {
+        const tidgiConfigPath = path.join(workspace.wikiFolderLocation, 'tidgi.config.json');
+        if (await fs.pathExists(tidgiConfigPath)) {
+          const tidgiConfig = await fs.readJson(tidgiConfigPath) as { name?: string };
+          workspaceName_ = tidgiConfig.name;
+        }
+      } catch {
+        // Ignore errors reading tidgi.config.json
+      }
+    }
+
+    if (workspaceName_ === workspaceName) {
+      targetWorkspaceId = id;
+      break;
+    }
+  }
+
+  if (!targetWorkspaceId) {
+    throw new Error(`No workspace found with name: ${workspaceName}`);
+  }
+
+  // Remove workspace via API (without showing dialog, directly call remove)
+  await this.app.evaluate(async ({ BrowserWindow }, { workspaceId }: { workspaceId: string }) => {
+    const windows = BrowserWindow.getAllWindows();
+    const mainWindow = windows.find(win => !win.isDestroyed() && win.webContents && win.webContents.getURL().includes('index.html'));
+
+    if (!mainWindow) {
+      throw new Error('Main window not found');
+    }
+
+    // Stop wiki and remove workspace without deleting files
+    await mainWindow.webContents.executeJavaScript(`
+      (async () => {
+        await window.service.wiki.stopWiki(${JSON.stringify(workspaceId)});
+        await window.service.workspaceView.removeWorkspaceView(${JSON.stringify(workspaceId)});
+        await window.service.workspace.remove(${JSON.stringify(workspaceId)});
+      })();
+    `);
+  }, { workspaceId: targetWorkspaceId });
+
+  // Wait for removal to propagate
+  await this.app.evaluate(async () => {
+    await new Promise(resolve => setTimeout(resolve, 500));
+  });
+});
+
+/**
+ * Open workspace in a new window using TidGi's built-in API
+ */
+When('I open workspace {string} in a new window', async function(this: ApplicationWorld, workspaceName: string) {
+  if (!this.app) {
+    throw new Error('Application not launched');
+  }
+
+  // Get workspace by name and open in new window
+  const success = await this.app.evaluate(
+    async ({ BrowserWindow }, name: string) => {
+      const windows = BrowserWindow.getAllWindows();
+      const mainWindow = windows.find(win => !win.isDestroyed() && win.webContents && win.webContents.getURL().includes('index.html'));
+
+      if (!mainWindow) {
+        return { success: false, error: 'Main window not found' };
+      }
+
+      try {
+        // Execute code in renderer to get workspace and open new window
+        const result = await mainWindow.webContents.executeJavaScript(`
+          (async () => {
+            try {
+              console.log('[test] Getting workspaces list...');
+              const workspaces = await window.service.workspace.getWorkspacesAsList();
+              console.log('[test] Found workspaces:', workspaces.length);
+              const workspace = workspaces.find(w => w.name === ${JSON.stringify(name)});
+              if (!workspace) {
+                return { success: false, error: 'Workspace not found: ' + ${JSON.stringify(name)} };
+              }
+              console.log('[test] Found workspace:', workspace.name, workspace.id);
+              const lastUrl = workspace.lastUrl || workspace.homeUrl;
+              console.log('[test] Opening window with URL:', lastUrl);
+              await window.service.workspaceView.openWorkspaceWindowWithView(workspace, { uri: lastUrl });
+              console.log('[test] Window opened successfully');
+              return { success: true };
+            } catch (err) {
+              console.error('[test] Error:', err);
+              return { success: false, error: err instanceof Error ? err.message : String(err) };
+            }
+          })();
+        `) as { error?: string; success: boolean };
+        return result;
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+    workspaceName,
+  );
+
+  if (!success || !success.success) {
+    throw new Error(`Failed to open workspace in new window: ${success?.error || 'unknown error'}`);
+  }
+
+  // Wait for the new window to be created and ready
+  await this.app.evaluate(async () => {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  });
+});

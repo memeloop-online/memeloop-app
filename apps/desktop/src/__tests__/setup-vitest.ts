@@ -1,0 +1,209 @@
+import 'reflect-metadata';
+import '@testing-library/jest-dom/vitest';
+import { configure } from '@testing-library/dom';
+import './__mocks__/window';
+
+// DOM-specific setup – only runs in jsdom environment (when document is available).
+// In node environment (e.g. features/**/*.test.ts with environmentMatchGlobs), these are skipped.
+if (typeof document !== 'undefined') {
+  configure({ computedStyleSupportsPseudoElements: false });
+
+  // Fix for JSDOM getComputedStyle issue - strip unsupported second parameter
+  const originalGetComputedStyle = window.getComputedStyle;
+  window.getComputedStyle = (elt) => originalGetComputedStyle.call(window, elt);
+
+  // JSDOM / Node doesn't implement requestIdleCallback — provide a simple polyfill
+  if (typeof window.requestIdleCallback === 'undefined') {
+    (window as unknown as Record<string, unknown>).requestIdleCallback = (
+      callback: IdleRequestCallback,
+      _options?: IdleRequestOptions,
+    ) =>
+      window.setTimeout(() => {
+        callback({ timeRemaining: () => 50, didTimeout: false } as IdleDeadline);
+      }, 0);
+    (window as unknown as Record<string, unknown>).cancelIdleCallback = (id: number) => {
+      window.clearTimeout(id);
+    };
+  }
+}
+
+import './__mocks__/services-container';
+import { vi } from 'vitest';
+vi.mock('react-i18next', () => import('./__mocks__/react-i18next'));
+vi.mock('@services/libs/log', () => import('./__mocks__/services-log'));
+vi.mock('@services/libs/i18n', () => import('./__mocks__/services-i18n'));
+vi.mock('@services/libs/workerAdapter', async () => {
+  const rxjs = await import('rxjs');
+  return {
+    createWorkerProxy: () => ({
+      ping: async () => ({ ok: true }),
+      createAgent: async () => ({ conversationId: 'test-conversation-id' }),
+      sendMessage: async () => ({ ok: true }),
+      cancelAgent: async () => ({ ok: true }),
+      subscribeToUpdates: () => new rxjs.Observable(() => undefined),
+    }),
+    handleWorkerMessages: () => undefined,
+  };
+});
+vi.mock('@services/agentInstance/memeloopWorkerFactory', () => ({
+  default: () => ({
+    on: () => undefined,
+    off: () => undefined,
+    once: () => undefined,
+    postMessage: () => undefined,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    terminate: () => undefined,
+  }),
+}));
+
+// Mock electron-settings to provide a proper settings object
+vi.mock('electron-settings', () => {
+  const settingsStore: Record<string, unknown> = {};
+  return {
+    default: {
+      getSync: () => settingsStore,
+      get: async (key?: string) => (key ? settingsStore[key] : settingsStore),
+      set: async (keyOrValue: string | Record<string, unknown>, value?: unknown) => {
+        if (typeof keyOrValue === 'string') {
+          settingsStore[keyOrValue] = value;
+        } else {
+          Object.assign(settingsStore, keyOrValue);
+        }
+      },
+      file: () => 'userData-test/settings/settings.json',
+    },
+  };
+});
+
+/**
+ * Mock the `electron` module for testing
+ *
+ * CRITICAL: This mock is essential for proper test environment isolation.
+ *
+ * Why this mock is necessary:
+ * 1. In real Electron, app.setPath() and app.getPath() manage application directories
+ * 2. appPaths.ts calls app.setPath('userData', 'userData-test') in test environment
+ * 3. Without a proper mock, these calls would be no-ops and paths would be wrong
+ * 4. This leads to test databases/settings being created in wrong directories
+ *
+ * What this mock provides:
+ * - Functional app.setPath() that actually stores path values
+ * - Functional app.getPath() that retrieves stored paths
+ * - Proper test isolation by ensuring userData goes to 'userData-test/'
+ *
+ * This mock enables appPaths.ts to work correctly in tests, ensuring:
+ * - CACHE_DATABASE_FOLDER = 'userData-test/cache-database/'
+ * - SETTINGS_FOLDER = 'userData-test/settings/'
+ * - No pollution of project root directory during tests
+ */
+vi.mock('electron', () => {
+  // Create a mock that can store and retrieve userData path
+  let userDataPath = process.cwd(); // default
+
+  const mockApp = {
+    setPath: (key: string, value: string) => {
+      if (key === 'userData') {
+        userDataPath = value;
+      }
+    },
+    getPath: (key: string) => {
+      if (key === 'userData') return userDataPath;
+      if (key === 'home') return process.cwd();
+      return process.cwd();
+    },
+    // Provide version and name used by ContextService
+    getVersion: () => '0.0.0',
+    name: 'TidGi',
+  };
+
+  return {
+    default: {
+      app: mockApp,
+    },
+    // Also provide named export `app` to satisfy `import { app } from 'electron'`
+    app: mockApp,
+  };
+});
+
+// Import appPaths to ensure the path setup is executed during test initialization
+// This is critical - without this import, appPaths.ts won't be evaluated and
+// app.setPath('userData', 'userData-test') won't be called!
+import '@/constants/appPaths';
+
+// Some build-time globals (injected by bundlers) are not defined in test env.
+// Provide them here to avoid ReferenceError when modules reference them.
+(global as unknown as Record<string, unknown>).MAIN_WINDOW_VITE_DEV_SERVER_URL = undefined;
+
+if (typeof document !== 'undefined') {
+  /**
+   * Mock matchMedia and other DOM APIs for components using autocomplete search functionality
+   *
+   * Why this mock is necessary:
+   * - @algolia/autocomplete-js uses matchMedia() to detect mobile devices for responsive behavior
+   * - @algolia/autocomplete-js also tries to access document/window event properties that don't exist in JSDOM
+   * - JSDOM test environment doesn't provide matchMedia() API by default
+   * - Without this mock, components using TemplateSearch or Search will throw errors
+   * - This enables CreateNewAgentContent and other search-related components to render in tests
+   *
+   * Components that need this:
+   * - CreateNewAgentContent (uses TemplateSearch)
+   * - NewTabContent (uses Search)
+   * - Any component using Search.tsx or autocomplete functionality
+   */
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(), // deprecated
+      removeListener: vi.fn(), // deprecated
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+
+  // Mock document and window with comprehensive event handling for autocomplete components
+  Object.defineProperty(document, 'documentElement', {
+    writable: true,
+    value: Object.assign(document.documentElement || document.createElement('html'), {
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      mousedown: vi.fn(),
+      ontouchstart: vi.fn(),
+    }),
+  });
+
+  Object.defineProperty(document, 'body', {
+    writable: true,
+    value: Object.assign(document.body || document.createElement('body'), {
+      mousedown: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      ontouchstart: vi.fn(),
+    }),
+  });
+
+  // Enhanced window mock with comprehensive event support
+  Object.defineProperty(window, 'addEventListener', {
+    writable: true,
+    value: vi.fn(),
+  });
+
+  Object.defineProperty(window, 'removeEventListener', {
+    writable: true,
+    value: vi.fn(),
+  });
+
+  // Mock touch events for autocomplete
+  Object.defineProperty(window, 'ontouchstart', {
+    writable: true,
+    value: vi.fn(),
+  });
+
+  // Prevent unhandled promise rejections from autocomplete
+  window.addEventListener = vi.fn();
+  window.removeEventListener = vi.fn();
+}

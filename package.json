@@ -1,0 +1,12 @@
+{
+  "name": "memeloop-app",
+  "private": true,
+  "description": "MemeLoop App monorepo — desktop (Electron) + mobile (Expo)",
+  "license": "MIT",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "check": "pnpm -r run check",
+    "lint": "pnpm -r run lint",
+    "test:unit": "pnpm -r run test:unit"
+  }
+}

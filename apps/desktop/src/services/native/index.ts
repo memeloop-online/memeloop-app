@@ -1,0 +1,472 @@
+import { app, dialog, globalShortcut, ipcMain, MessageBoxOptions, shell, webContents } from 'electron';
+import fs from 'fs-extra';
+import { inject, injectable } from 'inversify';
+import path from 'path';
+import { Observable } from 'rxjs';
+
+import { NativeChannel } from '@/constants/channels';
+import { githubDesktopUrl } from '@/constants/urls';
+import { container } from '@services/container';
+import { getLoggerForLabel, logger } from '@services/libs/log';
+import { getLocalHostUrlWithActualIP, getUrlWithCorrectProtocol, replaceUrlPortWithSettingPort } from '@services/libs/url';
+import type { IPreferenceService } from '@services/preferences/interface';
+import serviceIdentifier from '@services/serviceIdentifier';
+import type { IWindowService } from '@services/windows/interface';
+import { WindowNames } from '@services/windows/WindowProperties';
+import type { IWorkspaceService } from '@services/workspaces/interface';
+import i18next from 'i18next';
+import { findEditorOrDefault, findGitGUIAppOrDefault, launchExternalEditor } from './externalApp';
+import type { INativeService, IPickDirectoryOptions } from './interface';
+import { getShortcutCallback, registerShortcutByKey } from './keyboardShortcutHelpers';
+import type { IProcessInfo } from './processInfo';
+import { reportErrorToGithubWithTemplates } from './reportError';
+
+@injectable()
+export class NativeService implements INativeService {
+  constructor(
+    @inject(serviceIdentifier.Window) private readonly windowService: IWindowService,
+    @inject(serviceIdentifier.Preference) private readonly preferenceService: IPreferenceService,
+  ) {
+    this.setupIpcHandlers();
+  }
+
+  public setupIpcHandlers(): void {
+    ipcMain.on(NativeChannel.showElectronMessageBoxSync, (event, options: MessageBoxOptions, windowName: WindowNames = WindowNames.main) => {
+      event.returnValue = this.showElectronMessageBoxSync(options, windowName);
+    });
+  }
+
+  public async initialize(): Promise<void> {
+    await this.initializeKeyboardShortcuts();
+  }
+
+  private async initializeKeyboardShortcuts(): Promise<void> {
+    const shortcuts = await this.getKeyboardShortcuts();
+    logger.debug('shortcuts from preferences', { shortcuts, function: 'initializeKeyboardShortcuts' });
+    // Register all saved shortcuts
+    for (const [key, shortcut] of Object.entries(shortcuts)) {
+      if (shortcut && shortcut.trim() !== '') {
+        try {
+          await registerShortcutByKey(key, shortcut);
+        } catch (error) {
+          logger.error(`Failed to register shortcut ${key}: ${shortcut}`, { error });
+        }
+      }
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters
+  public async registerKeyboardShortcut<T>(serviceName: keyof typeof serviceIdentifier, methodName: keyof T, shortcut: string): Promise<void> {
+    try {
+      const key = `${serviceName}.${String(methodName)}`;
+      logger.info('Starting keyboard shortcut registration', { key, shortcut, serviceName, methodName, function: 'NativeService.registerKeyboardShortcut' });
+
+      // Save to preferences
+      const preferenceService = container.get<IPreferenceService>(serviceIdentifier.Preference);
+      const shortcuts = await this.getKeyboardShortcuts();
+      logger.debug('Current shortcuts before registration', { shortcuts, function: 'NativeService.registerKeyboardShortcut' });
+
+      shortcuts[key] = shortcut;
+      await preferenceService.set('keyboardShortcuts', shortcuts);
+      logger.info('Saved shortcut to preferences', { key, shortcut, function: 'NativeService.registerKeyboardShortcut' });
+
+      // Register the shortcut
+      await registerShortcutByKey(key, shortcut);
+      logger.info('Successfully registered new keyboard shortcut', { key, shortcut, function: 'NativeService.registerKeyboardShortcut' });
+    } catch (error) {
+      logger.error('Failed to register keyboard shortcut', { error, serviceIdentifier: serviceName, methodName, shortcut, function: 'NativeService.registerKeyboardShortcut' });
+      throw error;
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters
+  public async unregisterKeyboardShortcut<T>(serviceName: keyof typeof serviceIdentifier, methodName: keyof T): Promise<void> {
+    try {
+      const key = `${serviceName}.${String(methodName)}`;
+
+      // Get the current shortcut string before removing from preferences
+      const shortcuts = await this.getKeyboardShortcuts();
+      const shortcutString = shortcuts[key];
+
+      // Remove from preferences
+      const preferenceService = container.get<IPreferenceService>(serviceIdentifier.Preference);
+      delete shortcuts[key];
+      await preferenceService.set('keyboardShortcuts', shortcuts);
+
+      // Unregister the shortcut using the actual shortcut string, not the key
+      if (shortcutString && globalShortcut.isRegistered(shortcutString)) {
+        globalShortcut.unregister(shortcutString);
+        logger.info('Successfully unregistered keyboard shortcut', { key, shortcutString });
+      } else {
+        logger.warn('Shortcut was not registered or shortcut string not found', { key, shortcutString });
+      }
+    } catch (error) {
+      logger.error('Failed to unregister keyboard shortcut', { error, serviceIdentifier: serviceName, methodName });
+      throw error;
+    }
+  }
+
+  public async getKeyboardShortcuts(): Promise<Record<string, string>> {
+    const preferences = this.preferenceService.getPreferences();
+    return preferences.keyboardShortcuts || {};
+  }
+
+  public async executeShortcutCallback(key: string): Promise<void> {
+    logger.debug('Frontend requested shortcut execution', { key, function: 'NativeService.executeShortcutCallback' });
+
+    const callback = getShortcutCallback(key);
+    if (callback) {
+      await callback();
+      logger.info('Successfully executed shortcut callback from frontend', { key, function: 'NativeService.executeShortcutCallback' });
+    } else {
+      logger.warn('No callback found for shortcut key from frontend', { key, function: 'NativeService.executeShortcutCallback' });
+    }
+  }
+
+  public async openInEditor(filePath: string, editorName?: string): Promise<boolean> {
+    // TODO: open vscode by default to speed up, support choose favorite editor later
+    let defaultEditor = await findEditorOrDefault('Visual Studio Code').catch(() => {});
+    if (defaultEditor === undefined) {
+      defaultEditor = await findEditorOrDefault(editorName);
+    }
+    if (defaultEditor !== undefined) {
+      await launchExternalEditor(filePath, defaultEditor);
+      return true;
+    }
+    return false;
+  }
+
+  public async openInGitGuiApp(filePath: string, editorName?: string): Promise<boolean> {
+    const defaultGitGui = await findGitGUIAppOrDefault(editorName);
+    if (defaultGitGui !== undefined) {
+      await launchExternalEditor(filePath, defaultGitGui);
+      return true;
+    }
+    await shell.openExternal(githubDesktopUrl);
+    return false;
+  }
+
+  public async openURI(uri: string, showItemInFolder = false): Promise<void> {
+    logger.debug('open called', {
+      function: 'open',
+      uri,
+      showItemInFolder,
+    });
+    if (showItemInFolder) {
+      shell.showItemInFolder(uri);
+    } else {
+      await shell.openExternal(uri);
+    }
+  }
+
+  public async openPath(filePath: string, showItemInFolder?: boolean): Promise<void> {
+    if (!filePath.trim()) {
+      return;
+    }
+    logger.debug('openPath called', {
+      function: 'openPath',
+      filePath,
+    });
+    if (path.isAbsolute(filePath)) {
+      if (showItemInFolder) {
+        shell.showItemInFolder(filePath);
+      } else {
+        const error = await shell.openPath(filePath);
+        if (error) {
+          throw new Error(error);
+        }
+      }
+    }
+  }
+
+  public async copyPath(fromFilePath: string, toFilePath: string, options?: { fileToDir?: boolean }): Promise<false | string> {
+    if (!fromFilePath.trim() || !toFilePath.trim()) {
+      logger.error('fromFilePath or toFilePath is empty', { fromFilePath, toFilePath, function: 'copyPath' });
+      return false;
+    }
+    if (!(await fs.exists(fromFilePath))) {
+      logger.error('fromFilePath not exists', { fromFilePath, toFilePath, function: 'copyPath' });
+      return false;
+    }
+    logger.debug('copyPath called', {
+      function: 'copyPath',
+      fromFilePath,
+      toFilePath,
+      options,
+    });
+    if (options?.fileToDir === true) {
+      await fs.ensureDir(toFilePath);
+      const fileName = path.basename(fromFilePath);
+      const copiedResultPath = path.join(toFilePath, fileName);
+      await fs.copy(fromFilePath, copiedResultPath);
+      return copiedResultPath;
+    }
+    await fs.copy(fromFilePath, toFilePath);
+    return toFilePath;
+  }
+
+  public async movePath(fromFilePath: string, toFilePath: string, options?: { fileToDir?: boolean }): Promise<false | string> {
+    if (!fromFilePath.trim() || !toFilePath.trim()) {
+      logger.error('fromFilePath or toFilePath is empty', { fromFilePath, toFilePath, function: 'movePath' });
+      return false;
+    }
+    if (!(await fs.exists(fromFilePath))) {
+      logger.error('fromFilePath not exists', { fromFilePath, toFilePath, function: 'movePath' });
+      return false;
+    }
+    logger.debug('movePath called', {
+      function: 'movePath',
+      fromFilePath,
+      toFilePath,
+      options,
+    });
+    try {
+      if (options?.fileToDir === true) {
+        const folderPath = path.dirname(toFilePath);
+        await fs.ensureDir(folderPath);
+      }
+      await fs.move(fromFilePath, toFilePath);
+      return toFilePath;
+    } catch (error) {
+      logger.error('movePath failed', { error, function: 'movePath' });
+      return false;
+    }
+  }
+
+  public executeZxScript$(_zxWorkerArguments: unknown, _workspaceID?: string): Observable<string> {
+    return new Observable<string>((observer) => {
+      observer.next('ZX script execution is not available in this version.\n');
+    });
+  }
+
+  public async showElectronMessageBox(options: Electron.MessageBoxOptions, windowName: WindowNames = WindowNames.main): Promise<Electron.MessageBoxReturnValue | undefined> {
+    const window = this.windowService.get(windowName);
+    if (window !== undefined) {
+      return await dialog.showMessageBox(window, options);
+    }
+  }
+
+  public showElectronMessageBoxSync(options: Electron.MessageBoxSyncOptions, windowName: WindowNames = WindowNames.main): number | undefined {
+    const window = this.windowService.get(windowName);
+    if (window !== undefined) {
+      return dialog.showMessageBoxSync(window, options);
+    }
+  }
+
+  public async pickDirectory(defaultPath?: string, options?: IPickDirectoryOptions): Promise<string[]> {
+    const dialogResult = await dialog.showOpenDialog({
+      properties: options?.allowOpenFile === true ? ['openDirectory', 'openFile'] : ['openDirectory'],
+      defaultPath,
+      filters: options?.filters,
+    });
+    if (!dialogResult.canceled && dialogResult.filePaths.length > 0) {
+      return dialogResult.filePaths;
+    }
+    if (dialogResult.canceled && defaultPath !== undefined) {
+      return [defaultPath];
+    }
+    return [];
+  }
+
+  public async pickFile(filters?: Electron.OpenDialogOptions['filters']): Promise<string[]> {
+    const dialogResult = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters,
+    });
+    if (!dialogResult.canceled && dialogResult.filePaths.length > 0) {
+      return dialogResult.filePaths;
+    }
+    return [];
+  }
+
+  public async mkdir(absoulutePath: string): Promise<void> {
+    await fs.mkdirp(absoulutePath);
+  }
+
+  public async saveBase64File(filePath: string, base64Data: string): Promise<boolean> {
+    try {
+      logger.debug('saveBase64File called', { filePath, function: 'saveBase64File' });
+      const directory = path.dirname(filePath);
+      await fs.ensureDir(directory);
+      // Convert base64 to buffer and write
+      const buffer = Buffer.from(base64Data, 'base64');
+      await fs.writeFile(filePath, buffer);
+      logger.debug('saveBase64File succeeded', { filePath, function: 'saveBase64File' });
+      return true;
+    } catch (error) {
+      logger.error('saveBase64File failed', { error, filePath, function: 'saveBase64File' });
+      return false;
+    }
+  }
+
+  public async quit(): Promise<void> {
+    app.quit();
+  }
+
+  public async log(level: string, message: string, meta?: Record<string, unknown>): Promise<void> {
+    logger.log(level, message, meta);
+  }
+
+  public async openNewGitHubIssue(error: Error): Promise<void> {
+    reportErrorToGithubWithTemplates(error);
+  }
+
+  public async getLocalHostUrlWithActualInfo(urlToReplace: string, workspaceID: string): Promise<string> {
+    let replacedUrl = await getLocalHostUrlWithActualIP(urlToReplace);
+    const workspaceService = container.get<IWorkspaceService>(serviceIdentifier.Workspace);
+    const workspace = await workspaceService.get(workspaceID);
+    if (workspace !== undefined && workspace.wikiFolderLocation !== undefined) {
+      replacedUrl = replaceUrlPortWithSettingPort(replacedUrl, workspace.port ?? 0);
+      replacedUrl = getUrlWithCorrectProtocol(workspace, replacedUrl);
+    }
+    return replacedUrl;
+  }
+
+  public async path(method: 'basename' | 'dirname' | 'join', pathString: string | undefined, ...paths: string[]): Promise<string | undefined> {
+    switch (method) {
+      case 'basename': {
+        if (typeof pathString === 'string') return path.basename(pathString);
+        break;
+      }
+      case 'dirname': {
+        if (typeof pathString === 'string') return path.dirname(pathString);
+        break;
+      }
+      case 'join': {
+        if (typeof pathString === 'string') return path.join(pathString, ...paths);
+        break;
+      }
+      default: {
+        break;
+      }
+    }
+  }
+
+  public async moveToTrash(filePath: string): Promise<boolean> {
+    if (!filePath?.trim?.()) {
+      logger.error('filePath is empty', { filePath, function: 'moveToTrash' });
+      return false;
+    }
+    logger.debug('moveToTrash called', {
+      function: 'moveToTrash',
+      filePath,
+    });
+    try {
+      await shell.trashItem(filePath);
+      return true;
+    } catch {
+      logger.debug('failed with original path, trying with decoded path', { function: 'moveToTrash' });
+      try {
+        const decodedPath = decodeURIComponent(filePath);
+        logger.debug('moveToTrash retry with decoded path', {
+          function: 'moveToTrash',
+          decodedPath,
+        });
+        await shell.trashItem(decodedPath);
+        return true;
+      } catch (error) {
+        logger.error('failed with decoded path', { error, filePath, function: 'moveToTrash' });
+      }
+      return false;
+    }
+  }
+
+  public formatFileUrlToAbsolutePath(urlWithFileProtocol: string): string {
+    logger.debug('formatting file URL to absolute path', { url: urlWithFileProtocol, function: 'formatFileUrlToAbsolutePath' });
+    let pathname = '';
+    let hostname = '';
+    try {
+      ({ hostname, pathname } = new URL(urlWithFileProtocol));
+    } catch {
+      pathname = urlWithFileProtocol.replace('file://', '').replace('open://', '');
+      logger.debug(`Parse URL failed, using fallback string replace`, { pathname, function: 'formatFileUrlToAbsolutePath' });
+    }
+    let filePath = decodeURIComponent(`${hostname}${pathname}`);
+    if (process.platform === 'win32' && filePath.startsWith('/')) {
+      filePath = filePath.substring(1);
+    }
+
+    if (fs.existsSync(filePath)) {
+      logger.debug('file found (direct path)', { filePath, function: 'formatFileUrlToAbsolutePath' });
+      return filePath;
+    }
+
+    const inTidGiAppAbsoluteFilePath = path.join(app.getAppPath(), '.webpack', 'renderer', filePath);
+    if (fs.existsSync(inTidGiAppAbsoluteFilePath)) {
+      logger.debug('file found (app relative)', { inTidGiAppAbsoluteFilePath, function: 'formatFileUrlToAbsolutePath' });
+      return inTidGiAppAbsoluteFilePath;
+    }
+
+    logger.warn('file not found in any location, returning original URL', { url: urlWithFileProtocol, filePath, function: 'formatFileUrlToAbsolutePath' });
+    return urlWithFileProtocol;
+  }
+
+  public async logFor(label: string, level: 'error' | 'warn' | 'info' | 'debug', message: string, meta?: Record<string, unknown>): Promise<void> {
+    const labeledLogger = getLoggerForLabel(label);
+    labeledLogger.log(level, message, meta);
+  }
+
+  public async getProcessInfo(): Promise<IProcessInfo> {
+    const mem = process.memoryUsage();
+    const toMB = (bytes: number): number => Math.round(bytes / 1024 / 1024);
+    // app.getAppMetrics() is synchronous and covers ALL Electron processes keyed by PID
+    const metricsMap = new Map<number, Electron.ProcessMetric>();
+    for (const metric of app.getAppMetrics()) {
+      metricsMap.set(metric.pid, metric);
+    }
+    const renderers = webContents.getAllWebContents()
+      .filter((c: Electron.WebContents) => !c.isDestroyed())
+      .map((c: Electron.WebContents) => {
+        const pid = c.getOSProcessId();
+        const metric = metricsMap.get(pid);
+        return {
+          pid,
+          title: c.getTitle().slice(0, 80),
+          type: c.getType(),
+          url: c.getURL().slice(0, 120),
+          isDestroyed: c.isDestroyed(),
+          private_KB: metric?.memory.privateBytes ?? -1,
+          workingSet_KB: metric?.memory.workingSetSize ?? -1,
+          cpu_percent: metric?.cpu.percentCPUUsage ?? -1,
+        };
+      });
+    return {
+      mainNode: {
+        pid: process.pid,
+        title: process.title,
+        rss_MB: toMB(mem.rss),
+        heapUsed_MB: toMB(mem.heapUsed),
+        heapTotal_MB: toMB(mem.heapTotal),
+        external_MB: toMB(mem.external),
+      },
+      renderers,
+    };
+  }
+
+  public startProcessMonitoring(): void {
+    logger.info('Process map (match PID in task manager Details tab)', {
+      mainNodePID: process.pid,
+      processTitle: process.title,
+    });
+    setInterval(async () => {
+      const info = await this.getProcessInfo();
+      logger.debug('Memory snapshot - main Node process', {
+        pid: info.mainNode.pid,
+        rss_MB: info.mainNode.rss_MB,
+        heapUsed_MB: info.mainNode.heapUsed_MB,
+        heapTotal_MB: info.mainNode.heapTotal_MB,
+        external_MB: info.mainNode.external_MB,
+      });
+      for (const renderer of info.renderers) {
+        logger.debug('Memory snapshot - renderer', {
+          pid: renderer.pid,
+          title: renderer.title,
+          type: renderer.type,
+          private_MB: renderer.private_KB > 0 ? Math.round(renderer.private_KB / 1024) : -1,
+          workingSet_MB: renderer.workingSet_KB > 0 ? Math.round(renderer.workingSet_KB / 1024) : -1,
+          cpu_percent: renderer.cpu_percent,
+        });
+      }
+    }, 30_000);
+  }
+}

@@ -1,0 +1,165 @@
+name: Release App
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
+      - ".vscode"
+  pull_request:
+    branches:
+      - master
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+      - ".vscode"
+
+concurrency:
+  group: release-ci-group
+  cancel-in-progress: true
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  build:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: ubuntu-latest
+            platform: linux
+            arch: arm64
+          # Use macos-15 (Intel) for x64 builds to get correct dugite git binaries
+          # Note: macos-15 is available from now until August 2027. https://github.com/actions/runner-images/issues/13046
+          - os: macos-15-intel
+            platform: mac
+            arch: x64
+          # Use macos-latest (ARM64) for arm64 builds
+          - os: macos-latest
+            platform: mac
+            arch: arm64
+          - os: windows-latest
+            platform: win
+            arch: x64
+          - os: windows-latest
+            platform: win
+            arch: arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - name: Install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+
+      # Windows specific: Set up CV dependency for pngquant-bin
+      # Also sets up MSVC (Microsoft Visual C++) compiler for native modules (nsfw, better-sqlite3)
+      - name: Set up CV dependency for pngquant-bin
+        if: matrix.platform == 'win'
+        uses: ilammy/msvc-dev-cmd@v1
+      # Install C++ build tools for native modules (Linux only)
+      # macOS: GitHub Actions runners come with Xcode Command Line Tools pre-installed
+      # Windows: MSVC is set up by msvc-dev-cmd action above
+      - name: Install build dependencies (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Install dependencies
+        run: pnpm install
+      - name: Rebuild native modules for Electron
+        run: pnpm exec electron-rebuild -f -w better-sqlite3,nsfw --arch=${{ matrix.arch }}
+      - name: Remove windows only deps
+        if: matrix.platform != 'win'
+        run: pnpm remove registry-js
+
+      - name: Build plugins
+        run: pnpm run build:plugin
+      - name: Make ${{ matrix.platform }} (${{ matrix.arch }})
+        run: |
+          pnpm exec electron-forge make --platform=${{ matrix.platform == 'mac' && 'darwin' || matrix.platform == 'win' && 'win32' || 'linux' }} --arch=${{ matrix.arch }}
+        env:
+          NODE_ENV: production
+          # Increase Node.js heap size to prevent OOM during build
+          NODE_OPTIONS: --max-old-space-size=8192
+          # macOS specific environment variables
+          APPLE_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_ID || '' }}
+          APPLE_ID_PASSWORD: ${{ matrix.platform == 'mac' && secrets.APPLE_ID_PASSWORD || '' }}
+          # Windows specific environment variables
+          CSC_LINK: ${{ matrix.platform == 'win' && secrets.WIN_CERT || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'win' && secrets.WIN_CERT_PASS || '' }}
+          # Common environment variables
+          CI: true
+          CI_PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
+          # Only need 1 set of analyzer reports (linux x64)
+          ANALYZE: ${{ matrix.platform == 'linux' && matrix.arch == 'x64' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Repackage macOS ZIP using ditto to preserve symlinks (cross-zip doesn't preserve symlinks properly on CI) To prevent dugite git binary symlink dereference issues
+      - name: Repackage macOS ZIP with ditto
+        if: matrix.platform == 'mac'
+        run: |
+          cd out/make/zip/darwin/${{ matrix.arch }}
+          ZIP_FILE=$(ls *.zip | head -1)
+          APP_NAME="TidGi.app"
+          # Extract the original zip
+          unzip -q "$ZIP_FILE" -d temp_extract
+          # Remove the original zip
+          rm "$ZIP_FILE"
+          # Repackage using ditto (preserves symlinks and macOS metadata)
+          ditto -ck --keepParent "temp_extract/$APP_NAME" "$ZIP_FILE"
+          # Cleanup
+          rm -rf temp_extract
+          echo "Repackaged $ZIP_FILE with ditto to preserve symlinks"
+
+      # Upload analyzer reports and packaged apps as workflow artifacts (only linux x64)
+      - name: Upload analyzer reports
+        if: matrix.platform == 'linux' && matrix.arch == 'x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: analyzer-reports-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            .vite/renderer/bundle-analyzer-renderer.html
+            .vite/main/bundle-analyzer-main.html
+          if-no-files-found: ignore
+
+      - name: Upload packaged apps
+        if: (matrix.platform == 'mac' && matrix.arch == 'x64') || (matrix.platform == 'win' && matrix.arch == 'x64')
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaged-apps-${{ matrix.platform }}-${{ matrix.arch }}
+          path: out/make/**
+          if-no-files-found: ignore
+
+      # Create Release (upload artifacts from all builds)
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            ${{ matrix.platform == 'win' && 'out/make/**/*.exe
+            out/make/**/*.msix
+            out/make/**/*.appx' || 'out/make/**/*' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Bundle analysis is handled by Vite configs when ANALYZE=true
