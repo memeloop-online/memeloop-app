@@ -136,7 +136,7 @@ export default (
       const dest = path.resolve(cwd, 'node_modules', dep);
       if (fs.existsSync(source)) {
         try {
-          fs.copySync(source, dest, { dereference: true, recursive: true, errorOnExist: false });
+          fs.copySync(source, dest, { dereference: true, errorOnExist: false });
           console.log(`  Copied ${dep}`);
         } catch {
           console.error(`  SKIP: failed to copy ${dep}`);
