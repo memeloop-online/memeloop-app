@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "MemeLoop Mobile",
+    "slug": "memeloop-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "memeloop",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#1a1a2e"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.memeloop.mobile"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#1a1a2e"
+      },
+      "package": "com.memeloop.mobile"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}
