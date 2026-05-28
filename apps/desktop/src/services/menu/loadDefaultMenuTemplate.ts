@@ -97,7 +97,14 @@ export function loadDefaultMenuTemplate(): DeferredMenuItemConstructorOptions[] 
     {
       label: () => i18n.t('Menu.Sync'),
       id: 'Sync',
-      submenu: [],
+      submenu: [
+        {
+          label: 'Remote Server Setup',
+          click: async () => {
+            await windowService.open(WindowNames.remoteSetup);
+          },
+        },
+      ],
     },
     {
       label: () => i18n.t('Menu.Window'),
