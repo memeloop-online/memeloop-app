@@ -14,6 +14,7 @@ export default {
   NativeService: Symbol.for('NativeService'),
   NotificationService: Symbol.for('NotificationService'),
   Preference: Symbol.for('Preference'),
+  RemoteSetup: Symbol.for('RemoteSetup'),
   RemoteTerminal: Symbol.for('RemoteTerminal'),
   Sync: Symbol.for('Sync'),
   SystemPreference: Symbol.for('SystemPreference'),

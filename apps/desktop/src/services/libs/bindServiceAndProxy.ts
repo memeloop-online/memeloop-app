@@ -86,6 +86,8 @@ import { ProviderRegistryService } from '../providerRegistry';
 import { type IProviderRegistryService, ProviderRegistryServiceIPCDescriptor } from '../providerRegistry/interface';
 import { RemoteTerminalService } from '../remoteTerminal';
 import { type IRemoteTerminalService, RemoteTerminalServiceIPCDescriptor } from '../remoteTerminal/interface';
+import { RemoteSetupService } from '../sshRemote/service';
+import { type IRemoteSetupService, RemoteSetupServiceIPCDescriptor } from '../sshRemote/interface';
 
 export function bindServiceAndProxy(): void {
   container
@@ -144,6 +146,10 @@ export function bindServiceAndProxy(): void {
   container
     .bind<IPreferenceService>(serviceIdentifier.Preference)
     .to(Preference)
+    .inSingletonScope();
+  container
+    .bind<IRemoteSetupService>(serviceIdentifier.RemoteSetup)
+    .to(RemoteSetupService)
     .inSingletonScope();
   container
     .bind<IRemoteTerminalService>(serviceIdentifier.RemoteTerminal)
@@ -244,6 +250,9 @@ export function bindServiceAndProxy(): void {
   const remoteTerminalService = container.get<IRemoteTerminalService>(
     serviceIdentifier.RemoteTerminal,
   );
+  const remoteSetupService = container.get<IRemoteSetupService>(
+    serviceIdentifier.RemoteSetup,
+  );
   const syncService = container.get<ISyncService>(serviceIdentifier.Sync);
   const systemPreferenceService = container.get<ISystemPreferenceService>(
     serviceIdentifier.SystemPreference,
@@ -289,6 +298,7 @@ export function bindServiceAndProxy(): void {
   registerProxy(notificationService, NotificationServiceIPCDescriptor);
   registerProxy(preferenceService, PreferenceServiceIPCDescriptor);
   registerProxy(remoteTerminalService, RemoteTerminalServiceIPCDescriptor);
+  registerProxy(remoteSetupService, RemoteSetupServiceIPCDescriptor);
   registerProxy(syncService, SyncServiceIPCDescriptor);
   registerProxy(systemPreferenceService, SystemPreferenceServiceIPCDescriptor);
   registerProxy(themeService, ThemeServiceIPCDescriptor);

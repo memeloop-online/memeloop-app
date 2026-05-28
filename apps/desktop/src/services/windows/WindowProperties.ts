@@ -30,6 +30,10 @@ export enum WindowNames {
    */
   remoteTerminal = 'remoteTerminal',
   /**
+   * Remote server setup wizard
+   */
+  remoteSetup = 'remoteSetup',
+  /**
    * Node management window for discovered/connected nodes
    */
   nodeManagement = 'nodeManagement',
@@ -104,6 +108,10 @@ export const windowDimension: Record<
     width: 1400,
     height: 900,
   },
+  [WindowNames.remoteSetup]: {
+    width: 900,
+    height: 700,
+  },
   [WindowNames.nodeManagement]: {
     width: 1200,
     height: 800,
@@ -143,6 +151,7 @@ export interface WindowMeta {
   [WindowNames.notifications]: undefined;
   [WindowNames.preferences]: IPreferenceWindowMeta;
   [WindowNames.remoteTerminal]: { nodeId?: string };
+  [WindowNames.remoteSetup]: undefined;
   [WindowNames.nodeManagement]: undefined;
   [WindowNames.subscription]: undefined;
   [WindowNames.spellcheck]: undefined;

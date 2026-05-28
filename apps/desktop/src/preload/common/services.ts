@@ -21,6 +21,7 @@ import { type INotificationService, NotificationServiceIPCDescriptor } from '@se
 import { type IPreferenceService, PreferenceServiceIPCDescriptor } from '@services/preferences/interface';
 import { type IProviderRegistryService, ProviderRegistryServiceIPCDescriptor } from '@services/providerRegistry/interface';
 import { type IRemoteTerminalService, RemoteTerminalServiceIPCDescriptor } from '@services/remoteTerminal/interface';
+import { type IRemoteSetupService, RemoteSetupServiceIPCDescriptor } from '@services/sshRemote/interface';
 import { type ISyncService, SyncServiceIPCDescriptor } from '@services/sync/interface';
 import { type ISystemPreferenceService, SystemPreferenceServiceIPCDescriptor } from '@services/systemPreferences/interface';
 import { type IThemeService, ThemeServiceIPCDescriptor } from '@services/theme/interface';
@@ -73,6 +74,9 @@ export const preference = createProxy<IPreferenceService>(
 export const remoteTerminal = createProxy<IRemoteTerminalService>(
   RemoteTerminalServiceIPCDescriptor,
 );
+export const sshRemote = createProxy<IRemoteSetupService>(
+  RemoteSetupServiceIPCDescriptor,
+);
 export const sync = createProxy<ISyncService>(SyncServiceIPCDescriptor);
 export const systemPreference = createProxy<ISystemPreferenceService>(
   SystemPreferenceServiceIPCDescriptor,
@@ -118,6 +122,7 @@ export const descriptors = {
   notification: NotificationServiceIPCDescriptor,
   preference: PreferenceServiceIPCDescriptor,
   remoteTerminal: RemoteTerminalServiceIPCDescriptor,
+  sshRemote: RemoteSetupServiceIPCDescriptor,
   sync: SyncServiceIPCDescriptor,
   systemPreference: SystemPreferenceServiceIPCDescriptor,
   theme: ThemeServiceIPCDescriptor,
