@@ -9,6 +9,7 @@ const Main = lazy(() => import('../pages/Main'));
 const DialogNotifications = lazy(() => import('./Notifications'));
 const DialogPreferences = lazy(() => import('./Preferences'));
 const RemoteTerminal = lazy(() => import('./RemoteTerminal'));
+const RemoteSetup = lazy(() => import('./RemoteSetup'));
 const NodeManagement = lazy(() => import('./NodeManagement'));
 const SpellcheckLanguages = lazy(() => import('./SpellcheckLanguages'));
 
@@ -39,6 +40,10 @@ export function Pages(): React.JSX.Element {
         <Route
           path={`/${WindowNames.remoteTerminal}`}
           component={RemoteTerminal}
+        />
+        <Route
+          path={`/${WindowNames.remoteSetup}`}
+          component={RemoteSetup}
         />
         <Route
           path={`/${WindowNames.nodeManagement}`}
