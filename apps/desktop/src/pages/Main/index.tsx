@@ -4,7 +4,7 @@ import { Suspense, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Route, Switch, useLocation } from 'wouter';
 
-import { ProjectSessionSidebar, type IProject, type ISession } from '@memeloop/ui';
+import { ProjectSessionSidebar, type IProject, type ISession } from '@memeloop/react-ui';
 
 import { ToolApprovalDialog } from '@/components/ToolApprovalDialog';
 import { PageType } from '@/constants/pageTypes';

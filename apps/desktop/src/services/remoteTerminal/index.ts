@@ -2,7 +2,7 @@ import { logger } from '@services/libs/log';
 import type { IMemeloopNodeService } from '@services/memeloopNode/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
 import { inject, injectable } from 'inversify';
-import type { TerminalFollowResult, TerminalSessionInfo } from 'memeloop-node/terminal';
+import type { TerminalFollowResult, TerminalSessionInfo } from 'memeloop-cli/terminal';
 import type { IRemoteTerminalService } from './interface';
 
 @injectable()

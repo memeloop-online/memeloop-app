@@ -104,8 +104,8 @@ export default (
       packagePathsToCopyDereferenced.push(['app-path', 'main']);
     }
 
-    console.log('Copy linked monorepo packages (memeloop, memeloop-node, @memeloop/protocol, @memeloop/ui, @memeloop/prompt-editor)');
-    const linkedPackages = ['memeloop', 'memeloop-node', '@memeloop/protocol', '@memeloop/ui', '@memeloop/prompt-editor'];
+    console.log('Copy linked monorepo packages (memeloop, memeloop-cli, @memeloop/protocol, @memeloop/react-ui, @memeloop/prompt-editor)');
+    const linkedPackages = ['memeloop', 'memeloop-cli', '@memeloop/protocol', '@memeloop/react-ui', '@memeloop/prompt-editor'];
     for (const pkgName of linkedPackages) {
       const source = path.resolve(projectRoot, 'node_modules', pkgName);
       const dest = path.resolve(cwd, 'node_modules', pkgName);
@@ -128,8 +128,8 @@ export default (
       }
     }
 
-    // Copy runtime deps that memeloop-node's CJS bundle requires at module level
-    console.log('Copying memeloop-node runtime dependencies');
+    // Copy runtime deps that memeloop-cli's CJS bundle requires at module level
+    console.log('Copying memeloop-cli runtime dependencies');
     const nodeRuntimeDeps = ['@ai-sdk/openai', '@ai-sdk/anthropic', '@ai-sdk/provider', '@ai-sdk/provider-utils'];
     for (const dep of nodeRuntimeDeps) {
       const source = path.resolve(projectRoot, 'node_modules', dep);

@@ -1,5 +1,5 @@
 import fs from 'fs-extra';
-import { CloudClient } from 'memeloop-node/auth';
+import { CloudClient } from 'memeloop-cli/auth';
 import { spawn } from 'node:child_process';
 import path from 'path';
 import type { ApplicationWorld } from '../stepDefinitions/application';

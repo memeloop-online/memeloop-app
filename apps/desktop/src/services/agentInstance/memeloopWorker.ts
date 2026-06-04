@@ -12,7 +12,7 @@ import taskAgents from './agentFrameworks/taskAgents.json';
 import { handleWorkerMessages } from '@services/libs/workerAdapter';
 
 import { ChatSyncEngine, onApprovalRequest, PeerNodeSyncAdapter, type PeerNodeTransport, resolveApproval, resolveQuestionAnswer } from 'memeloop';
-import type { IWikiManager, TiddlerFields } from 'memeloop-node';
+import type { IWikiManager, TiddlerFields } from 'memeloop-cli';
 import { TerminalSessionManager } from './terminal/sessionManager';
 
 const { parentPort } = require('worker_threads') as typeof import('worker_threads');
@@ -552,7 +552,7 @@ onApprovalRequest((request) => {
 const wikiManager = new DesktopTiddlyWikiManager();
 
 // Use persistent keypair-derived nodeId instead of random nanoid.
-// Lazy: initialized in ensureRuntimeInitialized when memeloop-node is available.
+// Lazy: initialized in ensureRuntimeInitialized when memeloop-cli is available.
 let localNodeId = `tidgi-desktop-${nanoid(8)}`;
 let noiseStaticKeyPair: { publicKey: Buffer; secretKey: Buffer } | undefined;
 const terminalManager = new TerminalSessionManager();
@@ -568,7 +568,7 @@ let runtimeInitPromise: Promise<void> | undefined;
 
 // ── Peer connection & sync engine (populated in ensureRuntimeInitialized) ──
 let peerConnectionManager:
-  | import('memeloop-node').PeerConnectionManager
+  | import('memeloop-cli').PeerConnectionManager
   | undefined;
 let chatSyncEngine: ChatSyncEngine | undefined;
 let syncTimerId: ReturnType<typeof setInterval> | undefined;
@@ -582,8 +582,8 @@ async function ensureRuntimeInitialized(): Promise<void> {
   }
 
   runtimeInitPromise = (async () => {
-    // Avoid worker module init crashes: load memeloop-node lazily.
-    const memeloopNode = await import('memeloop-node');
+    // Avoid worker module init crashes: load memeloop-cli lazily.
+    const memeloopNode = await import('memeloop-cli');
     const {
       createNodeRuntime,
       ToolRegistry,

@@ -20,7 +20,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ['monaco-editor'],
-    exclude: ['memeloop', 'memeloop-node', '@memeloop/protocol', '@memeloop/ui', '@memeloop/prompt-editor'],
+    exclude: ['memeloop', 'memeloop-cli', '@memeloop/protocol', '@memeloop/react-ui', '@memeloop/prompt-editor'],
   },
   build: {
     // Output to .vite/renderer for consistency

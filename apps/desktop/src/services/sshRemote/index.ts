@@ -92,7 +92,7 @@ export async function sshExec(host: SSHHost, command: string, timeoutMs = 30000)
  * Check if memeloop CLI is installed on a remote server
  */
 export async function checkRemoteMemeloop(host: SSHHost): Promise<{ installed: boolean; version?: string }> {
-  const result = await sshExec(host, 'memeloop-node --version 2>/dev/null || echo NOT_FOUND');
+  const result = await sshExec(host, 'memeloop --version 2>/dev/null || echo NOT_FOUND');
   if (result.exitCode !== 0 || result.stdout.includes('NOT_FOUND')) {
     return { installed: false };
   }
@@ -115,7 +115,7 @@ export async function installRemoteMemeloop(host: SSHHost, onProgress?: (msg: st
   }
 
   onProgress?.('Installing memeloop CLI...');
-  const result = await sshExec(host, 'npm install -g memeloop-node 2>&1', 120000);
+  const result = await sshExec(host, 'npm install -g memeloop-cli 2>&1', 120000);
   if (result.exitCode !== 0) {
     onProgress?.(`Failed to install: ${result.stderr || result.stdout}`);
     return false;
@@ -127,14 +127,14 @@ export async function installRemoteMemeloop(host: SSHHost, onProgress?: (msg: st
 }
 
 /**
- * Start memeloop-node server on a remote server
+ * Start memeloop server on a remote server
  */
 export async function startRemoteMemeloop(host: SSHHost, port = 5200): Promise<{ success: boolean; url?: string; error?: string }> {
-  // Kill any existing memeloop-node process
-  await sshExec(host, 'pkill -f memeloop-node 2>/dev/null; sleep 1');
+  // Kill any existing memeloop process
+  await sshExec(host, 'pkill -f memeloop 2>/dev/null; sleep 1');
 
   // Start in background with nohup
-  const result = await sshExec(host, `nohup memeloop-node start --port ${port} > /tmp/memeloop-node.log 2>&1 &`);
+  const result = await sshExec(host, `nohup memeloop start --port ${port} > /tmp/memeloop.log 2>&1 &`);
 
   // Wait for it to start
   await new Promise(resolve => setTimeout(resolve, 3000));
@@ -142,7 +142,7 @@ export async function startRemoteMemeloop(host: SSHHost, port = 5200): Promise<{
   // Check if it's running
   const status = await sshExec(host, 'curl -s http://127.0.0.1:' + port + '/health 2>/dev/null || echo NOT_READY');
   if (status.stdout.includes('NOT_READY')) {
-    const logs = await sshExec(host, 'tail -20 /tmp/memeloop-node.log');
+    const logs = await sshExec(host, 'tail -20 /tmp/memeloop.log');
     return { success: false, error: `Server not ready. Logs: ${logs.stdout}` };
   }
 

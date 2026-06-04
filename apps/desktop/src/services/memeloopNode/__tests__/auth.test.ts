@@ -29,8 +29,8 @@ const mockPreferenceService = {
   set: vi.fn(),
 };
 
-vi.mock('memeloop-node', async () => {
-  const actual = await vi.importActual<typeof import('memeloop-node')>('memeloop-node');
+vi.mock('memeloop-cli', async () => {
+  const actual = await vi.importActual<typeof import('memeloop-cli')>('memeloop-cli');
   return {
     ...actual,
     startNodeServerWithMdns: vi.fn(async () => {

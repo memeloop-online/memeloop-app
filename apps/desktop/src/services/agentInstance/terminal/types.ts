@@ -6,7 +6,7 @@
  * - interactive stdin respond
  * - remote follow/cancel/list
  *
- * Implementation is adapted from memeloop-node's terminal module.
+ * Implementation is adapted from memeloop-cli's terminal module.
  */
 
 export type TerminalSessionStatus = 'running' | 'exited' | 'killed' | 'failed';

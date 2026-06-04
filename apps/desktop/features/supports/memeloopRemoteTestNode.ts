@@ -1,6 +1,6 @@
 import fs from 'fs-extra';
 import { generateX25519KeyPairForNoise } from 'memeloop';
-import { createNodeRuntime, startNodeServerWithMdns } from 'memeloop-node';
+import { createNodeRuntime, startNodeServerWithMdns } from 'memeloop-cli';
 import path from 'path';
 import type { ApplicationWorld } from '../stepDefinitions/application';
 import { getTestArtifactsPath } from './paths';

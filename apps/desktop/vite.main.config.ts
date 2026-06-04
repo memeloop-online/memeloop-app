@@ -60,9 +60,9 @@ export default defineConfig({
       '@services': path.resolve(__dirname, './src/services'),
       // Linked monorepo packages: use sources so main/worker bundles work without a prior `pnpm build` in each package.
       memeloop: path.resolve(__dirname, '../../../memeloop/packages/memeloop/src'),
-      'memeloop-node': path.resolve(
+      'memeloop-cli': path.resolve(
         __dirname,
-        '../../../memeloop/packages/memeloop-node/dist',
+        '../../../memeloop/packages/memeloop-cli/dist',
       ),
       '@memeloop/protocol': path.resolve(
         __dirname,
@@ -106,8 +106,8 @@ export default defineConfig({
 
         // Linked monorepo packages — resolve at runtime, don't bundle
         'memeloop',
-        'memeloop-node',
-        /^memeloop-node\//,
+        'memeloop-cli',
+        /^memeloop-cli\//,
         '@memeloop/protocol',
 
         // TypeORM's optional peer dependencies (dynamically read from package.json)

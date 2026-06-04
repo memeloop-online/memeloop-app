@@ -16,7 +16,7 @@ import Snackbar from '@mui/material/Snackbar';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import AnsiToHtml from 'ansi-to-html';
-import type { TerminalSessionInfo } from 'memeloop-node';
+import type { TerminalSessionInfo } from 'memeloop-cli';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 

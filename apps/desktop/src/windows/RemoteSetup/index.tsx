@@ -44,7 +44,7 @@ export default function RemoteSetupWindow(): React.JSX.Element {
     });
   }, []);
 
-  const steps = ['Select Server', 'Check memeloop-node', 'Install (if needed)', 'Start Server', 'Connect'];
+  const steps = ['Select Server', 'Check memeloop', 'Install (if needed)', 'Start Server', 'Connect'];
 
   const handleSelect = (host: SSHHost) => {
     setSelected(host);
@@ -55,14 +55,14 @@ export default function RemoteSetupWindow(): React.JSX.Element {
   const handleCheck = async () => {
     if (!selected) return;
     setActiveStep(1);
-    addLog(`Checking ${selected.host} for memeloop-node...`);
+    addLog(`Checking ${selected.host} for memeloop...`);
     const result = await window.service.sshRemote.checkRemote(selected);
     setCheckResult(result);
     if (result.installed) {
-      addLog(`memeloop-node v${result.version ?? '?'} found`);
+      addLog(`memeloop v${result.version ?? '?'} found`);
       setActiveStep(3);
     } else {
-      addLog('memeloop-node not installed');
+      addLog('memeloop not installed');
       setActiveStep(2);
     }
   };
@@ -70,7 +70,7 @@ export default function RemoteSetupWindow(): React.JSX.Element {
   const handleInstall = async () => {
     if (!selected) return;
     setInstallStatus('loading');
-    addLog('Installing memeloop-node...');
+    addLog('Installing memeloop...');
     const result = await window.service.sshRemote.installRemote(selected);
     setInstallStatus(result.success ? 'done' : 'error');
     if (result.success) {
@@ -84,7 +84,7 @@ export default function RemoteSetupWindow(): React.JSX.Element {
   const handleStart = async () => {
     if (!selected) return;
     setStartStatus('loading');
-    addLog('Starting memeloop-node server...');
+    addLog('Starting memeloop server...');
     const result = await window.service.sshRemote.startRemote(selected);
     setStartStatus(result.success ? 'done' : 'error');
     if (result.success && result.url) {
@@ -166,20 +166,20 @@ export default function RemoteSetupWindow(): React.JSX.Element {
 
                 {activeStep === 1 && (
                   <Button variant="contained" onClick={handleCheck}>
-                    Check memeloop-node
+                    Check memeloop
                   </Button>
                 )}
 
                 {activeStep === 2 && (
                   <Box>
-                    <Typography sx={{ mb: 1 }}>memeloop-node not found on server.</Typography>
+                    <Typography sx={{ mb: 1 }}>memeloop not found on server.</Typography>
                     <Button
                       variant="contained"
                       onClick={handleInstall}
                       disabled={installStatus === 'loading'}
                       startIcon={installStatus === 'loading' ? <CircularProgress size={16} /> : undefined}
                     >
-                      Install memeloop-node
+                      Install memeloop
                     </Button>
                     {installStatus === 'done' && <Chip label="Installed" color="success" sx={{ ml: 1 }} />}
                     {installStatus === 'error' && <Chip label="Failed" color="error" sx={{ ml: 1 }} />}
@@ -194,7 +194,7 @@ export default function RemoteSetupWindow(): React.JSX.Element {
                       disabled={startStatus === 'loading'}
                       startIcon={startStatus === 'loading' ? <CircularProgress size={16} /> : undefined}
                     >
-                      Start memeloop-node
+                      Start memeloop
                     </Button>
                     {startStatus === 'done' && <Chip label="Running" color="success" sx={{ ml: 1 }} />}
                     {startStatus === 'error' && <Chip label="Failed" color="error" sx={{ ml: 1 }} />}

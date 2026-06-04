@@ -36,6 +36,6 @@ export class RemoteSetupService implements IRemoteSetupService {
   }
 
   async stopRemote(host: SSHHost): Promise<void> {
-    await sshExec(host, 'pkill -f memeloop-node 2>/dev/null');
+    await sshExec(host, 'pkill -f memeloop 2>/dev/null');
   }
 }

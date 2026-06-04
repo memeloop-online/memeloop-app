@@ -8,9 +8,9 @@ export interface IRemoteSetupService {
   checkRemote(host: SSHHost): Promise<{ installed: boolean; version?: string }>;
   /** Install memeloop CLI on a remote server */
   installRemote(host: SSHHost): Promise<{ success: boolean; error?: string }>;
-  /** Start memeloop-node on a remote server and return its WS URL */
+  /** Start memeloop on a remote server and return its WS URL */
   startRemote(host: SSHHost, port?: number): Promise<{ success: boolean; url?: string; error?: string }>;
-  /** Stop memeloop-node on a remote server */
+  /** Stop memeloop on a remote server */
   stopRemote(host: SSHHost): Promise<void>;
 }
 

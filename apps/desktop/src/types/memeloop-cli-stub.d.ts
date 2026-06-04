@@ -1,5 +1,5 @@
-// Stub for memeloop-node module - provides type declarations for compilation
-declare module 'memeloop-node' {
+// Stub for memeloop-cli module - provides type declarations for compilation
+declare module 'memeloop-cli' {
   import type http from 'node:http';
 
   export interface NodeKeypair {
@@ -55,7 +55,7 @@ declare module 'memeloop-node' {
   export function loadOrCreateNodeKeypair(keyPath?: string): NodeKeypair;
 }
 
-declare module 'memeloop-node/src/terminal/types.js' {
+declare module 'memeloop-cli/src/terminal/types.js' {
   export interface TerminalSessionInfo {
     id: string;
     title: string;
