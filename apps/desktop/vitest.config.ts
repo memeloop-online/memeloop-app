@@ -71,12 +71,12 @@ export default defineConfig({
       { find: '@', replacement: path.resolve(__dirname, './src') },
       { find: '@services', replacement: path.resolve(__dirname, './src/services') },
       { find: 'memeloop', replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop/src') },
-      { find: 'memeloop-cli', replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop-cli/dist') },
+      { find: 'memeloop-node', replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop-node/dist') },
       { find: '@memeloop/protocol', replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop-protocol/src') },
-      { find: '@memeloop/react-ui', replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop-react-ui/dist') },
+      { find: '@memeloop/ui', replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop-ui/dist') },
       { find: /agentInstance\/memeloopWorkerFactory(\.ts)?$/, replacement: path.resolve(__dirname, './src/__tests__/__stubs__/memeloopWorkerFactoryStub.ts') },
       { find: /\?nodeWorker$/, replacement: path.resolve(__dirname, './src/__tests__/__stubs__/memeloopWorkerFactoryStub.ts') },
-      // Force React-family packages from linked @memeloop/react-ui to resolve from memeloop-desktop
+      // Force React-family packages from linked @memeloop/ui to resolve from memeloop-desktop
       { find: /^react$/, replacement: path.resolve(__dirname, './node_modules/react') },
       { find: /^react\/(.*)/, replacement: path.resolve(__dirname, './node_modules/react/$1') },
       { find: /^react-dom$/, replacement: path.resolve(__dirname, './node_modules/react-dom') },
