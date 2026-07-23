@@ -1,6 +1,8 @@
 import { View, FlatList, StyleSheet } from 'react-native';
 import { Text, Card, Chip, Button } from 'react-native-paper';
 
+import { MOBILE_ORCHESTRATION_CAPABILITIES } from '../lib/orchestration';
+
 type Node = { id: string; name: string; status: 'online' | 'offline'; type: string };
 
 const DEMO_NODES: Node[] = [
@@ -11,6 +13,10 @@ export default function NodesScreen() {
   return (
     <View style={styles.container}>
       <Text variant="titleLarge" style={styles.title}>Connected Nodes</Text>
+      <Text variant="bodySmall" style={styles.capabilities}>
+        This mobile host is a remote-only resource client (
+        {MOBILE_ORCHESTRATION_CAPABILITIES.operations.join(', ')}).
+      </Text>
       <FlatList
         data={DEMO_NODES}
         keyExtractor={(item) => item.id}
@@ -38,5 +44,6 @@ export default function NodesScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, backgroundColor: '#f5f5f5' },
   title: { marginBottom: 16 },
+  capabilities: { marginBottom: 16, opacity: 0.7 },
   card: { marginBottom: 12 },
 });
