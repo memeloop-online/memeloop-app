@@ -1,4 +1,13 @@
-import type { AgentDefinition, AttachmentRef, ChatMessage, ConversationMeta } from '@memeloop/protocol';
+import {
+  type AgentDefinition,
+  type AttachmentRef,
+  type ChatMessage,
+  type ConversationMeta,
+  createFetchOrchestrationTransport,
+  type RemoteOrchestrationRequest,
+  type RemoteOrchestrationResponse,
+  type RemoteOrchestrationTransport,
+} from '@memeloop/protocol';
 import { createWorkerProxy } from '@services/libs/workerAdapter';
 import { inject, injectable } from 'inversify';
 import {
@@ -11,6 +20,8 @@ import {
   type MemeLoopRuntime,
 } from 'memeloop';
 import { nanoid } from 'nanoid';
+import { randomBytes } from 'node:crypto';
+import path from 'node:path';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { DataSource, Repository } from 'typeorm';
 import { Worker } from 'worker_threads';
@@ -18,6 +29,7 @@ import { DEFAULT_AGENT_FRAMEWORK_ID } from './defaultAgentFrameworkId';
 import type { MemeLoopWorker } from './memeloopWorker';
 import MemeLoopWorkerFactory from './memeloopWorkerFactory';
 
+import { USER_DATA_FOLDER } from '@/constants/appPaths';
 import type { AgentHeartbeatConfig } from '@services/agentDefinition/interface';
 import type { IAgentDefinitionService } from '@services/agentDefinition/interface';
 import { basicPromptConcatHandler } from '@services/agentInstance/agentFrameworks/taskAgent';
@@ -99,6 +111,8 @@ export class AgentInstanceService implements IAgentInstanceService {
   private memeLoopWorker?: MemeLoopWorker;
   private memeLoopWorkerLogCleanup?: () => void;
   private workerAgentIdByConversationId: Map<string, string> = new Map();
+  private readonly memeLoopOrchestrationToken = randomBytes(32).toString('base64url');
+  private memeLoopOrchestrationEndpoint?: string;
 
   /**
    * Internal accessor for the worker proxy — used by MemeloopNode service
@@ -108,6 +122,52 @@ export class AgentInstanceService implements IAgentInstanceService {
     await this.ensureMemeLoopWorkerHealthy();
     if (!this.memeLoopWorker) throw new Error('MemeLoop worker not available');
     return this.memeLoopWorker;
+  }
+
+  private async getMemeLoopOrchestrationTransport(): Promise<RemoteOrchestrationTransport> {
+    await this.ensureMemeLoopWorkerHealthy();
+    if (!this.memeLoopOrchestrationEndpoint) {
+      throw new Error('MemeLoop orchestration endpoint is unavailable');
+    }
+    return createFetchOrchestrationTransport({
+      endpoint: this.memeLoopOrchestrationEndpoint,
+      headers: {
+        Authorization: `Bearer ${this.memeLoopOrchestrationToken}`,
+      },
+    });
+  }
+
+  async requestOrchestration(
+    request: RemoteOrchestrationRequest,
+  ): Promise<RemoteOrchestrationResponse> {
+    const transport = await this.getMemeLoopOrchestrationTransport();
+    return transport.request(request);
+  }
+
+  subscribeToOrchestrationWatch(
+    request: RemoteOrchestrationRequest,
+  ): Observable<RemoteOrchestrationResponse> {
+    return new Observable((subscriber) => {
+      const abort = new AbortController();
+      void (async () => {
+        try {
+          const transport = await this.getMemeLoopOrchestrationTransport();
+          for await (
+            const event of transport.watch(request, {
+              signal: abort.signal,
+            })
+          ) {
+            subscriber.next(event);
+          }
+          subscriber.complete();
+        } catch (error) {
+          if (!abort.signal.aborted) subscriber.error(error);
+        }
+      })();
+      return () => {
+        abort.abort();
+      };
+    });
   }
 
   private normalizeMultimodalForModelSupport(
@@ -761,6 +821,10 @@ export class AgentInstanceService implements IAgentInstanceService {
       });
       this.memeLoopNativeWorker = worker;
       this.memeLoopWorker = createWorkerProxy<MemeLoopWorker>(worker);
+      await this.memeLoopWorker.configureHost({
+        dataDir: path.join(USER_DATA_FOLDER, 'memeloop'),
+        orchestrationAccessToken: this.memeLoopOrchestrationToken,
+      });
 
       // Subscribe worker logs via the standard workerAdapter streaming protocol.
       this.memeLoopWorkerLogCleanup?.();
@@ -798,6 +862,7 @@ export class AgentInstanceService implements IAgentInstanceService {
           );
         }),
       ]);
+      this.memeLoopOrchestrationEndpoint = ping.orchestrationEndpoint;
       logger.info('MemeLoop worker initialized', ping);
     } catch (error) {
       logger.error('Failed to initialize MemeLoop worker', { error });
@@ -2602,6 +2667,7 @@ Result: ${JSON.stringify(approvalPrompt)}
       this.memeLoopNativeWorker = undefined;
     }
     this.memeLoopWorker = undefined;
+    this.memeLoopOrchestrationEndpoint = undefined;
   }
 
   public getFrameworkConfigSchema(

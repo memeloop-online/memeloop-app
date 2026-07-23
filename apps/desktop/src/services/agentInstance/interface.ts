@@ -1,3 +1,4 @@
+import type { RemoteOrchestrationRequest, RemoteOrchestrationResponse } from '@memeloop/protocol';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
 import type { Observable } from 'rxjs';
 
@@ -158,6 +159,16 @@ export interface IAgentInstanceService {
    * For testing purposes, only initialize the built-in handlers without database
    */
   initializeFrameworks(): Promise<void>;
+
+  /** Policy-scoped declarative resource request; renderer never receives the bearer token. */
+  requestOrchestration(
+    request: RemoteOrchestrationRequest,
+  ): Promise<RemoteOrchestrationResponse>;
+
+  /** Stream declarative resource watch responses over the existing IPC bridge. */
+  subscribeToOrchestrationWatch(
+    request: RemoteOrchestrationRequest,
+  ): Observable<RemoteOrchestrationResponse>;
 
   /**
    * Create a new agent instance from a definition
@@ -379,10 +390,12 @@ export const AgentInstanceServiceIPCDescriptor = {
     getFrameworkConfigSchema: ProxyPropertyType.Function,
     resolveToolApproval: ProxyPropertyType.Function,
     resolveAskQuestion: ProxyPropertyType.Function,
+    requestOrchestration: ProxyPropertyType.Function,
     saveUserMessage: ProxyPropertyType.Function,
     rollbackTurn: ProxyPropertyType.Function,
     sendMsgToAgent: ProxyPropertyType.Function,
     subscribeToAgentUpdates: ProxyPropertyType.Function$,
+    subscribeToOrchestrationWatch: ProxyPropertyType.Function$,
     getTurnChangedFiles: ProxyPropertyType.Function,
     getBackgroundTasks: ProxyPropertyType.Function,
     cancelBackgroundTask: ProxyPropertyType.Function,

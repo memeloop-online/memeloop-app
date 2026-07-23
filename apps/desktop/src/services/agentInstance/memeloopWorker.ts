@@ -3,15 +3,16 @@ import 'source-map-support/register';
 import type { AgentDefinition, AttachmentRef, ChatMessage, ConversationMeta, NodeStatus } from '@memeloop/protocol';
 
 import { nanoid } from 'nanoid';
-import { createPrivateKey, createPublicKey } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { Observable, Subject } from 'rxjs';
 import taskAgents from './agentFrameworks/taskAgents.json';
 
 import { handleWorkerMessages } from '@services/libs/workerAdapter';
 
-import { ChatSyncEngine, onApprovalRequest, PeerNodeSyncAdapter, type PeerNodeTransport, resolveApproval, resolveQuestionAnswer } from 'memeloop';
+import { onApprovalRequest, resolveApproval, resolveQuestionAnswer } from 'memeloop';
 import type { IWikiManager, TiddlerFields } from 'memeloop-cli';
 import { TerminalSessionManager } from './terminal/sessionManager';
 
@@ -554,25 +555,40 @@ const wikiManager = new DesktopTiddlyWikiManager();
 // Use persistent keypair-derived nodeId instead of random nanoid.
 // Lazy: initialized in ensureRuntimeInitialized when memeloop-cli is available.
 let localNodeId = `tidgi-desktop-${nanoid(8)}`;
-let noiseStaticKeyPair: { publicKey: Buffer; secretKey: Buffer } | undefined;
 const terminalManager = new TerminalSessionManager();
 
 let runtime: any;
 let storage: any;
 let toolRegistry: any;
-let runtimeWikiManager: IWikiManager | undefined;
-let agentDefinitions: any;
-let fileBaseDirResolved: string;
-let createNodeServerFunction: any;
+let orchestrationClient:
+  | import('@memeloop/protocol').AgentOrchestrationClient
+  | undefined;
+let stopNodeRuntime: (() => Promise<void>) | undefined;
+let createRemoteOrchestrationHttpHandlerFunction:
+  | typeof import('memeloop-cli').createRemoteOrchestrationHttpHandler
+  | undefined;
 let runtimeInitPromise: Promise<void> | undefined;
 
-// ── Peer connection & sync engine (populated in ensureRuntimeInitialized) ──
-let peerConnectionManager:
-  | import('memeloop-cli').PeerConnectionManager
-  | undefined;
-let chatSyncEngine: ChatSyncEngine | undefined;
-let syncTimerId: ReturnType<typeof setInterval> | undefined;
-const SYNC_INTERVAL_MS = 30_000;
+interface DesktopHostConfig {
+  dataDir: string;
+  orchestrationAccessToken: string;
+  orchestrationHost?: string;
+}
+
+let hostConfig: DesktopHostConfig | undefined;
+
+function requireHostConfig(): DesktopHostConfig {
+  if (!hostConfig) {
+    throw new Error('MemeLoop worker host configuration is required before initialization');
+  }
+  return hostConfig;
+}
+
+function authorized(request: http.IncomingMessage, accessToken: string): boolean {
+  const actual = Buffer.from(request.headers.authorization ?? '');
+  const expected = Buffer.from(`Bearer ${accessToken}`);
+  return actual.byteLength === expected.byteLength && timingSafeEqual(actual, expected);
+}
 
 async function ensureRuntimeInitialized(): Promise<void> {
   if (runtime) return;
@@ -587,44 +603,24 @@ async function ensureRuntimeInitialized(): Promise<void> {
     const {
       createNodeRuntime,
       ToolRegistry,
-      createNodeServer,
-      PeerConnectionManager,
+      createRemoteOrchestrationHttpHandler,
       loadOrCreateNodeKeypair: loadKeypair,
     } = memeloopNode as unknown as {
       createNodeRuntime: typeof memeloopNode.createNodeRuntime;
       ToolRegistry: typeof memeloopNode.ToolRegistry;
-      createNodeServer: typeof memeloopNode.createNodeServer;
-      PeerConnectionManager: typeof memeloopNode.PeerConnectionManager;
+      createRemoteOrchestrationHttpHandler: typeof memeloopNode.createRemoteOrchestrationHttpHandler;
       loadOrCreateNodeKeypair: typeof memeloopNode.loadOrCreateNodeKeypair;
     };
 
-    createNodeServerFunction = createNodeServer;
+    createRemoteOrchestrationHttpHandlerFunction = createRemoteOrchestrationHttpHandler;
+    const configuredHost = requireHostConfig();
 
-    // Load persistent keypair for stable nodeId and Noise encryption.
+    // Load the Node SDK keypair from Electron's isolated user-data directory.
     try {
-      const keypair = loadKeypair();
+      const keypair = loadKeypair(
+        path.join(configuredHost.dataDir, 'keypair.yaml'),
+      );
       localNodeId = keypair.nodeId;
-      const privDer = Buffer.from(keypair.x25519PrivateKey, 'base64url');
-      const pubDer = Buffer.from(keypair.x25519PublicKey, 'base64url');
-      const privKey = createPrivateKey({
-        key: privDer,
-        format: 'der',
-        type: 'pkcs8',
-      });
-      const pubKey = createPublicKey({
-        key: pubDer,
-        format: 'der',
-        type: 'spki',
-      });
-      const privJwk = privKey.export({ format: 'jwk' }) as { d?: string };
-      const pubJwk = pubKey.export({ format: 'jwk' }) as { x?: string };
-      if (!privJwk.d || !pubJwk.x) {
-        throw new Error('x25519 JWK export failed');
-      }
-      noiseStaticKeyPair = {
-        publicKey: Buffer.from(pubJwk.x, 'base64url'),
-        secretKey: Buffer.from(privJwk.d, 'base64url'),
-      };
       workerLog('warn', '[memeloop-worker] loaded persistent keypair', {
         nodeId: localNodeId,
       });
@@ -635,12 +631,6 @@ async function ensureRuntimeInitialized(): Promise<void> {
         { error },
       );
     }
-
-    // Instantiate PeerConnectionManager for outbound connections to other nodes.
-    peerConnectionManager = new PeerConnectionManager({
-      localNodeId,
-      ...(noiseStaticKeyPair ? { noiseStaticKeyPair } : {}),
-    });
 
     const mainBridgeToolIds = await requestMainBridgeToolList().catch(
       (error) => {
@@ -653,7 +643,9 @@ async function ensureRuntimeInitialized(): Promise<void> {
       },
     );
 
-    const runtimeResult = createNodeRuntime({
+    const runtimeResult = await createNodeRuntime({
+      dataDir: configuredHost.dataDir,
+      localNodeId,
       storage: inMemoryStorage,
       llmProvider,
       toolRegistry: new ToolRegistry(),
@@ -674,36 +666,25 @@ async function ensureRuntimeInitialized(): Promise<void> {
         }
       },
       builtinToolContext: {
-        getPeers: async () => peerConnectionManager?.getPeers() ?? [],
+        getPeers: async () => [],
         sendRpcToNode: async (
-          nodeId: string,
-          method: string,
-          parameters: unknown,
+          _nodeId: string,
+          _method: string,
+          _parameters: unknown,
         ) => {
-          if (!peerConnectionManager) {
-            throw new Error('PeerConnectionManager not initialized');
-          }
-          return peerConnectionManager.sendRpcToNode(nodeId, method, parameters);
+          throw new Error(
+            'Legacy peer RPC is unavailable; use the authenticated resource client.',
+          );
         },
         mcpCallRemote: async (
-          nodeId: string,
-          serverName: string,
-          toolName: string,
-          arguments_: Record<string, unknown>,
+          _nodeId: string,
+          _serverName: string,
+          _toolName: string,
+          _arguments: Record<string, unknown>,
         ) => {
-          if (!peerConnectionManager) {
-            throw new Error('PeerConnectionManager not initialized');
-          }
-          const result = await peerConnectionManager.sendRpcToNode(
-            nodeId,
-            'memeloop.mcp.callTool',
-            { serverName, toolName, arguments: arguments_ },
+          throw new Error(
+            'Legacy peer MCP RPC is unavailable; use a scheduled ToolOperation.',
           );
-          const r = result as { result?: unknown; error?: string };
-          if (r.error) {
-            throw new Error(r.error);
-          }
-          return r.result;
         },
         notifyAskQuestion: (payload: unknown) => {
           const p = payload as Partial<AskQuestionPrompt> & {
@@ -744,91 +725,19 @@ async function ensureRuntimeInitialized(): Promise<void> {
         start: async () => undefined,
         stop: async () => undefined,
       },
-      taskAgent: { maxIterations: 32 },
     });
 
+    stopNodeRuntime = runtimeResult.stop;
     runtime = runtimeResult.runtime;
     storage = runtimeResult.storage;
     toolRegistry = runtimeResult.toolRegistry;
-    runtimeWikiManager = runtimeResult.wikiManager ?? undefined;
-    agentDefinitions = runtimeResult.agentDefinitions;
-    fileBaseDirResolved = runtimeResult.fileBaseDirResolved;
-
-    // ── Initialize ChatSyncEngine with PeerConnectionManager as transport ──
-    const pcm = peerConnectionManager;
-    const desktopTransport: PeerNodeTransport = {
-      nodeId: localNodeId,
-      exchangeVersionVector: async (targetNodeId, localVersion) => {
-        const result = await pcm.sendRpcToNode(
-          targetNodeId,
-          'memeloop.sync.exchangeVersionVector',
-          { localVersion },
-        );
-        return result as {
-          remoteVersion: Record<string, number>;
-          missingForRemote: ConversationMeta[];
-        };
-      },
-      pullMissingMetadata: async (targetNodeId, sinceVersion) => {
-        const result = await pcm.sendRpcToNode(
-          targetNodeId,
-          'memeloop.sync.pullMissingMetadata',
-          { sinceVersion },
-        );
-        return (result as { metas: ConversationMeta[] }).metas;
-      },
-      pullMissingMessages: async (
-        targetNodeId,
-        conversationId,
-        knownMessageIds,
-      ) => {
-        const result = await pcm.sendRpcToNode(
-          targetNodeId,
-          'memeloop.sync.pullMissingMessages',
-          { conversationId, knownMessageIds },
-        );
-        return (result as { messages: ChatMessage[] }).messages;
-      },
-      pullAttachmentBlob: async (targetNodeId, contentHash) => {
-        const result = await pcm.sendRpcToNode(
-          targetNodeId,
-          'memeloop.storage.getAttachmentBlob',
-          { contentHash },
-        );
-        return result as {
-          data: Uint8Array;
-          filename: string;
-          mimeType: string;
-          size: number;
-        } | null;
-      },
-    };
-
-    chatSyncEngine = new ChatSyncEngine({
-      nodeId: localNodeId,
-      storage: inMemoryStorage,
-      peers: () => {
-        const nodeIds = pcm.getPeerNodeIds();
-        return nodeIds.map(
-          (nid) => new PeerNodeSyncAdapter(nid, desktopTransport),
-        );
-      },
-    });
-
-    // Start periodic metadata gossip + message sync.
-    syncTimerId = setInterval(() => {
-      chatSyncEngine?.syncOnce().catch((error) => {
-        workerLog('warn', '[memeloop-worker][sync] periodic sync failed', {
-          error: error instanceof Error ? error.message : error,
-        });
-      });
-    }, SYNC_INTERVAL_MS);
+    orchestrationClient = runtimeResult.context.orchestration;
   })();
 
   await runtimeInitPromise;
 }
 
-let desktopNodeServer: import('node:http').Server | undefined;
+let desktopNodeServer: http.Server | undefined;
 let desktopNodePort: number | undefined;
 let desktopNodeStarted = false;
 let desktopNodeStartPromise: Promise<void> | undefined;
@@ -845,8 +754,10 @@ async function ensureDesktopNodeStarted(): Promise<void> {
     let stage = 'init';
     try {
       const desiredPort = parseInt(process.env.TIDGI_MEMELOOP_PORT ?? '', 10);
+      const configuredHost = requireHostConfig();
       stage = 'resolve-port';
       const port = Number.isFinite(desiredPort) && desiredPort > 0 ? desiredPort : 0;
+      const listenHost = configuredHost.orchestrationHost ?? '127.0.0.1';
       workerLog(
         'warn',
         '[memeloop-worker][desktop-as-node] ensureDesktopNodeStarted',
@@ -858,27 +769,21 @@ async function ensureDesktopNodeStarted(): Promise<void> {
         },
       );
       stage = 'create-server';
-      workerLog(
-        'warn',
-        '[memeloop-worker][desktop-as-node] before createNodeServer',
-        { stage },
-      );
-      desktopNodeServer = createNodeServerFunction({
-        port,
-        nodeId: localNodeId,
-        rpcContext: {
-          runtime,
-          storage,
-          toolRegistry,
-          terminalManager,
-          wikiManager: runtimeWikiManager,
-          nodeId: localNodeId,
-          mcpServers: [],
-          imChannels: [],
-          agentDefinitions,
-          fileBaseDir: fileBaseDirResolved,
+      if (!createRemoteOrchestrationHttpHandlerFunction || !orchestrationClient) {
+        throw new Error('Node runtime did not provide an orchestration client');
+      }
+      const orchestrationHandler = createRemoteOrchestrationHttpHandlerFunction(orchestrationClient, {
+        authorize: (request) => authorized(request, configuredHost.orchestrationAccessToken),
+        onError: (error) => {
+          workerLog(
+            'error',
+            '[memeloop-worker] orchestration HTTP handler failed',
+            { error },
+          );
         },
-        serviceName: 'tidgi-desktop',
+      });
+      desktopNodeServer = http.createServer((request, response) => {
+        void orchestrationHandler(request, response);
       });
       workerLog(
         'warn',
@@ -895,7 +800,7 @@ async function ensureDesktopNodeStarted(): Promise<void> {
         const timeout = setTimeout(() => {
           reject(new Error('desktop node server listen timeout'));
         }, 5000);
-        desktopNodeServer?.listen(port, () => {
+        desktopNodeServer?.listen(port, listenHost, () => {
           resolve();
         });
         desktopNodeServer?.once('error', reject);
@@ -928,20 +833,18 @@ async function ensureDesktopNodeStarted(): Promise<void> {
 }
 
 async function stopDesktopNodeServer(): Promise<void> {
-  if (syncTimerId) {
-    clearInterval(syncTimerId);
-    syncTimerId = undefined;
+  if (desktopNodeServer) {
+    const server = desktopNodeServer;
+    desktopNodeServer = undefined;
+    desktopNodeStarted = false;
+    await new Promise<void>((resolve) =>
+      server.close(() => {
+        resolve();
+      })
+    );
   }
-  peerConnectionManager?.shutdown();
-  if (!desktopNodeServer) return;
-  const server = desktopNodeServer;
-  desktopNodeServer = undefined;
-  desktopNodeStarted = false;
-  await new Promise<void>((resolve) =>
-    server.close(() => {
-      resolve();
-    })
-  );
+  await stopNodeRuntime?.();
+  stopNodeRuntime = undefined;
 }
 
 const workerState = {
@@ -949,6 +852,19 @@ const workerState = {
 };
 
 const memeloopWorker = {
+  configureHost: async (config: DesktopHostConfig) => {
+    if (runtimeInitPromise || runtime) {
+      throw new Error('MemeLoop worker is already initialized');
+    }
+    if (!path.isAbsolute(config.dataDir)) {
+      throw new Error('MemeLoop worker dataDir must be absolute');
+    }
+    if (config.orchestrationAccessToken.length < 32) {
+      throw new Error('MemeLoop orchestration access token is too short');
+    }
+    hostConfig = { ...config };
+    return { ok: true };
+  },
   subscribeLogs: () => logSubject.asObservable(),
   ping: async () => {
     workerLog('warn', '[memeloop-worker] ping');
@@ -958,6 +874,9 @@ const memeloopWorker = {
       initializedAt: workerState.initializedAt,
       nodeId: localNodeId,
       port: desktopNodePort,
+      orchestrationEndpoint: desktopNodePort
+        ? `http://127.0.0.1:${desktopNodePort}/v1/orchestration/resources`
+        : undefined,
     };
   },
   createAgent: async (definitionId: string, initialMessage?: string) => {
@@ -1068,75 +987,31 @@ const memeloopWorker = {
     return { ok: true };
   },
 
-  // ── Peer connection management ──
-  addPeer: async (wsUrl: string) => {
-    await ensureRuntimeInitialized();
-    if (!peerConnectionManager) {
-      throw new Error('PeerConnectionManager not ready');
-    }
-    try {
-      const { nodeId } = await peerConnectionManager.addPeerByUrl(wsUrl);
-      workerLog('warn', '[memeloop-worker] addPeer succeeded', {
-        wsUrl,
-        nodeId,
-      });
-      return { nodeId };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      workerLog('error', '[memeloop-worker] addPeer failed', {
-        wsUrl,
-        message,
-        error,
-      });
-      throw new Error(message);
-    }
+  // Legacy peer RPC was never backed by a published SDK. Keep the host API
+  // honest while callers migrate to declarative resources.
+  addPeer: async (_wsUrl: string) => {
+    throw new Error(
+      'Legacy peer RPC is unavailable; connect through the resource endpoint.',
+    );
   },
-  removePeer: async (nodeId: string) => {
-    peerConnectionManager?.removePeer(nodeId);
+  removePeer: async (_nodeId: string) => {
     return { ok: true };
   },
   getConnectedPeers: async (): Promise<NodeStatus[]> => {
-    return peerConnectionManager?.getPeers() ?? [];
+    return [];
   },
 
-  // ── Sync controls ──
   syncNow: async () => {
-    await ensureRuntimeInitialized();
-    if (!chatSyncEngine) {
-      return { synced: false, reason: 'engine not initialized' };
-    }
-    try {
-      await chatSyncEngine.syncOnce();
-      return { synced: true };
-    } catch (error) {
-      return {
-        synced: false,
-        reason: error instanceof Error ? error.message : String(error),
-      };
-    }
+    return { synced: false, reason: 'legacy peer sync is unavailable' };
   },
   antiEntropy: async () => {
-    await ensureRuntimeInitialized();
-    if (!chatSyncEngine) {
-      return { synced: false, reason: 'engine not initialized' };
-    }
-    try {
-      await chatSyncEngine.antiEntropyOnce();
-      return { synced: true };
-    } catch (error) {
-      return {
-        synced: false,
-        reason: error instanceof Error ? error.message : String(error),
-      };
-    }
+    return { synced: false, reason: 'legacy peer sync is unavailable' };
   },
   getSyncStatus: async () => {
-    const vv = chatSyncEngine?.getVersionVector() ?? {};
-    const peerCount = peerConnectionManager?.getPeerNodeIds().length ?? 0;
     return {
-      versionVector: vv,
-      peerCount,
-      syncRunning: syncTimerId !== undefined,
+      versionVector: {},
+      peerCount: 0,
+      syncRunning: false,
     };
   },
 };
