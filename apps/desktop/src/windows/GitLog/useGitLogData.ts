@@ -1,9 +1,11 @@
+import { SupportedStorageServices } from '@services/types';
 import type { IWorkspace } from '@services/workspaces/interface';
 import useObservable from 'beautiful-react-hooks/useObservable';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { filter } from 'rxjs/operators';
 
 import type { getGitLog } from '@services/git/gitOperations';
+import type { IWorkspaceGitScope } from '@services/workspaces/interface';
 import type { ISearchParameters } from './SearchBar';
 import type { GitLogEntry } from './types';
 
@@ -20,6 +22,10 @@ export interface IGitLogData {
   loadMore: () => Promise<void>;
   setSearchParams: (parameters: ISearchParameters) => void;
   isSearchMode: boolean;
+  /** Absolute path of the Git repo currently being tracked (may be an ancestor of the wiki folder). */
+  trackedRepoPath: string | null;
+  /** Subpath inside the repo that TidGi tracks; null means the whole repo. */
+  trackedScopedPath: string | null;
 }
 
 export function useGitLogData(workspaceID: string): IGitLogData {
@@ -29,6 +35,11 @@ export function useGitLogData(workspaceID: string): IGitLogData {
   const [error, setError] = useState<string | null>(null);
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const [workspaceInfo, setWorkspaceInfo] = useState<IWorkspace | null>(null);
+  // Git scope (repo root + managed subpath) resolved by the main process so the renderer does no
+  // path math. Fetched alongside workspaceInfo and mirrored into a ref for synchronous reads inside
+  // the loadGitLog/loadMore effects without adding it to their dependency arrays.
+  const [gitLogScope, setGitLogScope] = useState<IWorkspaceGitScope | undefined>(undefined);
+  const gitLogScopeReference = useRef<IWorkspaceGitScope | undefined>(undefined);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [lastChangeType, setLastChangeType] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
@@ -38,10 +49,12 @@ export function useGitLogData(workspaceID: string): IGitLogData {
   const lastChangeTimestamp = useRef<number>(0);
   const loadingMoreReference = useRef(false);
   const isFirstLoad = useRef(true);
-  const loadGitLogInProgress = useRef(false); // Guard against concurrent loadGitLog calls
 
   const isSearchMode = searchParameters.mode !== 'none';
   const hasMore = entries.length < totalCount;
+
+  const trackedRepoPath = gitLogScope?.repoPath ?? null;
+  const trackedScopedPath = gitLogScope?.managedRelativePath ?? null;
 
   // Get workspace info once
   useEffect(() => {
@@ -60,6 +73,10 @@ export function useGitLogData(workspaceID: string): IGitLogData {
           throw new Error('Not a wiki workspace');
         }
 
+        // Resolve git scope in the main process (no path math in the renderer).
+        const scope = await window.service.git.getWorkspaceGitScope(workspace);
+        gitLogScopeReference.current = scope;
+        setGitLogScope(scope);
         setWorkspaceInfo(workspace);
       } catch (error_) {
         const error = error_ as Error;
@@ -80,7 +97,7 @@ export function useGitLogData(workspaceID: string): IGitLogData {
           if (isSearchMode) return false;
           // Only trigger refresh if the change is for our workspace
           if (!change || !workspaceInfo || !('wikiFolderLocation' in workspaceInfo)) return false;
-          return change.wikiFolderLocation === workspaceInfo.wikiFolderLocation!;
+          return change.wikiFolderLocation === workspaceInfo.wikiFolderLocation;
         }),
       ) ?? null,
     [workspaceInfo, isSearchMode],
@@ -124,19 +141,12 @@ export function useGitLogData(workspaceID: string): IGitLogData {
   useEffect(() => {
     if (!workspaceInfo || !('wikiFolderLocation' in workspaceInfo)) return;
 
-    // Prevent concurrent loadGitLog calls
-    if (loadGitLogInProgress.current) {
-      void window.service.native.log('debug', '[DEBUG] loadGitLog skipped - already in progress', { refreshTrigger });
-      return;
-    }
+    let cancelled = false;
 
-    const loadGitLog = async () => {
-      loadGitLogInProgress.current = true;
-
-      // Log at the very start to verify this function is called
+    void (async () => {
       void window.service.native.log('debug', '[DEBUG] loadGitLog started', {
         refreshTrigger,
-        wikiFolderLocation: workspaceInfo.wikiFolderLocation!,
+        wikiFolderLocation: workspaceInfo.wikiFolderLocation,
       });
 
       try {
@@ -171,30 +181,31 @@ export function useGitLogData(workspaceID: string): IGitLogData {
           options.searchMode = 'none';
         }
 
+        const gitScope = gitLogScopeReference.current;
+        const repoPath = gitScope?.repoPath ?? workspaceInfo.wikiFolderLocation;
+        if (gitScope?.managedRelativePath && options.searchMode === 'none') {
+          options.scopedPath = gitScope.managedRelativePath;
+        }
+
         // Get git log from service
-        const result = await window.service.git.callGitOp(
-          'getGitLog',
-          workspaceInfo.wikiFolderLocation!,
-          options,
-        );
+        const result = await window.service.git.getGitLog(repoPath, options);
         void window.service.native.log('debug', '[DEBUG] getGitLog completed', { entryCount: result.entries.length });
 
         // Get unpushed commit hashes in parallel with loading files
-        const unpushedHashesPromise = window.service.git.callGitOp(
-          'getUnpushedCommitHashes',
-          workspaceInfo.wikiFolderLocation!,
-          workspaceInfo.gitUrl,
-        );
+        // For local workspaces, skip this — users should convert to cloud workspace if they want remote sync.
+        const isLocalWorkspace = workspaceInfo.storageService === SupportedStorageServices.local;
+        const unpushedHashesPromise = isLocalWorkspace
+          ? Promise.resolve(new Set<string>())
+          : window.service.git.getUnpushedCommitHashes(repoPath, workspaceInfo.gitUrl);
 
         // Load files for each commit
         const entriesWithFiles = await Promise.all(
           result.entries.map(async (entry) => {
             try {
-              // getCommitFiles handles both committed (with hash) and uncommitted (empty hash) changes
-              const files = await window.service.git.callGitOp(
-                'getCommitFiles',
-                workspaceInfo.wikiFolderLocation!,
+              const files = await window.service.git.getCommitFiles(
+                repoPath,
                 entry.hash,
+                gitScope?.managedRelativePath,
               );
               return { ...entry, files };
             } catch (error) {
@@ -213,9 +224,13 @@ export function useGitLogData(workspaceID: string): IGitLogData {
         }));
         void window.service.native.log('debug', '[DEBUG] entriesWithUnpushedFlag completed', { count: entriesWithUnpushedFlag.length });
 
+        if (cancelled) {
+          return;
+        }
+
         const logData = {
           commitCount: entriesWithUnpushedFlag.length,
-          wikiFolderLocation: workspaceInfo.wikiFolderLocation!,
+          wikiFolderLocation: workspaceInfo.wikiFolderLocation,
         };
 
         // Update state directly — RAF is unreliable in headless CI environments
@@ -234,18 +249,19 @@ export function useGitLogData(workspaceID: string): IGitLogData {
       } catch (error_) {
         const error = error_ as Error;
         console.error('Failed to load git log:', error);
-        setError(error.message);
+        if (!cancelled) {
+          setError(error.message);
+        }
       } finally {
-        // Only clear loading if it was set (first load)
-        if (loading) {
+        if (!cancelled) {
           setLoading(false);
         }
-        // Always clear the in-progress flag
-        loadGitLogInProgress.current = false;
       }
-    };
+    })();
 
-    void loadGitLog();
+    return () => {
+      cancelled = true;
+    };
   }, [workspaceInfo, refreshTrigger, searchParameters]);
 
   // Track the last logged entries to detect actual changes
@@ -264,7 +280,7 @@ export function useGitLogData(workspaceID: string): IGitLogData {
         // Log data rendered marker for tracking UI updates
         void window.service.native.log('info', '[test-id-git-log-data-rendered]', {
           commitCount: entries.length,
-          wikiFolderLocation: workspaceInfo.wikiFolderLocation!,
+          wikiFolderLocation: workspaceInfo.wikiFolderLocation,
         });
       }
     }
@@ -305,27 +321,29 @@ export function useGitLogData(workspaceID: string): IGitLogData {
         options.searchMode = 'none';
       }
 
-      const result = await window.service.git.callGitOp(
-        'getGitLog',
-        workspaceInfo.wikiFolderLocation!,
-        options,
-      );
+      const gitScope = gitLogScopeReference.current;
+      const repoPath = gitScope?.repoPath ?? workspaceInfo.wikiFolderLocation;
+      if (gitScope?.managedRelativePath && options.searchMode === 'none') {
+        options.scopedPath = gitScope.managedRelativePath;
+      }
+
+      const result = await window.service.git.getGitLog(repoPath, options);
 
       // Get unpushed commit hashes in parallel with loading files
-      const unpushedHashesPromise = window.service.git.callGitOp(
-        'getUnpushedCommitHashes',
-        workspaceInfo.wikiFolderLocation!,
-        workspaceInfo.gitUrl,
-      );
+      // For local workspaces, skip this — users should convert to cloud workspace if they want remote sync.
+      const isLocalWorkspace = workspaceInfo.storageService === SupportedStorageServices.local;
+      const unpushedHashesPromise = isLocalWorkspace
+        ? Promise.resolve(new Set<string>())
+        : window.service.git.getUnpushedCommitHashes(repoPath, workspaceInfo.gitUrl);
 
       // Load files for each commit
       const entriesWithFiles = await Promise.all(
         result.entries.map(async (entry) => {
           try {
-            const files = await window.service.git.callGitOp(
-              'getCommitFiles',
-              workspaceInfo.wikiFolderLocation!,
+            const files = await window.service.git.getCommitFiles(
+              repoPath,
               entry.hash,
+              gitScope?.managedRelativePath,
             );
             return { ...entry, files };
           } catch (error) {
@@ -366,5 +384,7 @@ export function useGitLogData(workspaceID: string): IGitLogData {
     loadMore,
     setSearchParams: setSearchParameters,
     isSearchMode,
+    trackedRepoPath,
+    trackedScopedPath,
   };
 }

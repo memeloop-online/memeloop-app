@@ -11,16 +11,17 @@ import { LOCAL_GIT_DIRECTORY } from '@/constants/appPaths';
 import { WikiChannel } from '@/constants/channels';
 import type { IAuthenticationService, ServiceBranchTypes } from '@services/auth/interface';
 import { container } from '@services/container';
+import type { IExternalAPIService } from '@services/externalAPI/interface';
 import { i18n } from '@services/libs/i18n';
 import { logger } from '@services/libs/log';
 import type { INativeService } from '@services/native/interface';
 import type { IPreferenceService } from '@services/preferences/interface';
-import type { IProviderRegistryService } from '@services/providerRegistry/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
 import type { IWikiService } from '@services/wiki/interface';
 import type { IWindowService } from '@services/windows/interface';
 import { WindowNames } from '@services/windows/WindowProperties';
-import { isWikiWorkspace, type IWorkspace } from '@services/workspaces/interface';
+import { isWikiWorkspace, type IWorkspace, type IWorkspaceGitScope } from '@services/workspaces/interface';
+import { computeGitScopePaths, getWorkspaceGitScope as resolveWorkspaceGitScope, isHtmlWikiWorkspace } from '@services/workspaces/workspacePaths';
 import * as gitOperations from './gitOperations';
 import type { GitWorker } from './gitWorker';
 import type { ICommitAndSyncConfigs, IForcePullConfigs, IGitLogMessage, IGitService, IGitStateChange, IGitSyncProgressEvent, IGitUserInfos } from './interface';
@@ -33,6 +34,8 @@ export class Git implements IGitService {
   private nativeWorker?: Worker;
   public gitStateChange$ = new BehaviorSubject<IGitStateChange | undefined>(undefined);
   public gitSyncProgress$ = new BehaviorSubject<IGitSyncProgressEvent | undefined>(undefined);
+  private operationLocks = new Map<string, Promise<void>>();
+  private inflightCallGitOps = new Map<string, Promise<unknown>>();
 
   constructor(
     @inject(serviceIdentifier.Preference) private readonly preferenceService: IPreferenceService,
@@ -40,6 +43,47 @@ export class Git implements IGitService {
     @inject(serviceIdentifier.NativeService) private readonly nativeService: INativeService,
     @inject(serviceIdentifier.Window) private readonly windowService: IWindowService,
   ) {}
+
+  /**
+   * Acquire a per-workspace lock to serialize git operations.
+   * Returns a release function that must be called in a finally block.
+   * Includes a timeout so that if a previous operation is stuck (e.g. due to a hibernated workspace or a hung git process),
+   * the current operation fails fast instead of blocking indefinitely.
+   */
+  private async acquireOperationLock(workspaceID: string): Promise<() => void> {
+    const previousLock = this.operationLocks.get(workspaceID);
+
+    if (previousLock !== undefined) {
+      const LOCK_TIMEOUT_MS = 30_000;
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<void>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new Error(`Previous git operation is still running for workspace ${workspaceID} after ${LOCK_TIMEOUT_MS}ms`));
+        }, LOCK_TIMEOUT_MS);
+      });
+      try {
+        await Promise.race([previousLock, timeoutPromise]);
+      } finally {
+        clearTimeout(timeoutHandle);
+      }
+    }
+
+    // Only set the new lock after the previous one has been successfully released.
+    // This prevents a dead lock if the timeout above rejects — the new promise
+    // would never be resolved if it were set before the await.
+    let release: () => void;
+    const promise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.operationLocks.set(workspaceID, promise);
+
+    return () => {
+      release!();
+      if (this.operationLocks.get(workspaceID) === promise) {
+        this.operationLocks.delete(workspaceID);
+      }
+    };
+  }
 
   private notifyGitStateChange(wikiFolderLocation: string, type: IGitStateChange['type']): void {
     const change = {
@@ -49,6 +93,17 @@ export class Git implements IGitService {
     };
     logger.debug('notifyGitStateChange called', change);
     this.gitStateChange$.next(change);
+  }
+
+  /**
+   * Resolve the git repo path to operate on for a workspace. For scoped workspaces this is the
+   * ancestor repo root; otherwise it falls back to the wiki folder. Notification always uses
+   * `workspace.wikiFolderLocation` (the renderer's gitStateChange$ filter key), so the git op
+   * path and the notification key are deliberately separated.
+   */
+  private resolveRepoPath(workspace: IWorkspace): string {
+    if (!isWikiWorkspace(workspace)) return '';
+    return resolveWorkspaceGitScope(workspace)?.repoPath ?? workspace.wikiFolderLocation;
   }
 
   /**
@@ -113,6 +168,18 @@ export class Git implements IGitService {
     return remoteUrl;
   }
 
+  public async discoverAncestorGitRepos(startPath: string): Promise<string[]> {
+    return gitOperations.discoverAncestorGitRepos(startPath);
+  }
+
+  public async getWorkspaceGitScope(workspace: IWorkspace): Promise<IWorkspaceGitScope | undefined> {
+    return resolveWorkspaceGitScope(workspace);
+  }
+
+  public async computeGitScopePaths(wikiFolderLocation: string, ancestorRepoRoot: string): Promise<{ gitRepoPath: string; gitManagedRelativePath: string }> {
+    return computeGitScopePaths(wikiFolderLocation, ancestorRepoRoot);
+  }
+
   /**
    * Update in-wiki settings for git. Only needed if the wiki is config to synced.
    * @param {string} remoteUrl
@@ -122,7 +189,15 @@ export class Git implements IGitService {
     if (remoteUrl === undefined || remoteUrl.length < 3) return;
     if (branch === undefined) return;
     // "/tiddly-gittly/TidGi-Desktop/issues/370"
-    const { pathname } = new URL(remoteUrl);
+    let url: URL;
+    try {
+      url = new URL(remoteUrl);
+    } catch {
+      // SSH URLs (e.g. git@github.com:user/repo.git) are not valid URLs.
+      // Skip updating the git info tiddler for SSH remotes.
+      return;
+    }
+    const { pathname } = url;
     // [ "", "tiddly-gittly", "TidGi-Desktop", "issues", "370" ]
     const [, userName, repoName] = pathname.split('/');
     /**
@@ -133,10 +208,10 @@ export class Git implements IGitService {
     // Use wikiOperationInServer so the write goes directly through the wiki worker's filesystem
     // adapter, which has boot.files correctly populated and can overwrite the existing .tid file
     // without appending numeric suffixes.
-    if (await wikiService.wikiOperationInServer(WikiChannel.getTiddlerText, workspace.id, ['$:/GitHub/Repo']) !== githubRepoName) {
+    if ((await wikiService.wikiOperationInServer(WikiChannel.getTiddlerText, workspace.id, ['$:/GitHub/Repo'])) !== githubRepoName) {
       await wikiService.wikiOperationInServer(WikiChannel.addTiddler, workspace.id, ['$:/GitHub/Repo', githubRepoName]);
     }
-    if (await wikiService.wikiOperationInServer(WikiChannel.getTiddlerText, workspace.id, ['$:/GitHub/Branch']) !== branch) {
+    if ((await wikiService.wikiOperationInServer(WikiChannel.getTiddlerText, workspace.id, ['$:/GitHub/Branch'])) !== branch) {
       await wikiService.wikiOperationInServer(WikiChannel.addTiddler, workspace.id, ['$:/GitHub/Branch', branch]);
     }
   }
@@ -163,7 +238,7 @@ export class Git implements IGitService {
   private readonly getWorkerMessageObserver = (wikiFolderPath: string, resolve: () => void, reject: (error: Error) => void, workspaceID?: string): Observer<IGitLogMessage> => ({
     next: (messageObject) => {
       if (messageObject.level === 'error') {
-        const errorMessage = (messageObject.error).message;
+        const errorMessage = messageObject.error.message;
         // if workspace exists, show notification in workspace, else use dialog instead
         if (workspaceID === undefined) {
           this.createFailedDialog(errorMessage, wikiFolderPath);
@@ -241,15 +316,9 @@ export class Git implements IGitService {
     logger.info(`[test-id-git-init-complete]`, { wikiFolderPath });
   }
 
-  public async initScopedWikiGit(
-    repoPath: string,
-    scopedPath: string,
-  ): Promise<void> {
+  public async initScopedWikiGit(repoPath: string, scopedPath: string): Promise<void> {
     await gitOperations.initScopedWikiGit(repoPath, scopedPath);
-    logger.info('[test-id-git-init-complete]', {
-      wikiFolderPath: repoPath,
-      scopedPath,
-    });
+    logger.info(`[test-id-git-init-complete]`, { wikiFolderPath: repoPath, scopedPath });
   }
 
   public async commitAndSync(workspace: IWorkspace, configs: ICommitAndSyncConfigs): Promise<boolean> {
@@ -261,10 +330,17 @@ export class Git implements IGitService {
       return false;
     }
     const workspaceIDToShowNotification = workspace.isSubWiki ? workspace.mainWikiID! : workspace.id;
-    const wikiFolderLocation = workspace.wikiFolderLocation!;
+    const workspaceID = workspace.id;
+    if (workspace.hibernated) {
+      logger.warn('commitAndSync skipped because workspace is hibernated', { workspaceID });
+      return false;
+    }
+    let releaseLock: (() => void) | undefined;
     try {
-      // Sub-wikis don't have their own wiki worker, so wikiOperationInServer would hang forever
-      if (!workspace.isSubWiki) {
+      releaseLock = await this.acquireOperationLock(workspaceID);
+      // Sub-wikis don't have their own wiki worker, so wikiOperationInServer would hang forever.
+      // HTML wikis have no Node wiki worker either.
+      if (!workspace.isSubWiki && !isHtmlWikiWorkspace(workspace)) {
         try {
           await this.updateGitInfoTiddler(workspace, configs.remoteUrl, configs.userInfo?.branch);
         } catch (error: unknown) {
@@ -274,12 +350,21 @@ export class Git implements IGitService {
 
       // Generate AI commit message if not provided and settings allow
       let finalConfigs = configs;
+      const gitScope = resolveWorkspaceGitScope(workspace);
+      // Scoped workspaces (HTML wiki tracking a single file, or folder wiki tracking a subfolder of
+      // an ancestor repo) commit/push against the outer repoPath and limit staging to managedRelativePath.
+      const scopedRepoPath = gitScope?.repoPath;
+      const scopedManagedPath = gitScope?.managedRelativePath;
+      const isScoped = scopedRepoPath !== undefined && scopedManagedPath !== undefined;
+      if (isScoped) {
+        finalConfigs = { ...configs, dir: scopedRepoPath };
+      }
       if (!configs.commitMessage) {
         logger.debug('No commit message provided, attempting to generate AI commit message');
         const { generateAICommitMessage } = await import('./aiCommitMessage');
-        // Determine source of the call for debugging
         const source = configs.commitOnly ? 'backup' : 'sync';
-        const aiCommitMessage = await generateAICommitMessage(wikiFolderLocation, source);
+        const aiFolderPath = gitScope?.repoPath ?? workspace.wikiFolderLocation;
+        const aiCommitMessage = await generateAICommitMessage(aiFolderPath, source, gitScope?.managedRelativePath);
         if (aiCommitMessage) {
           finalConfigs = { ...configs, commitMessage: aiCommitMessage };
           logger.debug('Using AI-generated commit message', { commitMessage: aiCommitMessage, source });
@@ -292,34 +377,75 @@ export class Git implements IGitService {
         logger.debug('Commit message already provided, skipping AI generation', { commitMessage: configs.commitMessage });
       }
 
+      if (isScoped) {
+        const hasChanges = await gitOperations.commitScopedChanges(
+          scopedRepoPath,
+          scopedManagedPath,
+          finalConfigs.commitMessage ?? i18n.t('LOG.CommitBackupMessage'),
+        );
+        if (!configs.commitOnly) {
+          const observable = this.gitWorker?.commitAndSyncWiki(
+            workspace,
+            { ...finalConfigs, dir: scopedRepoPath, commitOnly: false },
+            getErrorMessageI18NDict(),
+          );
+          await this.getHasChangeHandler(observable, scopedRepoPath, workspaceIDToShowNotification);
+        }
+        const changeType = configs.commitOnly ? 'commit' : 'sync';
+        this.notifyGitStateChange(workspace.wikiFolderLocation, changeType);
+        logger.info(`[test-id-git-${changeType}-complete]`, { wikiFolderLocation: workspace.wikiFolderLocation });
+        return hasChanges;
+      }
+
       const observable = this.gitWorker?.commitAndSyncWiki(workspace, finalConfigs, getErrorMessageI18NDict());
-      const hasChanges = await this.getHasChangeHandler(observable, wikiFolderLocation, workspaceIDToShowNotification);
+      const hasChanges = await this.getHasChangeHandler(observable, workspace.wikiFolderLocation, workspaceIDToShowNotification);
 
       // Notify git state change
       const changeType = configs.commitOnly ? 'commit' : 'sync';
-      this.notifyGitStateChange(wikiFolderLocation, changeType);
+      this.notifyGitStateChange(workspace.wikiFolderLocation, changeType);
       // Log for e2e test detection
-      logger.info(`[test-id-git-${changeType}-complete]`, { wikiFolderLocation });
+      logger.info(`[test-id-git-${changeType}-complete]`, { wikiFolderLocation: workspace.wikiFolderLocation });
       return hasChanges;
     } catch (error: unknown) {
       const error_ = error as Error;
       this.createFailedNotification(error_.message, workspaceIDToShowNotification);
       // Return false on sync failure - no successful changes were made
       return false;
+    } finally {
+      releaseLock?.();
     }
   }
 
   public async forcePull(workspace: IWorkspace, configs: IForcePullConfigs): Promise<boolean> {
+    // Same reasoning as commitAndSync: let the underlying git operation surface a real error
+    // rather than silently swallowing it when net.isOnline() gives a false negative.
     if (!isWikiWorkspace(workspace)) {
       return false;
     }
     const workspaceIDToShowNotification = workspace.isSubWiki ? workspace.mainWikiID! : workspace.id;
-    const wikiFolderLocation = workspace.wikiFolderLocation!;
-    const observable = this.gitWorker?.forcePullWiki(workspace, configs, getErrorMessageI18NDict());
-    const hasChanges = await this.getHasChangeHandler(observable, wikiFolderLocation, workspaceIDToShowNotification);
-    // Notify git state change
-    this.notifyGitStateChange(wikiFolderLocation, 'pull');
-    return hasChanges;
+    const workspaceID = workspace.id;
+    if (workspace.hibernated) {
+      logger.warn('forcePull skipped because workspace is hibernated', { workspaceID });
+      return false;
+    }
+    let releaseLock: (() => void) | undefined;
+    try {
+      releaseLock = await this.acquireOperationLock(workspaceID);
+      const gitScope = resolveWorkspaceGitScope(workspace);
+      const scopedRepoPath = gitScope?.repoPath;
+      const scopedConfigs = gitScope?.managedRelativePath !== undefined && scopedRepoPath !== undefined ? { ...configs, dir: scopedRepoPath } : configs;
+      const observable = this.gitWorker?.forcePullWiki(workspace, scopedConfigs, getErrorMessageI18NDict());
+      const hasChanges = await this.getHasChangeHandler(observable, workspace.wikiFolderLocation, workspaceIDToShowNotification);
+      // Notify git state change
+      this.notifyGitStateChange(workspace.wikiFolderLocation, 'pull');
+      return hasChanges;
+    } catch (error: unknown) {
+      const error_ = error as Error;
+      this.createFailedNotification(error_.message, workspaceIDToShowNotification);
+      return false;
+    } finally {
+      releaseLock?.();
+    }
   }
 
   /**
@@ -345,7 +471,7 @@ export class Git implements IGitService {
         next: (messageObject: IGitLogMessage) => {
           // Log the message
           if (messageObject.level === 'error') {
-            const errorMessage = (messageObject.error).message;
+            const errorMessage = messageObject.error.message;
             // if workspace exists, show notification in workspace, else use dialog instead
             if (workspaceID === undefined) {
               this.createFailedDialog(errorMessage, wikiFolderPath);
@@ -412,100 +538,110 @@ export class Git implements IGitService {
     }
     // Type assertion through unknown is necessary here because TypeScript cannot verify
     // that the union type of all gitOperations functions matches the generic K constraint
-    return await (operation as unknown as (...arguments__: Parameters<typeof gitOperations[K]>) => ReturnType<typeof gitOperations[K]>)(...arguments_);
-  }
+    const inflightKey = `${method}:${JSON.stringify(arguments_)}`;
+    const inflight = this.inflightCallGitOps.get(inflightKey);
+    if (inflight !== undefined) {
+      return await inflight as Awaited<ReturnType<typeof gitOperations[K]>>;
+    }
 
-  public async checkoutCommit(wikiFolderPath: string, commitHash: string): Promise<void> {
-    await this.callGitOp('checkoutCommit', wikiFolderPath, commitHash);
-    // Notify git state change
-    this.notifyGitStateChange(wikiFolderPath, 'checkout');
-    // Log for e2e test detection
-    logger.info(`[test-id-git-checkout-complete]`, { wikiFolderPath, commitHash });
-  }
-
-  public async revertCommit(wikiFolderPath: string, commitHash: string, commitMessage?: string): Promise<void> {
+    const promise = (operation as unknown as (...arguments__: Parameters<typeof gitOperations[K]>) => ReturnType<typeof gitOperations[K]>)(...arguments_);
+    this.inflightCallGitOps.set(inflightKey, promise);
     try {
-      await this.callGitOp('revertCommit', wikiFolderPath, commitHash, commitMessage);
+      return await promise;
+    } finally {
+      if (this.inflightCallGitOps.get(inflightKey) === promise) {
+        this.inflightCallGitOps.delete(inflightKey);
+      }
+    }
+  }
+
+  public async getGitLog(repoPath: string, options?: import('./interface').IGitLogOptions): Promise<import('./interface').IGitLogResult> {
+    return this.callGitOp('getGitLog', repoPath, options ?? {});
+  }
+
+  public async getCommitFiles(repoPath: string, commitHash: string, scopedPath?: string): Promise<import('./interface').IFileWithStatus[]> {
+    return this.callGitOp('getCommitFiles', repoPath, commitHash, scopedPath);
+  }
+
+  public async getUnpushedCommitHashes(repoPath: string, remoteUrl?: string | null): Promise<Set<string>> {
+    return this.callGitOp('getUnpushedCommitHashes', repoPath, remoteUrl ?? undefined);
+  }
+
+  public async checkoutCommit(workspace: IWorkspace, commitHash: string): Promise<void> {
+    if (!isWikiWorkspace(workspace)) return;
+    const repoPath = this.resolveRepoPath(workspace);
+    await this.callGitOp('checkoutCommit', repoPath, commitHash);
+    // Notify git state change
+    this.notifyGitStateChange(workspace.wikiFolderLocation, 'checkout');
+    // Log for e2e test detection
+    logger.info(`[test-id-git-checkout-complete]`, { wikiFolderPath: workspace.wikiFolderLocation, commitHash });
+  }
+
+  public async revertCommit(workspace: IWorkspace, commitHash: string, commitMessage?: string): Promise<void> {
+    if (!isWikiWorkspace(workspace)) return;
+    const repoPath = this.resolveRepoPath(workspace);
+    try {
+      await this.callGitOp('revertCommit', repoPath, commitHash, commitMessage);
       // Notify git state change BEFORE logging test marker
       // This ensures the notification is sent before tests start waiting for UI refresh
-      this.notifyGitStateChange(wikiFolderPath, 'revert');
+      this.notifyGitStateChange(workspace.wikiFolderLocation, 'revert');
       // Log for e2e test detection - only log after notification is sent
-      logger.info(`[test-id-git-revert-complete]`, { wikiFolderPath, commitHash });
+      logger.info(`[test-id-git-revert-complete]`, { wikiFolderPath: workspace.wikiFolderLocation, commitHash });
     } catch (error) {
-      logger.error('revertCommit failed', { error, wikiFolderPath, commitHash, commitMessage });
+      logger.error('revertCommit failed', { error, wikiFolderPath: workspace.wikiFolderLocation, commitHash, commitMessage });
       throw error;
     }
   }
 
-  public async amendCommitMessage(wikiFolderPath: string, newMessage: string): Promise<void> {
+  public async amendCommitMessage(workspace: IWorkspace, newMessage: string): Promise<void> {
+    if (!isWikiWorkspace(workspace)) return;
+    const repoPath = this.resolveRepoPath(workspace);
     try {
-      await this.callGitOp('amendCommitMessage', wikiFolderPath, newMessage);
+      await this.callGitOp('amendCommitMessage', repoPath, newMessage);
       // Notify git state change (commit list and hashes may change)
-      this.notifyGitStateChange(wikiFolderPath, 'commit');
+      this.notifyGitStateChange(workspace.wikiFolderLocation, 'commit');
     } catch (error) {
-      logger.error('amendCommitMessage failed', { error, wikiFolderPath, newMessage });
+      logger.error('amendCommitMessage failed', { error, wikiFolderPath: workspace.wikiFolderLocation, newMessage });
       throw error;
     }
   }
 
-  public async undoCommit(wikiFolderPath: string, commitHash: string): Promise<void> {
+  public async undoCommit(workspace: IWorkspace, commitHash: string): Promise<void> {
+    if (!isWikiWorkspace(workspace)) return;
+    const repoPath = this.resolveRepoPath(workspace);
     try {
-      await this.callGitOp('undoCommit', wikiFolderPath, commitHash);
+      await this.callGitOp('undoCommit', repoPath, commitHash);
       // Notify git state change
-      this.notifyGitStateChange(wikiFolderPath, 'undo');
+      this.notifyGitStateChange(workspace.wikiFolderLocation, 'undo');
     } catch (error) {
-      logger.error('undoCommit failed', { error, wikiFolderPath, commitHash });
+      logger.error('undoCommit failed', { error, wikiFolderPath: workspace.wikiFolderLocation, commitHash });
       throw error;
     }
   }
 
   /** Undo multiple commits sequentially (newest-first) and fire only one notification at the end. */
-  public async undoCommits(wikiFolderPath: string, commitHashes: string[]): Promise<void> {
+  public async undoCommits(workspace: IWorkspace, commitHashes: string[]): Promise<void> {
+    if (!isWikiWorkspace(workspace)) return;
+    const repoPath = this.resolveRepoPath(workspace);
     try {
       for (const hash of commitHashes) {
-        await this.callGitOp('undoCommit', wikiFolderPath, hash);
-        logger.info(`[test-id-git-undo-complete]`, { wikiFolderPath, commitHash: hash });
+        await this.callGitOp('undoCommit', repoPath, hash);
+        logger.info(`[test-id-git-undo-complete]`, { wikiFolderPath: workspace.wikiFolderLocation, commitHash: hash });
       }
       // One notification after all undos complete so git log refreshes only once.
-      this.notifyGitStateChange(wikiFolderPath, 'undo');
+      this.notifyGitStateChange(workspace.wikiFolderLocation, 'undo');
     } catch (error) {
-      logger.error('undoCommits failed', { error, wikiFolderPath, commitHashes });
+      logger.error('undoCommits failed', { error, wikiFolderPath: workspace.wikiFolderLocation, commitHashes });
       throw error;
     }
   }
 
-  public async createCheckpoint(wikiFolderPath: string, label?: string) {
-    try {
-      return await this.callGitOp('createCheckpoint', wikiFolderPath, label);
-    } catch (error) {
-      logger.error('createCheckpoint failed', { error, wikiFolderPath, label });
-      throw error;
-    }
-  }
-
-  public async listCheckpoints(wikiFolderPath: string) {
-    try {
-      return await this.callGitOp('listCheckpoints', wikiFolderPath);
-    } catch (error) {
-      logger.error('listCheckpoints failed', { error, wikiFolderPath });
-      throw error;
-    }
-  }
-
-  public async restoreCheckpoint(wikiFolderPath: string, checkpointHash: string): Promise<void> {
-    try {
-      await this.callGitOp('restoreCheckpoint', wikiFolderPath, checkpointHash);
-      this.notifyGitStateChange(wikiFolderPath, 'checkpoint');
-    } catch (error) {
-      logger.error('restoreCheckpoint failed', { error, wikiFolderPath, checkpointHash });
-      throw error;
-    }
-  }
-
-  public async discardFileChanges(wikiFolderPath: string, filePath: string): Promise<void> {
-    await this.callGitOp('discardFileChanges', wikiFolderPath, filePath);
+  public async discardFileChanges(workspace: IWorkspace, filePath: string): Promise<void> {
+    if (!isWikiWorkspace(workspace)) return;
+    const repoPath = this.resolveRepoPath(workspace);
+    await this.callGitOp('discardFileChanges', repoPath, filePath);
     // Notify git state change
-    this.notifyGitStateChange(wikiFolderPath, 'discard');
+    this.notifyGitStateChange(workspace.wikiFolderLocation, 'discard');
   }
 
   public async addToGitignore(wikiFolderPath: string, pattern: string): Promise<void> {
@@ -521,7 +657,7 @@ export class Git implements IGitService {
         return false;
       }
 
-      const externalAPIService = container.get<IProviderRegistryService>(serviceIdentifier.ProviderRegistry);
+      const externalAPIService = container.get<IExternalAPIService>(serviceIdentifier.ExternalAPI);
       return await externalAPIService.isAIAvailable();
     } catch {
       return false;

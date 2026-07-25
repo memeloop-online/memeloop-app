@@ -4,152 +4,16 @@
  */
 import { i18n } from '@services/libs/i18n';
 import { exec as gitExec } from 'dugite';
+import { hasGit } from 'git-sync-js';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { defaultGitInfo } from './defaultGitInfo';
-import type { GitFileStatus, IFileDiffResult, IGitCheckpointInfo, IGitLogOptions, IGitLogResult } from './interface';
+import { appendGitPathSpec, filterFilesByScope, hasUncommittedChangesInScope } from './gitScope';
+import type { GitFileStatus, IFileDiffResult, IGitLogOptions, IGitLogResult } from './interface';
 
 /** Prefix for temporary Git index directories used during amend/undo operations */
 const TEMP_GIT_INDEX_PREFIX = 'tidgi-git-index-';
-const SHADOW_CHECKPOINT_REPO_DIR_NAME = 'shadow-checkpoints';
-const SHADOW_CHECKPOINT_AUTHOR_NAME = 'TidGi Checkpoint';
-const SHADOW_CHECKPOINT_AUTHOR_EMAIL = 'checkpoint@tidgi.app';
-const SHADOW_CHECKPOINT_MESSAGE_PREFIX = 'checkpoint';
-const SHADOW_CHECKPOINT_METADATA_FILE_NAME = 'checkpoints.json';
-
-export async function initScopedWikiGit(
-  repoPath: string,
-  scopedPath: string,
-  message?: string,
-): Promise<void> {
-  const repositoryCheck = await gitExec(['rev-parse', '--git-dir'], repoPath);
-  if (repositoryCheck.exitCode !== 0) {
-    const initialization = await gitExec(['init'], repoPath);
-    if (initialization.exitCode !== 0) {
-      throw new Error(`Failed to init git: ${initialization.stderr}`);
-    }
-    await gitExec(
-      ['config', 'user.email', defaultGitInfo.email],
-      repoPath,
-    );
-    await gitExec(
-      ['config', 'user.name', defaultGitInfo.gitUserName],
-      repoPath,
-    );
-  }
-
-  const add = await gitExec(['add', '--', scopedPath], repoPath);
-  if (add.exitCode !== 0) {
-    throw new Error(`Failed to stage ${scopedPath}: ${add.stderr}`);
-  }
-  const staged = await gitExec(
-    ['diff', '--cached', '--quiet', '--', scopedPath],
-    repoPath,
-  );
-  if (staged.exitCode === 0) return;
-
-  const commit = await gitExec(
-    [
-      'commit',
-      '-m',
-      message ?? i18n.t('LOG.CommitBackupMessage'),
-      '--',
-      scopedPath,
-    ],
-    repoPath,
-  );
-  if (commit.exitCode !== 0) {
-    throw new Error(`Failed to commit ${scopedPath}: ${commit.stderr}`);
-  }
-}
-
-function getShadowCheckpointRepoPath(repoPath: string): string {
-  return path.join(repoPath, '.git', SHADOW_CHECKPOINT_REPO_DIR_NAME);
-}
-
-function getShadowCheckpointMetadataPath(repoPath: string): string {
-  return path.join(getShadowCheckpointRepoPath(repoPath), SHADOW_CHECKPOINT_METADATA_FILE_NAME);
-}
-
-async function readCheckpointMetadata(repoPath: string): Promise<IGitCheckpointInfo[]> {
-  const metadataPath = getShadowCheckpointMetadataPath(repoPath);
-  const content = await fs.readFile(metadataPath, 'utf8').catch((error: NodeJS.ErrnoException) => {
-    if (error.code === 'ENOENT') {
-      return '[]';
-    }
-    throw error;
-  });
-
-  const parsed = JSON.parse(content) as IGitCheckpointInfo[];
-  return Array.isArray(parsed) ? parsed : [];
-}
-
-async function writeCheckpointMetadata(repoPath: string, checkpoints: IGitCheckpointInfo[]): Promise<void> {
-  const metadataPath = getShadowCheckpointMetadataPath(repoPath);
-  await fs.writeFile(metadataPath, JSON.stringify(checkpoints, null, 2), 'utf8');
-}
-
-const checkpointInitLocks = new Map<string, Promise<string>>();
-
-async function ensureShadowCheckpointRepository(repoPath: string): Promise<string> {
-  const shadowGitDirectory = getShadowCheckpointRepoPath(repoPath);
-  const headPath = path.join(shadowGitDirectory, 'HEAD');
-  const exists = await fs.access(headPath).then(() => true).catch(() => false);
-  if (exists) {
-    return shadowGitDirectory;
-  }
-
-  const existingLock = checkpointInitLocks.get(repoPath);
-  if (existingLock) {
-    return existingLock;
-  }
-
-  const initPromise = (async () => {
-    try {
-      await fs.mkdir(shadowGitDirectory, { recursive: true });
-
-      const initResult = await gitExec(
-        ['--git-dir', shadowGitDirectory, '--work-tree', repoPath, 'init'],
-        repoPath,
-      );
-      if (initResult.exitCode !== 0) {
-        throw new Error(`Failed to initialize checkpoint repository: ${initResult.stderr}`);
-      }
-
-      const configEntries: Array<[string, string]> = [
-        ['core.worktree', repoPath],
-        ['commit.gpgSign', 'false'],
-        ['user.name', SHADOW_CHECKPOINT_AUTHOR_NAME],
-        ['user.email', SHADOW_CHECKPOINT_AUTHOR_EMAIL],
-      ];
-
-      for (const [key, value] of configEntries) {
-        const configResult = await gitExec(
-          ['--git-dir', shadowGitDirectory, '--work-tree', repoPath, 'config', key, value],
-          repoPath,
-        );
-        if (configResult.exitCode !== 0) {
-          throw new Error(`Failed to configure checkpoint repository (${key}): ${configResult.stderr}`);
-        }
-      }
-
-      await writeCheckpointMetadata(repoPath, []);
-
-      return shadowGitDirectory;
-    } finally {
-      checkpointInitLocks.delete(repoPath);
-    }
-  })();
-
-  checkpointInitLocks.set(repoPath, initPromise);
-  return initPromise;
-}
-
-function buildCheckpointMessage(label?: string): string {
-  const trimmedLabel = label?.trim();
-  return trimmedLabel ? `${SHADOW_CHECKPOINT_MESSAGE_PREFIX}: ${trimmedLabel}` : `${SHADOW_CHECKPOINT_MESSAGE_PREFIX}: ${new Date().toISOString()}`;
-}
 
 /**
  * Helper to create git environment variables for commit operations
@@ -163,6 +27,93 @@ function getGitCommitEnvironment(username: string = defaultGitInfo.gitUserName, 
     GIT_COMMITTER_NAME: username,
     GIT_COMMITTER_EMAIL: email,
   };
+}
+
+/**
+ * Initialize git in repoPath and create an initial commit that tracks only scopedPath.
+ * Used for HTML wiki workspaces whose repo root is the parent folder of the .html file.
+ */
+export async function initScopedWikiGit(repoPath: string, scopedPath: string, message?: string): Promise<void> {
+  if (!(await hasGit(repoPath, true))) {
+    const initResult = await gitExec(['init'], repoPath);
+    if (initResult.exitCode !== 0) {
+      throw new Error(`Failed to init git: ${initResult.stderr}`);
+    }
+    await gitExec(['config', 'user.email', defaultGitInfo.email], repoPath);
+    await gitExec(['config', 'user.name', defaultGitInfo.gitUserName], repoPath);
+  }
+
+  const addResult = await gitExec(['add', '--', scopedPath], repoPath);
+  if (addResult.exitCode !== 0) {
+    throw new Error(`Failed to stage ${scopedPath}: ${addResult.stderr}`);
+  }
+
+  const stagedResult = await gitExec(['diff', '--cached', '--quiet', '--', scopedPath], repoPath);
+  if (stagedResult.exitCode === 0) {
+    return;
+  }
+
+  const commitResult = await gitExec(
+    ['commit', '-m', message ?? i18n.t('LOG.CommitBackupMessage'), '--', scopedPath],
+    repoPath,
+    { env: getGitCommitEnvironment() },
+  );
+  if (commitResult.exitCode !== 0) {
+    throw new Error(`Failed to commit ${scopedPath}: ${commitResult.stderr}`);
+  }
+}
+
+/**
+ * Stage and commit only the scoped file. Returns true when a commit was created.
+ */
+export async function commitScopedChanges(repoPath: string, scopedPath: string, message: string): Promise<boolean> {
+  const addResult = await gitExec(['add', '--', scopedPath], repoPath);
+  if (addResult.exitCode !== 0) {
+    throw new Error(`Failed to stage ${scopedPath}: ${addResult.stderr}`);
+  }
+  const stagedResult = await gitExec(['diff', '--cached', '--quiet', '--', scopedPath], repoPath);
+  if (stagedResult.exitCode === 0) {
+    return false;
+  }
+  const commitResult = await gitExec(
+    ['commit', '-m', message, '--', scopedPath],
+    repoPath,
+    { env: getGitCommitEnvironment() },
+  );
+  if (commitResult.exitCode !== 0) {
+    throw new Error(`Failed to commit ${scopedPath}: ${commitResult.stderr}`);
+  }
+  return true;
+}
+
+/**
+ * Walk up the filesystem from `startPath` and return absolute paths of every ancestor
+ * directory that contains a `.git` (i.e. is a Git repository root). Used to detect
+ * existing outer Git repos so we can avoid creating a nested repo when a wiki is created
+ * inside an already-versioned folder (e.g. a game project), and to populate the list of
+ * candidate repos in workspace settings.
+ *
+ * Stops after `maxDepth` ancestor levels (default 8) to avoid scanning the whole drive.
+ */
+export async function discoverAncestorGitRepos(startPath: string, maxDepth = 8): Promise<string[]> {
+  const repos: string[] = [];
+  let current = path.resolve(startPath);
+  for (let depth = 0; depth < maxDepth; depth++) {
+    try {
+      // Second arg true => only check for .git folder existence, don't run git.
+      if (await hasGit(current, true)) {
+        // Normalize to forward slashes so results are cross-platform consistent and directly
+        // comparable with the repoPath returned by getWorkspaceGitScope (which is also normalized).
+        repos.push(current.replace(/\\/g, '/'));
+      }
+    } catch {
+      // ignore stat errors (e.g. permission denied) and keep walking
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return repos;
 }
 
 /**
@@ -238,12 +189,14 @@ export async function getChangedFilesBetweenCommits(
  * Get git log with pagination
  */
 export async function getGitLog(repoPath: string, options: IGitLogOptions = {}): Promise<IGitLogResult> {
-  const { page = 0, pageSize = 100, searchQuery, searchMode = 'none', filePath, since, until } = options;
+  const { page = 0, pageSize = 100, searchQuery, searchMode = 'none', filePath, scopedPath, since, until } = options;
   const skip = page * pageSize;
+  const scope = scopedPath ? { managedRelativePath: scopedPath } : undefined;
 
   // Check for uncommitted changes (only in normal mode)
-  const statusResult = await gitExec(['-c', 'core.quotePath=false', 'status', '--porcelain'], repoPath);
-  const hasUncommittedChanges = statusResult.stdout.trim().length > 0 && searchMode === 'none';
+  const statusArguments = appendGitPathSpec(['-c', 'core.quotePath=false', 'status', '--porcelain'], scope);
+  const statusResult = await gitExec(statusArguments, repoPath);
+  const hasUncommittedChanges = hasUncommittedChangesInScope(statusResult.stdout, scope) && searchMode === 'none';
 
   // Build git log command arguments
   const logArguments = [
@@ -270,6 +223,8 @@ export async function getGitLog(repoPath: string, options: IGitLogOptions = {}):
     if (until) {
       logArguments.push(`--until=${until}`);
     }
+  } else if (scopedPath && searchMode === 'none') {
+    logArguments.push('--', scopedPath);
   }
 
   const result = await gitExec(logArguments, repoPath);
@@ -278,9 +233,9 @@ export async function getGitLog(repoPath: string, options: IGitLogOptions = {}):
     throw new Error(`Git log failed: ${result.stderr}`);
   }
 
-  // Get current branch
+  // Get current branch (fresh repos may have no commits yet — HEAD does not exist)
   const branchResult = await gitExec(['rev-parse', '--abbrev-ref', 'HEAD'], repoPath);
-  const currentBranch = branchResult.stdout.trim();
+  const currentBranch = branchResult.exitCode === 0 ? branchResult.stdout.trim() : '';
 
   // Get total count
   const countArguments = ['rev-list', '--all', '--count'];
@@ -296,9 +251,11 @@ export async function getGitLog(repoPath: string, options: IGitLogOptions = {}):
     if (until) {
       countArguments.push(`--until=${until}`);
     }
+  } else if (scopedPath && searchMode === 'none') {
+    countArguments.push('--', scopedPath);
   }
   const countResult = await gitExec(countArguments, repoPath);
-  const totalCount = Number.parseInt(countResult.stdout.trim(), 10);
+  const totalCount = Number.parseInt(countResult.stdout.trim(), 10) || 0;
 
   // Parse log output
   const entries = result.stdout
@@ -388,31 +345,34 @@ function parseGitStatusCode(statusCode: string): GitFileStatus {
  * Get files changed in a specific commit
  * If commitHash is empty, returns uncommitted changes
  */
-export async function getCommitFiles(repoPath: string, commitHash: string): Promise<Array<import('./interface').IFileWithStatus>> {
+export async function getCommitFiles(repoPath: string, commitHash: string, scopedPath?: string): Promise<Array<import('./interface').IFileWithStatus>> {
+  const scope = scopedPath ? { managedRelativePath: scopedPath } : undefined;
   // Handle uncommitted changes
   if (!commitHash || commitHash === '') {
-    // Use -uall to show all untracked files, not just directories.
-    // This is important for AI commit message generation to see the full context.
-    const result = await gitExec(['-c', 'core.quotePath=false', 'status', '--porcelain', '-z', '-uall'], repoPath);
+    const result = await gitExec(
+      appendGitPathSpec(['-c', 'core.quotePath=false', 'status', '--porcelain', '-z', '-uall'], scope),
+      repoPath,
+    );
 
     if (result.exitCode !== 0) {
       throw new Error(`Failed to get uncommitted files: ${result.stderr}`);
     }
 
-    return parseNullSeparatedPorcelainStatusOutput(result.stdout);
+    return filterFilesByScope(parseNullSeparatedPorcelainStatusOutput(result.stdout), scope);
   }
 
   // For committed changes, use diff-tree with --name-status to get file status
-  const result = await gitExec(
+  const diffTreeArguments = appendGitPathSpec(
     ['-c', 'core.quotePath=false', 'diff-tree', '--no-commit-id', '--name-status', '-z', '-r', commitHash],
-    repoPath,
+    scope,
   );
+  const result = await gitExec(diffTreeArguments, repoPath);
 
   if (result.exitCode !== 0) {
     throw new Error(`Failed to get commit files: ${result.stderr}`);
   }
 
-  return parseNullSeparatedNameStatusOutput(result.stdout);
+  return filterFilesByScope(parseNullSeparatedNameStatusOutput(result.stdout), scope);
 }
 
 function parseNullSeparatedNameStatusOutput(output: string): Array<{ path: string; status: GitFileStatus }> {
@@ -973,71 +933,6 @@ export async function amendCommitMessage(repoPath: string, newMessage: string): 
   } finally {
     await fs.rm(temporaryDirectory, { recursive: true, force: true });
   }
-}
-
-function getShadowGitFlags(repoPath: string): string[] {
-  const shadowGitDirectory = getShadowCheckpointRepoPath(repoPath);
-  return ['--git-dir', shadowGitDirectory, '--work-tree', repoPath];
-}
-
-export async function createCheckpoint(repoPath: string, label?: string): Promise<IGitCheckpointInfo> {
-  await ensureShadowCheckpointRepository(repoPath);
-  const flags = getShadowGitFlags(repoPath);
-  const addResult = await gitExec([...flags, 'add', '-A'], repoPath);
-  if (addResult.exitCode !== 0) {
-    throw new Error(`Failed to stage checkpoint changes: ${addResult.stderr}`);
-  }
-
-  const treeResult = await gitExec([...flags, 'write-tree'], repoPath);
-  if (treeResult.exitCode !== 0) {
-    throw new Error(`Failed to create checkpoint tree: ${treeResult.stderr}`);
-  }
-
-  const checkpoint: IGitCheckpointInfo = {
-    hash: treeResult.stdout.trim(),
-    message: buildCheckpointMessage(label),
-    timestamp: new Date().toISOString(),
-  };
-
-  const checkpoints = await readCheckpointMetadata(repoPath);
-  await writeCheckpointMetadata(repoPath, [checkpoint, ...checkpoints.filter(item => item.hash !== checkpoint.hash)]);
-  return checkpoint;
-}
-
-export async function listCheckpoints(repoPath: string): Promise<IGitCheckpointInfo[]> {
-  await ensureShadowCheckpointRepository(repoPath);
-  return await readCheckpointMetadata(repoPath);
-}
-
-export async function restoreCheckpoint(repoPath: string, checkpointHash: string): Promise<void> {
-  await ensureShadowCheckpointRepository(repoPath);
-  const flags = getShadowGitFlags(repoPath);
-  const verifyResult = await gitExec([...flags, 'cat-file', '-e', checkpointHash], repoPath);
-  if (verifyResult.exitCode !== 0) {
-    throw new Error(`Invalid checkpoint hash: ${checkpointHash}`);
-  }
-
-  const diffResult = await gitExec([...flags, 'diff', '--name-status', '-z', checkpointHash], repoPath);
-  if (diffResult.exitCode !== 0) {
-    throw new Error(`Failed to compute checkpoint diff: ${diffResult.stderr}`);
-  }
-
-  const changes = parseNullSeparatedNameStatusOutput(diffResult.stdout)
-    .filter(({ path: filePath }) => !filePath.includes('$__StoryList.tid'));
-  await Promise.all(changes.map(async ({ path: filePath, status }) => {
-    const absolutePath = path.join(repoPath, filePath);
-    if (status === 'deleted') {
-      try {
-        await fs.unlink(absolutePath);
-      } catch {}
-    } else {
-      const showResult = await gitExec([...flags, 'show', `${checkpointHash}:${filePath}`], repoPath);
-      if (showResult.exitCode !== 0) {
-        throw new Error(`Failed to read checkpoint content for ${filePath}: ${showResult.stderr}`);
-      }
-      await fs.writeFile(absolutePath, showResult.stdout, 'utf8');
-    }
-  }));
 }
 
 /**

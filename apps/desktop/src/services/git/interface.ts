@@ -1,5 +1,5 @@
 import { GitChannel } from '@/constants/channels';
-import type { IWorkspace } from '@services/workspaces/interface';
+import type { IWorkspace, IWorkspaceGitScope } from '@services/workspaces/interface';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
 import { ICommitAndSyncOptions, ModifiedFileList } from 'git-sync-js';
 import type { BehaviorSubject } from 'rxjs';
@@ -46,6 +46,8 @@ export interface IGitLogOptions {
   searchMode?: GitLogSearchMode;
   /** File path pattern for file search mode */
   filePath?: string;
+  /** Limit operations to a single managed file (HTML wiki workspace) */
+  scopedPath?: string;
   /** Start date for date range search (ISO string) */
   since?: string;
   /** End date for date range search (ISO string) */
@@ -92,13 +94,7 @@ export interface IGitStateChange {
   /** The workspace folder that changed */
   wikiFolderLocation: string;
   /** Type of change */
-  type: 'commit' | 'sync' | 'pull' | 'checkout' | 'revert' | 'undo' | 'discard' | 'checkpoint' | 'file-change';
-}
-
-export interface IGitCheckpointInfo {
-  hash: string;
-  message: string;
-  timestamp: string;
+  type: 'commit' | 'sync' | 'pull' | 'checkout' | 'revert' | 'undo' | 'discard' | 'file-change';
 }
 
 /**
@@ -138,11 +134,30 @@ export interface IGitService {
   /** Inspect git's remote url from folder's .git config, return undefined if there is no initialized git */
   getWorkspacesRemote(wikiFolderPath?: string): Promise<string | undefined>;
   /**
+   * Walk up from `startPath` and return absolute paths of every ancestor directory that is a Git
+   * repository root. Used to detect outer repos when creating a wiki inside an already-versioned
+   * folder, and to populate the candidate-repo list in workspace settings.
+   */
+  discoverAncestorGitRepos(startPath: string): Promise<string[]>;
+  /**
+   * Resolve the Git scope for a workspace (repo root + managed subpath) by applying the stored
+   * `gitRepoPath`/`gitManagedRelativePath`. Centralized in the main process so the renderer never
+   * does path math — the renderer passes the workspace object (e.g. the live form state) and reads
+   * the result. Returns undefined when the workspace isn't a wiki workspace.
+   */
+  getWorkspaceGitScope(workspace: IWorkspace): Promise<IWorkspaceGitScope | undefined>;
+  /**
+   * Compute the portable `gitRepoPath`/`gitManagedRelativePath` to store in workspace config for a
+   * wiki folder living inside `ancestorRepoRoot`. Main-process-only path math; the renderer calls
+   * this via IPC instead of reimplementing relative-path resolution.
+   */
+  computeGitScopePaths(wikiFolderLocation: string, ancestorRepoRoot: string): Promise<{ gitRepoPath: string; gitManagedRelativePath: string }>;
+  /**
    * Run git init in a folder, prepare remote origin if isSyncedWiki
    */
   initWikiGit(wikiFolderPath: string, isSyncedWiki: true, isMainWiki: boolean, remoteUrl: string, userInfo: IGitUserInfos): Promise<void>;
   initWikiGit(wikiFolderPath: string, isSyncedWiki?: false): Promise<void>;
-  /** Initialize a repository that manages only one file, such as an HTML wiki. */
+  /** Init git repo and initial commit for a single managed file (HTML wiki). */
   initScopedWikiGit(repoPath: string, scopedPath: string): Promise<void>;
   /**
    * Decide to use forcePull or commitAndSync according to workspace's `readOnlyMode` setting.
@@ -158,35 +173,35 @@ export interface IGitService {
     method: K,
     ...arguments_: Parameters<typeof import('./gitOperations')[K]>
   ): Promise<Awaited<ReturnType<typeof import('./gitOperations')[K]>>>;
+  getGitLog(repoPath: string, options?: IGitLogOptions): Promise<IGitLogResult>;
+  getCommitFiles(repoPath: string, commitHash: string, scopedPath?: string): Promise<IFileWithStatus[]>;
+  getUnpushedCommitHashes(repoPath: string, remoteUrl?: string | null): Promise<Set<string>>;
   /**
    * Checkout a specific commit
    */
-  checkoutCommit(wikiFolderPath: string, commitHash: string): Promise<void>;
+  checkoutCommit(workspace: IWorkspace, commitHash: string): Promise<void>;
   /**
    * Revert a specific commit (using git revert)
    * @param commitMessage - Optional original commit message to include in revert message
    */
-  revertCommit(wikiFolderPath: string, commitHash: string, commitMessage?: string): Promise<void>;
+  revertCommit(workspace: IWorkspace, commitHash: string, commitMessage?: string): Promise<void>;
   /**
    * Amend latest commit message
    */
-  amendCommitMessage(wikiFolderPath: string, newMessage: string): Promise<void>;
+  amendCommitMessage(workspace: IWorkspace, newMessage: string): Promise<void>;
   /**
    * Undo a specific commit by resetting to the parent and keeping changes as unstaged
    */
-  undoCommit(wikiFolderPath: string, commitHash: string): Promise<void>;
-  createCheckpoint(wikiFolderPath: string, label?: string): Promise<IGitCheckpointInfo>;
-  listCheckpoints(wikiFolderPath: string): Promise<IGitCheckpointInfo[]>;
-  restoreCheckpoint(wikiFolderPath: string, checkpointHash: string): Promise<void>;
+  undoCommit(workspace: IWorkspace, commitHash: string): Promise<void>;
   /**
    * Undo multiple commits sequentially, firing only one git-state notification at the end.
    * Commits must be ordered newest-first (same order as git log).
    */
-  undoCommits(wikiFolderPath: string, commitHashes: string[]): Promise<void>;
+  undoCommits(workspace: IWorkspace, commitHashes: string[]): Promise<void>;
   /**
    * Discard changes for a specific file (restore from HEAD)
    */
-  discardFileChanges(wikiFolderPath: string, filePath: string): Promise<void>;
+  discardFileChanges(workspace: IWorkspace, filePath: string): Promise<void>;
   /**
    * Add a file pattern to .gitignore
    */
@@ -209,6 +224,9 @@ export const GitServiceIPCDescriptor = {
   properties: {
     addToGitignore: ProxyPropertyType.Function,
     callGitOp: ProxyPropertyType.Function,
+    getGitLog: ProxyPropertyType.Function,
+    getCommitFiles: ProxyPropertyType.Function,
+    getUnpushedCommitHashes: ProxyPropertyType.Function,
     checkoutCommit: ProxyPropertyType.Function,
     clone: ProxyPropertyType.Function,
     commitAndSync: ProxyPropertyType.Function,
@@ -217,6 +235,9 @@ export const GitServiceIPCDescriptor = {
     forcePull: ProxyPropertyType.Function,
     getModifiedFileList: ProxyPropertyType.Function,
     getWorkspacesRemote: ProxyPropertyType.Function,
+    discoverAncestorGitRepos: ProxyPropertyType.Function,
+    getWorkspaceGitScope: ProxyPropertyType.Function,
+    computeGitScopePaths: ProxyPropertyType.Function,
     gitStateChange$: ProxyPropertyType.Value$,
     gitSyncProgress$: ProxyPropertyType.Value$,
     initWikiGit: ProxyPropertyType.Function,
@@ -225,9 +246,6 @@ export const GitServiceIPCDescriptor = {
     revertCommit: ProxyPropertyType.Function,
     amendCommitMessage: ProxyPropertyType.Function,
     undoCommit: ProxyPropertyType.Function,
-    createCheckpoint: ProxyPropertyType.Function,
-    listCheckpoints: ProxyPropertyType.Function,
-    restoreCheckpoint: ProxyPropertyType.Function,
     syncOrForcePull: ProxyPropertyType.Function,
     isAIGenerateBackupTitleEnabled: ProxyPropertyType.Function,
   },
