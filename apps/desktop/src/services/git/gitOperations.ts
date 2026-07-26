@@ -18,6 +18,52 @@ const SHADOW_CHECKPOINT_AUTHOR_EMAIL = 'checkpoint@tidgi.app';
 const SHADOW_CHECKPOINT_MESSAGE_PREFIX = 'checkpoint';
 const SHADOW_CHECKPOINT_METADATA_FILE_NAME = 'checkpoints.json';
 
+export async function initScopedWikiGit(
+  repoPath: string,
+  scopedPath: string,
+  message?: string,
+): Promise<void> {
+  const repositoryCheck = await gitExec(['rev-parse', '--git-dir'], repoPath);
+  if (repositoryCheck.exitCode !== 0) {
+    const initialization = await gitExec(['init'], repoPath);
+    if (initialization.exitCode !== 0) {
+      throw new Error(`Failed to init git: ${initialization.stderr}`);
+    }
+    await gitExec(
+      ['config', 'user.email', defaultGitInfo.email],
+      repoPath,
+    );
+    await gitExec(
+      ['config', 'user.name', defaultGitInfo.gitUserName],
+      repoPath,
+    );
+  }
+
+  const add = await gitExec(['add', '--', scopedPath], repoPath);
+  if (add.exitCode !== 0) {
+    throw new Error(`Failed to stage ${scopedPath}: ${add.stderr}`);
+  }
+  const staged = await gitExec(
+    ['diff', '--cached', '--quiet', '--', scopedPath],
+    repoPath,
+  );
+  if (staged.exitCode === 0) return;
+
+  const commit = await gitExec(
+    [
+      'commit',
+      '-m',
+      message ?? i18n.t('LOG.CommitBackupMessage'),
+      '--',
+      scopedPath,
+    ],
+    repoPath,
+  );
+  if (commit.exitCode !== 0) {
+    throw new Error(`Failed to commit ${scopedPath}: ${commit.stderr}`);
+  }
+}
+
 function getShadowCheckpointRepoPath(repoPath: string): string {
   return path.join(repoPath, '.git', SHADOW_CHECKPOINT_REPO_DIR_NAME);
 }

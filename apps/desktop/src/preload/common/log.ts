@@ -5,7 +5,7 @@ export const logMethods = {
    * Placeholder for log methods.
    * Previously registered wiki creation messages.
    */
-  registerWikiCreationMessage: (_messageSetter: (message: string) => void): (() => void) => {
+  registerWikiCreationMessage: (_messageSetter: (message: string) => void): () => void => {
     return () => {};
   },
 };

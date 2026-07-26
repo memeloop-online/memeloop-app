@@ -1,15 +1,30 @@
 import { IAskAIWithSelectionData, WindowChannel } from '@/constants/channels';
-import type { AgentDefinition, IAgentDefinitionService } from '@services/agentDefinition/interface';
+import type {
+  AgentDefinition,
+  IAgentDefinitionService,
+} from '@services/agentDefinition/interface';
 import type { IWindowService } from '@services/windows/interface';
 import { WindowNames } from '@services/windows/WindowProperties';
 import type { MenuItemConstructorOptions } from 'electron';
 import type { TFunction } from 'i18next';
 
 interface ICreateTalkWithAIMenuItemsOptions {
+  /** Agent definition service to get available agents */
   agentDefinitionService: Pick<IAgentDefinitionService, 'getAgentDef' | 'getAgentDefs'>;
+  /** Selected text to send to AI (empty string if none) */
   selectionText: string;
+  /** Translation function */
   t: TFunction;
+  /** Wiki URL for context */
+  wikiUrl?: string;
+  /** Window service to get main window. Only used when onTrigger is not provided (main-process path). */
   windowService: Pick<IWindowService, 'get'>;
+  /** Workspace ID for context */
+  workspaceId?: string;
+  /**
+   * Optional callback invoked instead of the default IPC-send when the click handler runs in the renderer process.
+   * When provided, windowService.get() is never called, which avoids the non-serialisable BrowserWindow issue.
+   */
   onTrigger?: (data: IAskAIWithSelectionData) => void;
 }
 
@@ -20,7 +35,7 @@ interface ICreateTalkWithAIMenuItemsOptions {
 export async function createTalkWithAIMenuItems(
   options: ICreateTalkWithAIMenuItemsOptions,
 ): Promise<MenuItemConstructorOptions[]> {
-  const { agentDefinitionService, selectionText, t, windowService, onTrigger } = options;
+  const { agentDefinitionService, selectionText, t, wikiUrl, windowService, workspaceId, onTrigger } = options;
 
   // Get all agent definitions
   const defaultAgentDefinition = await agentDefinitionService.getAgentDef(); // No parameter = default agent
@@ -49,12 +64,15 @@ export async function createTalkWithAIMenuItems(
     click: () => {
       const data: IAskAIWithSelectionData = {
         selectionText,
-        agentDefId: undefined,
+        wikiUrl,
+        workspaceId,
+        agentDefId: undefined, // Use default agent
       };
       sendData(data);
     },
   });
 
+  // Add submenu for other agents if there are any
   if (otherAgentDefinitions.length > 0) {
     menuItems.push({
       id: 'talk-with-ai-more',
@@ -64,6 +82,8 @@ export async function createTalkWithAIMenuItems(
         click: () => {
           const data: IAskAIWithSelectionData = {
             selectionText,
+            wikiUrl,
+            workspaceId,
             agentDefId: agentDefinition.id,
           };
           sendData(data);

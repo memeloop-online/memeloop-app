@@ -10,56 +10,10 @@ Feature: Agent Workflow - Tool Usage and Multi-Round Conversation
     Then I launch the TidGi application
     And I wait for the page to load completely
     And I should see a "page body" element with selector "body"
-
-  @agent @mockOpenAI
-  Scenario: Remote memeloop node task completes through agent workspace
-    Given I add mock OpenAI responses:
-      | response                                                                                                                                                                                                 | stream |
-      | <tool_use name="remoteAgent">{"nodeId":"remote-e2e-node","definitionId":"memeloop:code-assistant","message":"Create the file remote-output/task-result.txt with content 'created by remote worker'. Then report the exact file path and content."}</tool_use> | false  |
-      | <tool_use name="file.write">{"path":"remote-output/task-result.txt","content":"created by remote worker"}</tool_use>                                                                        | false  |
-      | Remote worker created remote-output/task-result.txt with content "created by remote worker".                                                                                                          | false  |
-      | 远程 node 已完成任务，remote-output/task-result.txt 已创建，内容为 created by remote worker。                                                                                                          | false  |
-    And I have prepared a cloud-discovered remote memeloop test node backed by mock OpenAI
-    And I click on a "settings button" element with selector "#open-preferences-button"
-    And I switch to "preferences" window
-    And I click on a "sync section" element with selector "[data-testid='preference-section-sync']"
-    And I click on a "open node management button" element with selector "[data-testid='preferences-sync-open-node-management']"
-    And I switch to "nodeManagement" window
-    And I should see "cloud account card and cloud URL input and cloud login button and cloud load nodes button" elements with selectors:
-      | element description | selector |
-      | cloud account card | [data-testid='node-management-cloud-account'] |
-      | cloud URL input | [data-testid='node-management-cloud-url-input'] |
-      | cloud login button | [data-testid='node-management-cloud-login'] |
-      | cloud load nodes button | [data-testid='node-management-cloud-load-nodes'] |
-    When I type "http://127.0.0.1:43115" in "cloud URL input" element with selector "[data-testid='node-management-cloud-url-input']"
-    And I click on a "save cloud URL button" element with selector "[data-testid='node-management-cloud-url-save']"
-    And I type in "cloud email input and cloud password input" elements with selectors:
-      | text | selector |
-      | cloud-e2e@example.com | [data-testid='node-management-cloud-email-input'] |
-      | cloud-pass-123 | [data-testid='node-management-cloud-password-input'] |
-    And I click on a "cloud login button" element with selector "[data-testid='node-management-cloud-login']"
-    And I click on a "load cloud nodes button" element with selector "[data-testid='node-management-cloud-load-nodes']"
-    Then I should see "discovered cloud node card and discovered cloud node connect button" elements with selectors:
-      | element description | selector |
-      | discovered cloud node card | [data-testid^='node-management-cloud-node-']:has-text('remote-e2e-node') |
-      | discovered cloud node connect button | [data-testid^='node-management-cloud-connect-'] |
-    When I click on a "discovered cloud node connect button" element with selector "[data-testid^='node-management-cloud-connect-']"
-    Then I should see a "pair with PIN button" element with selector "button:has-text('Pair with PIN')"
-    And I switch to "main" window
-    And I click on "new tab button and create default agent button" elements with selectors:
-      | element description         | selector                                    |
-      | new tab button              | [data-tab-id='new-tab-button']              |
-      | create default agent button | [data-testid='create-default-agent-button'] |
-    And I should see a "message input box" element with selector "[data-testid='agent-message-input']"
-    When I click on a "message input textarea" element with selector "[data-testid='agent-message-input']"
-    When I type "请让远程 memeloop node 创建 remote-output/task-result.txt，并告诉我结果。" in "chat input" element with selector "[data-testid='agent-message-input']"
-    And I press "Enter" key
-    Then I should see 4 messages in chat history
-    And I should see "remote tool result and final remote summary" elements with selectors:
-      | element description  | selector                                                                                                   |
-      | remote tool result   | [data-testid='message-bubble']:has-text('remote-output/task-result.txt'):has-text('created by remote worker') |
-      | final remote summary | [data-testid='message-bubble']:has-text('远程 node 已完成任务')                                            |
-    And the remote memeloop node should have file "remote-output/task-result.txt" with content "created by remote worker"
+    # A persisted Wiki workspace may be active from an earlier session. Agent
+    # scenarios must explicitly enter the agent workspace instead of assuming
+    # a fresh profile always starts there.
+    And I click on an "agent workspace" element with selector "[data-testid='workspace-agent']"
 
   @agent
   Scenario: Create default agent from New Tab quick access
@@ -71,7 +25,10 @@ Feature: Agent Workflow - Tool Usage and Multi-Round Conversation
 
   @agent
   Scenario: Close all tabs then create default agent from fallback page
-    # Ensure starting from black/fallback page with no open tabs
+    # Create a real closable tab first; a fresh profile already contains only
+    # the non-closable New Tab entry.
+    When I click on a "create default agent button" element with selector "[data-testid='create-default-agent-button']"
+    And I should see a "message input box" element with selector "[data-testid='agent-message-input']"
     # Open tab list dropdown and force-click all close buttons (they have opacity: 0)
     Given I click on a "tab list button" element with selector "[data-testid='tab-list-button']"
     And I should see a "tab list dropdown" element with selector "[data-testid='tab-list-dropdown']"

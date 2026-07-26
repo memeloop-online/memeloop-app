@@ -13,7 +13,6 @@ import { inject, injectable } from 'inversify';
 import {
   type AgentFrameworkContext as MemeLoopAgentFrameworkContext,
   createMemeLoopRuntime,
-  createTaskAgent,
   type IAgentStorage,
   type ILLMProvider,
   type IToolRegistry,
@@ -30,6 +29,7 @@ import type { MemeLoopWorker } from './memeloopWorker';
 import MemeLoopWorkerFactory from './memeloopWorkerFactory';
 
 import { USER_DATA_FOLDER } from '@/constants/appPaths';
+import { SQLITE_BINARY_PATH } from '@/constants/paths';
 import type { AgentHeartbeatConfig } from '@services/agentDefinition/interface';
 import type { IAgentDefinitionService } from '@services/agentDefinition/interface';
 import { basicPromptConcatHandler } from '@services/agentInstance/agentFrameworks/taskAgent';
@@ -600,7 +600,6 @@ export class AgentInstanceService implements IAgentInstanceService {
         stop: async () => undefined,
       },
     };
-    runtimeContext.runTaskAgent = createTaskAgent(runtimeContext);
     this.memeLoopRuntime = createMemeLoopRuntime(runtimeContext);
 
     logger.info('MemeLoopRuntime bridge initialized in AgentInstanceService');
@@ -820,9 +819,12 @@ export class AgentInstanceService implements IAgentInstanceService {
         logger.warn('MemeLoop native worker thread exited', { code });
       });
       this.memeLoopNativeWorker = worker;
-      this.memeLoopWorker = createWorkerProxy<MemeLoopWorker>(worker);
+      this.memeLoopWorker = createWorkerProxy<MemeLoopWorker>(worker, {
+        observableMethods: ['subscribeLogs', 'subscribeToUpdates'],
+      });
       await this.memeLoopWorker.configureHost({
         dataDir: path.join(USER_DATA_FOLDER, 'memeloop'),
+        sqliteNativeBinding: SQLITE_BINARY_PATH,
         orchestrationAccessToken: this.memeLoopOrchestrationToken,
       });
 
@@ -2658,6 +2660,15 @@ Result: ${JSON.stringify(approvalPrompt)}
     this.workerAgentIdByConversationId.clear();
     this.workerConversationByAgentId.clear();
 
+    if (this.memeLoopWorker) {
+      try {
+        await this.memeLoopWorker.shutdown();
+      } catch (error) {
+        logger.warn('Failed to gracefully shut down MemeLoop worker', {
+          error,
+        });
+      }
+    }
     if (this.memeLoopNativeWorker) {
       try {
         await this.memeLoopNativeWorker.terminate();

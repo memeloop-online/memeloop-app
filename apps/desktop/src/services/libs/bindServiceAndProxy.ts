@@ -9,12 +9,16 @@ import serviceIdentifier from '@services/serviceIdentifier';
 import { AgentBrowserService } from '@services/agentBrowser';
 import { AgentDefinitionService } from '@services/agentDefinition';
 import { AgentInstanceService } from '@services/agentInstance';
+import { AnalyticsService } from '@services/analytics';
 import { Authentication } from '@services/auth';
 import { ContextService } from '@services/context';
 import { DatabaseService } from '@services/database';
 import { DeepLinkService } from '@services/deepLink';
+import { DeviceNetworkService } from '@services/deviceNetwork';
+import { ExternalAPIService } from '@services/externalAPI';
 import { Git } from '@services/git';
 import { GitServerService } from '@services/gitServer';
+import { HtmlWiki } from '@services/htmlWiki';
 import { MemeloopNode } from '@services/memeloopNode';
 import { MenuService } from '@services/menu';
 import { NativeService } from '@services/native';
@@ -36,6 +40,7 @@ import { WorkspaceView } from '@services/workspacesView';
 import { AgentBrowserServiceIPCDescriptor, type IAgentBrowserService } from '@services/agentBrowser/interface';
 import { AgentDefinitionServiceIPCDescriptor, type IAgentDefinitionService } from '@services/agentDefinition/interface';
 import { AgentInstanceServiceIPCDescriptor, type IAgentInstanceService } from '@services/agentInstance/interface';
+import { AnalyticsServiceIPCDescriptor, type IAnalyticsService } from '@services/analytics/interface';
 import type { IAuthenticationService } from '@services/auth/interface';
 import { AuthenticationServiceIPCDescriptor } from '@services/auth/interface';
 import type { IContextService } from '@services/context/interface';
@@ -44,10 +49,13 @@ import type { IDatabaseService } from '@services/database/interface';
 import { DatabaseServiceIPCDescriptor } from '@services/database/interface';
 import type { IDeepLinkService } from '@services/deepLink/interface';
 import { DeepLinkServiceIPCDescriptor } from '@services/deepLink/interface';
+import { DeviceNetworkServiceIPCDescriptor, type IDeviceNetworkService } from '@services/deviceNetwork/interface';
+import { ExternalAPIServiceIPCDescriptor, type IExternalAPIService } from '@services/externalAPI/interface';
 import type { IGitService } from '@services/git/interface';
 import { GitServiceIPCDescriptor } from '@services/git/interface';
 import type { IGitServerService } from '@services/gitServer/interface';
 import { GitServerServiceIPCDescriptor } from '@services/gitServer/interface';
+import { HtmlWikiServiceIPCDescriptor, type IHtmlWikiService } from '@services/htmlWiki/interface';
 import type { IMemeloopNodeService } from '@services/memeloopNode/interface';
 import { MemeloopNodeServiceIPCDescriptor } from '@services/memeloopNode/interface';
 import type { IMenuService } from '@services/menu/interface';
@@ -70,12 +78,12 @@ import type { IUpdaterService } from '@services/updater/interface';
 import { UpdaterServiceIPCDescriptor } from '@services/updater/interface';
 import type { IViewService } from '@services/view/interface';
 import { ViewServiceIPCDescriptor } from '@services/view/interface';
+import type { IWikiService } from '@services/wiki/interface';
+import { WikiServiceIPCDescriptor } from '@services/wiki/interface';
 import type { IWikiEmbeddingService } from '@services/wikiEmbedding/interface';
 import { WikiEmbeddingServiceIPCDescriptor } from '@services/wikiEmbedding/interface';
 import type { IWikiGitWorkspaceService } from '@services/wikiGitWorkspace/interface';
 import { WikiGitWorkspaceServiceIPCDescriptor } from '@services/wikiGitWorkspace/interface';
-import type { IWikiService } from '@services/wiki/interface';
-import { WikiServiceIPCDescriptor } from '@services/wiki/interface';
 import type { IWindowService } from '@services/windows/interface';
 import { WindowServiceIPCDescriptor } from '@services/windows/interface';
 import type { IWorkspaceService } from '@services/workspaces/interface';
@@ -86,8 +94,8 @@ import { ProviderRegistryService } from '../providerRegistry';
 import { type IProviderRegistryService, ProviderRegistryServiceIPCDescriptor } from '../providerRegistry/interface';
 import { RemoteTerminalService } from '../remoteTerminal';
 import { type IRemoteTerminalService, RemoteTerminalServiceIPCDescriptor } from '../remoteTerminal/interface';
-import { RemoteSetupService } from '../sshRemote/service';
 import { type IRemoteSetupService, RemoteSetupServiceIPCDescriptor } from '../sshRemote/interface';
+import { RemoteSetupService } from '../sshRemote/service';
 
 export function bindServiceAndProxy(): void {
   container
@@ -101,6 +109,10 @@ export function bindServiceAndProxy(): void {
   container
     .bind<IAgentInstanceService>(serviceIdentifier.AgentInstance)
     .to(AgentInstanceService)
+    .inSingletonScope();
+  container
+    .bind<IAnalyticsService>(serviceIdentifier.Analytics)
+    .to(AnalyticsService)
     .inSingletonScope();
   container
     .bind<IAuthenticationService>(serviceIdentifier.Authentication)
@@ -119,6 +131,14 @@ export function bindServiceAndProxy(): void {
     .to(DeepLinkService)
     .inSingletonScope();
   container
+    .bind<IDeviceNetworkService>(serviceIdentifier.DeviceNetwork)
+    .to(DeviceNetworkService)
+    .inSingletonScope();
+  container
+    .bind<IExternalAPIService>(serviceIdentifier.ExternalAPI)
+    .to(ExternalAPIService)
+    .inSingletonScope();
+  container
     .bind<IProviderRegistryService>(serviceIdentifier.ProviderRegistry)
     .to(ProviderRegistryService)
     .inSingletonScope();
@@ -126,6 +146,10 @@ export function bindServiceAndProxy(): void {
   container
     .bind<IGitServerService>(serviceIdentifier.GitServer)
     .to(GitServerService)
+    .inSingletonScope();
+  container
+    .bind<IHtmlWikiService>(serviceIdentifier.HtmlWiki)
+    .to(HtmlWiki)
     .inSingletonScope();
   container
     .bind<IMemeloopNodeService>(serviceIdentifier.MemeloopNode)
@@ -213,6 +237,9 @@ export function bindServiceAndProxy(): void {
   const agentInstanceService = container.get<IAgentInstanceService>(
     serviceIdentifier.AgentInstance,
   );
+  const analyticsService = container.get<IAnalyticsService>(
+    serviceIdentifier.Analytics,
+  );
   const authService = container.get<IAuthenticationService>(
     serviceIdentifier.Authentication,
   );
@@ -225,12 +252,21 @@ export function bindServiceAndProxy(): void {
   const deepLinkService = container.get<IDeepLinkService>(
     serviceIdentifier.DeepLink,
   );
+  const deviceNetworkService = container.get<IDeviceNetworkService>(
+    serviceIdentifier.DeviceNetwork,
+  );
+  const externalAPIService = container.get<IExternalAPIService>(
+    serviceIdentifier.ExternalAPI,
+  );
   const providerRegistryService = container.get<IProviderRegistryService>(
     serviceIdentifier.ProviderRegistry,
   );
   const gitService = container.get<IGitService>(serviceIdentifier.Git);
   const gitServerService = container.get<IGitServerService>(
     serviceIdentifier.GitServer,
+  );
+  const htmlWikiService = container.get<IHtmlWikiService>(
+    serviceIdentifier.HtmlWiki,
   );
   const memeloopNodeService = container.get<IMemeloopNodeService>(
     serviceIdentifier.MemeloopNode,
@@ -285,13 +321,17 @@ export function bindServiceAndProxy(): void {
   registerProxy(agentBrowserService, AgentBrowserServiceIPCDescriptor);
   registerProxy(agentDefinitionService, AgentDefinitionServiceIPCDescriptor);
   registerProxy(agentInstanceService, AgentInstanceServiceIPCDescriptor);
+  registerProxy(analyticsService, AnalyticsServiceIPCDescriptor);
   registerProxy(authService, AuthenticationServiceIPCDescriptor);
   registerProxy(contextService, ContextServiceIPCDescriptor);
   registerProxy(databaseService, DatabaseServiceIPCDescriptor);
   registerProxy(deepLinkService, DeepLinkServiceIPCDescriptor);
+  registerProxy(deviceNetworkService, DeviceNetworkServiceIPCDescriptor);
+  registerProxy(externalAPIService, ExternalAPIServiceIPCDescriptor);
   registerProxy(providerRegistryService, ProviderRegistryServiceIPCDescriptor);
   registerProxy(gitService, GitServiceIPCDescriptor);
   registerProxy(gitServerService, GitServerServiceIPCDescriptor);
+  registerProxy(htmlWikiService, HtmlWikiServiceIPCDescriptor);
   registerProxy(memeloopNodeService, MemeloopNodeServiceIPCDescriptor);
   registerProxy(menuService, MenuServiceIPCDescriptor);
   registerProxy(nativeService, NativeServiceIPCDescriptor);

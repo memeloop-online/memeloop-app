@@ -1,45 +1,150 @@
-// Stub: Wiki embedding service interface - implementation to be re-added in future refactoring
-export interface IWikiEmbeddingService {
-  getEmbeddingStatus(workspaceId: string): Promise<EmbeddingStatus>;
-  getEmbeddingStats(workspaceId: string): Promise<EmbeddingStats>;
-  generateEmbeddings(workspaceId: string, aiConfig: unknown, force?: boolean): Promise<void>;
-  deleteWorkspaceEmbeddings(workspaceId: string): Promise<void>;
+import { ProxyPropertyType } from 'electron-ipc-cat/common';
+import type { AiAPIConfig } from 'memeloop';
+import type { Observable } from 'rxjs';
+import type { ITiddlerFields } from 'tiddlywiki';
+
+/**
+ * Embedding record in the database
+ */
+export interface EmbeddingRecord {
+  /** Unique identifier - Changed to number for sqlite-vec compatibility */
+  id: number;
+  /** Workspace ID that this embedding belongs to */
+  workspaceId: string;
+  /** Original tiddler title */
+  tiddlerTitle: string;
+  /** Chunk index if content was split */
+  chunkIndex?: number;
+  /** Total chunks if content was split */
+  totalChunks?: number;
+  /** Creation time */
+  created: Date;
+  /** Last update time */
+  modified: Date;
+  /** Embedding model used */
+  model: string;
+  /** Provider used for embedding */
+  provider: string;
+  /** Embedding dimensions */
+  dimensions: number;
 }
 
+/**
+ * Embedding generation status for a workspace
+ */
 export interface EmbeddingStatus {
+  /** Workspace ID */
+  workspaceId: string;
+  /** Current status */
   status: 'idle' | 'generating' | 'completed' | 'error';
-  progress?: { total: number; completed: number; current?: string };
+  /** Progress information */
+  progress?: {
+    /** Total notes to process */
+    total: number;
+    /** Completed notes */
+    completed: number;
+    /** Current note being processed */
+    current?: string;
+  };
+  /** Error message if status is 'error' */
   error?: string;
-  lastUpdated?: Date;
+  /** Last update time */
+  lastUpdated: Date;
+  /** Last successful completion time */
+  lastCompleted?: Date;
+}
+
+/**
+ * Search result from vector similarity search
+ */
+export interface SearchResult {
+  /** Embedding record */
+  record: EmbeddingRecord;
+  /** Similarity score (0-1, higher is more similar) */
+  similarity: number;
 }
 
 export interface EmbeddingStats {
   totalEmbeddings: number;
   totalNotes: number;
+  lastUpdated?: Date;
+  modelUsed?: string;
+  providerUsed?: string;
 }
 
-export interface EmbeddingRecord {
-  id: number;
-  workspaceId: string;
-  tiddlerTitle: string;
-  chunkIndex?: number;
-  totalChunks?: number;
-  created: Date;
-  modified: Date;
-  model: string;
-  provider: string;
-  dimensions: number;
-}
+/**
+ * Wiki embedding service interface
+ */
+export interface IWikiEmbeddingService {
+  /**
+   * Initialize the service
+   */
+  initialize(): Promise<void>;
 
-import { ProxyPropertyType } from 'electron-ipc-cat/common';
-import { WikiEmbeddingChannel } from '@/constants/channels';
+  /**
+   * Generate or update embeddings for a specific workspace
+   * @param workspaceId Workspace ID
+   * @param config AI configuration for embedding generation
+   * @param forceUpdate Whether to force update all embeddings even if unchanged
+   */
+  generateEmbeddings(workspaceId: string, config: AiAPIConfig, forceUpdate?: boolean): Promise<void>;
+
+  /**
+   * Search for similar content using vector similarity
+   * @param workspaceId Workspace ID
+   * @param query Search query text
+   * @param config AI configuration for query embedding
+   * @param limit Maximum number of results
+   * @param threshold Minimum similarity threshold (0-1)
+   */
+  searchSimilar(
+    workspaceId: string,
+    query: string,
+    config: AiAPIConfig,
+    limit?: number,
+    threshold?: number,
+  ): Promise<SearchResult[]>;
+
+  /**
+   * Get embedding generation status for a workspace
+   * @param workspaceId Workspace ID
+   */
+  getEmbeddingStatus(workspaceId: string): Promise<EmbeddingStatus>;
+
+  /**
+   * Subscribe to embedding status updates for a workspace
+   * @param workspaceId Workspace ID
+   */
+  subscribeToEmbeddingStatus(workspaceId: string): Observable<EmbeddingStatus>;
+
+  /**
+   * Delete all embeddings for a workspace
+   * @param workspaceId Workspace ID
+   */
+  deleteWorkspaceEmbeddings(workspaceId: string): Promise<void>;
+
+  /**
+   * Get embedding statistics for a workspace
+   * @param workspaceId Workspace ID
+   */
+  getEmbeddingStats(workspaceId: string): Promise<EmbeddingStats>;
+
+  /**
+   * Get all wiki notes from a workspace
+   * @param workspaceId Workspace ID
+   */
+  getWikiNotes(workspaceId: string): Promise<ITiddlerFields[]>;
+}
 
 export const WikiEmbeddingServiceIPCDescriptor = {
-  channel: WikiEmbeddingChannel.name,
+  channel: 'WikiEmbedding' as const,
   properties: {
-    getEmbeddingStatus: ProxyPropertyType.Function,
-    getEmbeddingStats: ProxyPropertyType.Function,
     generateEmbeddings: ProxyPropertyType.Function,
+    searchSimilar: ProxyPropertyType.Function,
+    getEmbeddingStatus: ProxyPropertyType.Function,
+    subscribeToEmbeddingStatus: ProxyPropertyType.Function$,
     deleteWorkspaceEmbeddings: ProxyPropertyType.Function,
+    getEmbeddingStats: ProxyPropertyType.Function,
+    getWikiNotes: ProxyPropertyType.Function,
   },
 };

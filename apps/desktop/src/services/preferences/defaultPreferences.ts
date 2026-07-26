@@ -7,6 +7,11 @@ import type { IPreferences } from './interface';
 export const defaultPreferences: IPreferences = {
   allowPrerelease: Boolean(semver.prerelease(app.getVersion())),
   alwaysOnTop: false,
+  analyticsEnabled: false,
+  analyticsHost: process.env.TIDGI_ANALYTICS_HOST ?? '',
+  analyticsHostname:
+    process.env.TIDGI_ANALYTICS_HOSTNAME ?? 'desktop.memeloop.ai',
+  analyticsSiteId: process.env.TIDGI_ANALYTICS_SITE_ID ?? '',
   askForDownloadPath: true,
   disableAntiAntiLeech: false,
   disableAntiAntiLeechForUrls: [],
@@ -17,6 +22,10 @@ export const defaultPreferences: IPreferences = {
   ignoreCertificateErrors: false,
   keyboardShortcuts: {},
   language: 'zh-Hans',
+  mcpServerEnabled: false,
+  mcpServerPort: 38_385,
+  mcpServerRequireToken: false,
+  mcpServerToken: '',
   memeloopNodePort: 5200,
   pauseNotifications: '',
   pauseNotificationsBySchedule: false,

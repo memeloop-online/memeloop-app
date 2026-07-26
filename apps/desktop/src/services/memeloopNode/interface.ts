@@ -53,8 +53,7 @@ export interface ICloudDiscoveredNode {
 
 export interface IMemeloopNodeService {
   /**
-   * Start the memeloop node server with unified HTTP+WS on a single port.
-   * Git endpoints at /git/{wikiId}/* are handled directly via IGitServerService.
+   * Start the worker-owned authenticated orchestration HTTP server.
    */
   startServer(port: number): Promise<void>;
 

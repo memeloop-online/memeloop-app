@@ -1,16 +1,29 @@
 import { DatabaseChannel } from '@/constants/channels';
 import type { IUserInfos } from '@services/auth/interface';
+import type { AIGlobalSettings } from '@services/externalAPI/interface';
 import type { IPreferences } from '@services/preferences/interface';
-import { AIGlobalSettings } from '@services/providerRegistry/interface';
 import type { IToolPermissionEntry } from '@services/toolPermissions/interface';
-import type { ISyncableWikiConfig, IWorkspace } from '@services/workspaces/interface';
+import type { ISyncableWikiConfig, IWorkspace, IWorkspaceGroup } from '@services/workspaces/interface';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
-import { DataSource } from 'typeorm';
+import type { DataSource } from 'typeorm';
+
+export interface IAnalyticsSecretSettings {
+  deviceFirstLaunchDate?: string;
+  deviceLastLaunchDate?: string;
+  /**
+   * Stable random UUID generated once on first launch and persisted forever.
+   * Used as Rybbit `user_id` so events from the same installation are always
+   * grouped under the same user regardless of IP or User-Agent changes.
+   */
+  deviceId?: string;
+}
 
 export interface ISettingFile {
+  analyticsSecrets?: IAnalyticsSecretSettings;
   preferences: IPreferences;
   userInfos: IUserInfos;
   workspaces: Record<string, IWorkspace>;
+  workspaceGroups?: Record<string, IWorkspaceGroup>;
   aiSettings?: AIGlobalSettings;
   'toolPermissions.blacklist'?: IToolPermissionEntry[];
   'toolPermissions.whitelist'?: IToolPermissionEntry[];
@@ -48,10 +61,7 @@ export interface IDatabaseService {
    * @param key setting file top level key like `userInfos`
    * @param value whole setting from a service
    */
-  setSetting<K extends keyof ISettingFile>(
-    key: K,
-    value: ISettingFile[K],
-  ): void;
+  setSetting<K extends keyof ISettingFile>(key: K, value: ISettingFile[K]): void;
 
   /**
    * Initialize database for specific key
@@ -61,11 +71,7 @@ export interface IDatabaseService {
   /**
    * Get database connection for specific key
    */
-  getDatabase(
-    key: string,
-    options?: DatabaseInitOptions,
-    isRetry?: boolean,
-  ): Promise<DataSource>;
+  getDatabase(key: string, options?: DatabaseInitOptions, isRetry?: boolean): Promise<DataSource>;
 
   /**
    * Close database connection
@@ -98,9 +104,7 @@ export interface IDatabaseService {
    * Exposed over IPC so the renderer can pre-fill the Add Workspace form when
    * importing an existing wiki with "use tidgi.config" enabled.
    */
-  readWikiConfig(
-    wikiFolderLocation: string,
-  ): Promise<Partial<ISyncableWikiConfig> | undefined>;
+  readWikiConfig(wikiFolderLocation: string): Promise<Partial<ISyncableWikiConfig> | undefined>;
 }
 
 export const DatabaseServiceIPCDescriptor = {

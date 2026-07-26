@@ -9,6 +9,7 @@ Feature: Agent Tools - Ask-question variants and turn action bar
     Then I launch the TidGi application
     And I wait for the page to load completely
     And I should see a "page body" element with selector "body"
+    And I click on an "agent workspace" element with selector "[data-testid='workspace-agent']"
 
   @agentTool @mockOpenAI
   Scenario: Ask-question — single-select, multi-select, and text input in one session

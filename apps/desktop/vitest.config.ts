@@ -3,6 +3,9 @@ import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  // pnpm can expose this Vite plugin and Vitest's Vite type through different
+  // physical paths. They are the same runtime version, but private types make
+  // the two declarations nominally incompatible.
   plugins: [swc.vite({
     jsc: {
       transform: {
@@ -11,7 +14,7 @@ export default defineConfig({
         },
       },
     },
-  })],
+  }) as never],
 
   test: {
     // Test environment
@@ -65,18 +68,19 @@ export default defineConfig({
   },
 
   resolve: {
-    preserveSymlinks: true,
     dedupe: ['react', 'react-dom'],
     alias: [
       { find: '@', replacement: path.resolve(__dirname, './src') },
       { find: '@services', replacement: path.resolve(__dirname, './src/services') },
+      { find: '@memeloop/react-ui', replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop-react-ui/dist') },
+      { find: /^memeloop\/device-network$/, replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop/src/device-network-entry.ts') },
+      { find: /^memeloop\/llm-providers$/, replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop/src/llm-providers.ts') },
       { find: 'memeloop', replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop/src') },
       { find: 'memeloop-node', replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop-node/dist') },
       { find: '@memeloop/protocol', replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop-protocol/src') },
-      { find: '@memeloop/ui', replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop-ui/dist') },
       { find: /agentInstance\/memeloopWorkerFactory(\.ts)?$/, replacement: path.resolve(__dirname, './src/__tests__/__stubs__/memeloopWorkerFactoryStub.ts') },
       { find: /\?nodeWorker$/, replacement: path.resolve(__dirname, './src/__tests__/__stubs__/memeloopWorkerFactoryStub.ts') },
-      // Force React-family packages from linked @memeloop/ui to resolve from memeloop-desktop
+      // Force React-family packages from linked @memeloop/react-ui to resolve from memeloop-desktop.
       { find: /^react$/, replacement: path.resolve(__dirname, './node_modules/react') },
       { find: /^react\/(.*)/, replacement: path.resolve(__dirname, './node_modules/react/$1') },
       { find: /^react-dom$/, replacement: path.resolve(__dirname, './node_modules/react-dom') },

@@ -142,6 +142,8 @@ export interface IGitService {
    */
   initWikiGit(wikiFolderPath: string, isSyncedWiki: true, isMainWiki: boolean, remoteUrl: string, userInfo: IGitUserInfos): Promise<void>;
   initWikiGit(wikiFolderPath: string, isSyncedWiki?: false): Promise<void>;
+  /** Initialize a repository that manages only one file, such as an HTML wiki. */
+  initScopedWikiGit(repoPath: string, scopedPath: string): Promise<void>;
   /**
    * Decide to use forcePull or commitAndSync according to workspace's `readOnlyMode` setting.
    *
@@ -218,6 +220,7 @@ export const GitServiceIPCDescriptor = {
     gitStateChange$: ProxyPropertyType.Value$,
     gitSyncProgress$: ProxyPropertyType.Value$,
     initWikiGit: ProxyPropertyType.Function,
+    initScopedWikiGit: ProxyPropertyType.Function,
     notifyFileChange: ProxyPropertyType.Function,
     revertCommit: ProxyPropertyType.Function,
     amendCommitMessage: ProxyPropertyType.Function,

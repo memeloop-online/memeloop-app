@@ -44,6 +44,11 @@ Object.defineProperty(window, 'observables', {
     auth: {
       userInfo$: new BehaviorSubject(undefined).asObservable(),
     },
+    workspace: {
+      workspaces$: new BehaviorSubject([]).asObservable(),
+      groups$: new BehaviorSubject({}).asObservable(),
+      get$: () => new BehaviorSubject(undefined).asObservable(),
+    },
     externalAPI: {
       defaultConfig$: new BehaviorSubject({
         default: { provider: 'openai', model: 'gpt-4' },

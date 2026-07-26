@@ -1,14 +1,24 @@
+import { getWorkspaceIdFromUrl } from '@/constants/urls';
+import type { IAgentDefinitionService } from '@services/agentDefinition/interface';
 import type { IAuthenticationService } from '@services/auth/interface';
 import { container } from '@services/container';
 import type { IContextService } from '@services/context/interface';
+import type { IExternalAPIService } from '@services/externalAPI/interface';
+import type { IGitService } from '@services/git/interface';
 import { i18n } from '@services/libs/i18n';
 import { logger } from '@services/libs/log';
 import type { INativeService } from '@services/native/interface';
 import type { IPreferenceService } from '@services/preferences/interface';
-import type { IProviderRegistryService } from '@services/providerRegistry/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
+import type { ISyncService } from '@services/sync/interface';
+import type { IViewService } from '@services/view/interface';
+import type { IWikiService } from '@services/wiki/interface';
+import type { IWikiGitWorkspaceService } from '@services/wikiGitWorkspace/interface';
 import type { IWindowService } from '@services/windows/interface';
 import { WindowNames } from '@services/windows/WindowProperties';
+import { getSimplifiedWorkspaceMenuTemplate } from '@services/workspaces/getWorkspaceMenuTemplate';
+import type { IWorkspaceService } from '@services/workspaces/interface';
+import { isWikiWorkspace } from '@services/workspaces/interface';
 import type { IWorkspaceViewService } from '@services/workspacesView/interface';
 import { app, ContextMenuParams, Menu, MenuItem, MenuItemConstructorOptions, shell, WebContents } from 'electron';
 import { inject, injectable } from 'inversify';
@@ -25,7 +35,7 @@ export class MenuService implements IMenuService {
   constructor(
     @inject(serviceIdentifier.Authentication) private readonly authService: IAuthenticationService,
     @inject(serviceIdentifier.Context) private readonly contextService: IContextService,
-    @inject(serviceIdentifier.ProviderRegistry) private readonly providerRegistryService: IProviderRegistryService,
+    @inject(serviceIdentifier.ExternalAPI) private readonly externalAPIService: IExternalAPIService,
     @inject(serviceIdentifier.NativeService) private readonly nativeService: INativeService,
     @inject(serviceIdentifier.Preference) private readonly preferenceService: IPreferenceService,
   ) {
@@ -131,6 +141,41 @@ export class MenuService implements IMenuService {
   public async initContextMenuForWindowWebContents(webContents: WebContents): Promise<() => void> {
     const openContextMenuForWindow = async (_event: Electron.Event, parameters: ContextMenuParams): Promise<void> => {
       const template: MenuItemConstructorOptions[] = [];
+
+      // Try to get workspace ID from URL
+      const url = webContents.getURL();
+      const workspaceId = getWorkspaceIdFromUrl(url);
+
+      if (workspaceId) {
+        const workspaceService = container.get<IWorkspaceService>(serviceIdentifier.Workspace);
+        const workspace = await workspaceService.get(workspaceId);
+
+        // Add workspace-specific menu items if workspace exists and is a wiki
+        if (workspace !== undefined && isWikiWorkspace(workspace)) {
+          const services = {
+            agentDefinition: container.get<IAgentDefinitionService>(serviceIdentifier.AgentDefinition),
+            auth: container.get<IAuthenticationService>(serviceIdentifier.Authentication),
+            context: container.get<IContextService>(serviceIdentifier.Context),
+            externalAPI: this.externalAPIService,
+            git: container.get<IGitService>(serviceIdentifier.Git),
+            native: container.get<INativeService>(serviceIdentifier.NativeService),
+            preference: this.preferenceService,
+            sync: container.get<ISyncService>(serviceIdentifier.Sync),
+            view: container.get<IViewService>(serviceIdentifier.View),
+            wiki: container.get<IWikiService>(serviceIdentifier.Wiki),
+            wikiGitWorkspace: container.get<IWikiGitWorkspaceService>(serviceIdentifier.WikiGitWorkspace),
+            window: container.get<IWindowService>(serviceIdentifier.Window),
+            workspace: workspaceService,
+            workspaceView: container.get<IWorkspaceViewService>(serviceIdentifier.WorkspaceView),
+          };
+
+          // Get simplified menu items (includes command palette, simplified actions, and "Current Workspace")
+          const simplifiedMenuItems = await getSimplifiedWorkspaceMenuTemplate(workspace, i18n.t.bind(i18n), services, {
+            selectionText: parameters.selectionText,
+          });
+          template.push(...simplifiedMenuItems);
+        }
+      }
 
       await this.buildContextMenuAndPopup(template, parameters, webContents);
     };

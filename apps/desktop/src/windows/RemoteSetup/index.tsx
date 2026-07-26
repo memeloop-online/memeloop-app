@@ -1,20 +1,6 @@
-import { useEffect, useState } from 'react';
+import { Box, Button, Card, CardContent, Chip, CircularProgress, List, ListItemButton, ListItemText, Step, StepLabel, Stepper, Typography } from '@mui/material';
 import { styled } from '@mui/material/styles';
-import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Chip,
-  CircularProgress,
-  List,
-  ListItemButton,
-  ListItemText,
-  Step,
-  StepLabel,
-  Stepper,
-  Typography,
-} from '@mui/material';
+import { useEffect, useState } from 'react';
 
 interface SSHHost {
   host: string;
@@ -109,7 +95,7 @@ export default function RemoteSetupWindow(): React.JSX.Element {
 
   return (
     <Root>
-      <Typography variant="h4" sx={{ mb: 3 }}>
+      <Typography variant='h4' sx={{ mb: 3 }}>
         Remote Server Setup
       </Typography>
 
@@ -127,29 +113,31 @@ export default function RemoteSetupWindow(): React.JSX.Element {
           {activeStep === 0 && (
             <Card>
               <CardContent>
-                <Typography variant="h6" sx={{ mb: 2 }}>
+                <Typography variant='h6' sx={{ mb: 2 }}>
                   SSH Hosts from ~/.ssh/config
                 </Typography>
-                {hosts.length === 0 ? (
-                  <Typography color="text.secondary">
-                    No SSH hosts found. Add hosts to ~/.ssh/config first.
-                  </Typography>
-                ) : (
-                  <List>
-                    {hosts.map(h => (
-                      <ListItemButton
-                        key={h.host}
-                        selected={selected?.host === h.host}
-                        onClick={() => handleSelect(h)}
-                      >
-                        <ListItemText
-                          primary={h.host}
-                          secondary={`${h.user ?? 'root'}@${h.hostname ?? h.host}${h.port ? `:${h.port}` : ''}`}
-                        />
-                      </ListItemButton>
-                    ))}
-                  </List>
-                )}
+                {hosts.length === 0
+                  ? (
+                    <Typography color='text.secondary'>
+                      No SSH hosts found. Add hosts to ~/.ssh/config first.
+                    </Typography>
+                  )
+                  : (
+                    <List>
+                      {hosts.map(h => (
+                        <ListItemButton
+                          key={h.host}
+                          selected={selected?.host === h.host}
+                          onClick={() => handleSelect(h)}
+                        >
+                          <ListItemText
+                            primary={h.host}
+                            secondary={`${h.user ?? 'root'}@${h.hostname ?? h.host}${h.port ? `:${h.port}` : ''}`}
+                          />
+                        </ListItemButton>
+                      ))}
+                    </List>
+                  )}
               </CardContent>
             </Card>
           )}
@@ -157,15 +145,15 @@ export default function RemoteSetupWindow(): React.JSX.Element {
           {activeStep >= 1 && selected && (
             <Card>
               <CardContent>
-                <Typography variant="h6" sx={{ mb: 1 }}>
+                <Typography variant='h6' sx={{ mb: 1 }}>
                   {selected.host}
                 </Typography>
-                <Typography color="text.secondary" sx={{ mb: 2 }}>
+                <Typography color='text.secondary' sx={{ mb: 2 }}>
                   {selected.user ?? 'root'}@{selected.hostname ?? selected.host}
                 </Typography>
 
                 {activeStep === 1 && (
-                  <Button variant="contained" onClick={handleCheck}>
+                  <Button variant='contained' onClick={handleCheck}>
                     Check memeloop
                   </Button>
                 )}
@@ -174,30 +162,30 @@ export default function RemoteSetupWindow(): React.JSX.Element {
                   <Box>
                     <Typography sx={{ mb: 1 }}>memeloop not found on server.</Typography>
                     <Button
-                      variant="contained"
+                      variant='contained'
                       onClick={handleInstall}
                       disabled={installStatus === 'loading'}
                       startIcon={installStatus === 'loading' ? <CircularProgress size={16} /> : undefined}
                     >
                       Install memeloop
                     </Button>
-                    {installStatus === 'done' && <Chip label="Installed" color="success" sx={{ ml: 1 }} />}
-                    {installStatus === 'error' && <Chip label="Failed" color="error" sx={{ ml: 1 }} />}
+                    {installStatus === 'done' && <Chip label='Installed' color='success' sx={{ ml: 1 }} />}
+                    {installStatus === 'error' && <Chip label='Failed' color='error' sx={{ ml: 1 }} />}
                   </Box>
                 )}
 
                 {activeStep === 3 && (
                   <Box>
                     <Button
-                      variant="contained"
+                      variant='contained'
                       onClick={handleStart}
                       disabled={startStatus === 'loading'}
                       startIcon={startStatus === 'loading' ? <CircularProgress size={16} /> : undefined}
                     >
                       Start memeloop
                     </Button>
-                    {startStatus === 'done' && <Chip label="Running" color="success" sx={{ ml: 1 }} />}
-                    {startStatus === 'error' && <Chip label="Failed" color="error" sx={{ ml: 1 }} />}
+                    {startStatus === 'done' && <Chip label='Running' color='success' sx={{ ml: 1 }} />}
+                    {startStatus === 'error' && <Chip label='Failed' color='error' sx={{ ml: 1 }} />}
                   </Box>
                 )}
 
@@ -206,7 +194,7 @@ export default function RemoteSetupWindow(): React.JSX.Element {
                     <Typography sx={{ mb: 1 }}>
                       Server running at <code>{wsUrl}</code>
                     </Typography>
-                    <Button variant="contained" color="success" onClick={handleConnect}>
+                    <Button variant='contained' color='success' onClick={handleConnect}>
                       Connect & Start Agent Chat
                     </Button>
                   </Box>
@@ -219,8 +207,8 @@ export default function RemoteSetupWindow(): React.JSX.Element {
         {/* Right: log */}
         <Card sx={{ flex: 1, maxHeight: 400, overflow: 'auto' }}>
           <CardContent>
-            <Typography variant="h6" sx={{ mb: 1 }}>Log</Typography>
-            <Box component="pre" sx={{ fontSize: 12, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
+            <Typography variant='h6' sx={{ mb: 1 }}>Log</Typography>
+            <Box component='pre' sx={{ fontSize: 12, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
               {log.join('\n')}
             </Box>
           </CardContent>

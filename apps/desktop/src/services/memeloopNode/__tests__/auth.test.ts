@@ -9,13 +9,27 @@ vi.mock('@services/libs/log', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+const { workerProxy } = vi.hoisted(() => ({
+  workerProxy: {
+    startServer: vi.fn(async (port: number) => ({
+      running: true,
+      port,
+      nodeId: 'worker-node',
+    })),
+    stopServer: vi.fn(async () => ({ ok: true })),
+    getConnectedPeers: vi.fn(async () => []),
+    getSyncStatus: vi.fn(async () => ({
+      versionVector: {},
+      peerCount: 0,
+      syncRunning: false,
+    })),
+  },
+}));
+
 vi.mock('@services/container', () => ({
   container: {
     get: vi.fn(() => ({
-      getMemeLoopWorkerProxy: vi.fn(async () => ({
-        getConnectedPeers: vi.fn(async () => []),
-        getSyncStatus: vi.fn(async () => ({ versionVector: {}, peerCount: 0, syncRunning: false })),
-      })),
+      getMemeLoopWorkerProxy: vi.fn(async () => workerProxy),
     })),
   },
 }));
@@ -29,17 +43,6 @@ const mockPreferenceService = {
   set: vi.fn(),
 };
 
-vi.mock('memeloop-cli', async () => {
-  const actual = await vi.importActual<typeof import('memeloop-cli')>('memeloop-cli');
-  return {
-    ...actual,
-    startNodeServerWithMdns: vi.fn(async () => {
-      const http = await import('node:http');
-      return http.createServer();
-    }),
-  };
-});
-
 // Temp directory for test keypair/config files
 let tmpDir: string;
 
@@ -47,6 +50,8 @@ describe('MemeloopNode auth methods', () => {
   let service: MemeloopNode;
 
   beforeEach(() => {
+    workerProxy.startServer.mockClear();
+    workerProxy.stopServer.mockClear();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memeloop-auth-test-'));
 
     // Override home dir so keypair/known_nodes go to temp
@@ -70,6 +75,26 @@ describe('MemeloopNode auth methods', () => {
       expect(status.cloudLoggedIn).toBe(false);
       expect(status.cloudNodeRegistered).toBe(false);
       expect(status.knownNodeCount).toBe(0);
+    });
+  });
+
+  describe('worker-owned server lifecycle', () => {
+    it('starts and stops the authenticated orchestration server', async () => {
+      await service.startServer(5200);
+      await expect(service.getServerStatus()).resolves.toEqual({
+        running: true,
+        port: 5200,
+        nodeId: 'worker-node',
+      });
+      expect(workerProxy.startServer).toHaveBeenCalledWith(5200);
+
+      await service.stopServer();
+      await expect(service.getServerStatus()).resolves.toEqual({
+        running: false,
+        port: undefined,
+        nodeId: undefined,
+      });
+      expect(workerProxy.stopServer).toHaveBeenCalledOnce();
     });
   });
 

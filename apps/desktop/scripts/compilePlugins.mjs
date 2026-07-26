@@ -55,7 +55,31 @@ const nativeNodeModulesPlugin = {
  * Configuration for all plugins to build
  */
 const PLUGINS = [
-  // Wiki plugins removed in memeloop-desktop migration. Add new plugins here.
+  {
+    name: 'tidgi-ipc-syncadaptor',
+    sourceFolder: '../src/services/wiki/plugin/ipcSyncAdaptor',
+    entryPoints: [
+      'Startup/electron-ipc-cat.ts',
+      'Startup/mount-tidgi-service.ts',
+      'ipc-syncadaptor.ts',
+      'fix-location-info.ts',
+    ],
+  },
+  {
+    name: 'tidgi-ipc-syncadaptor-ui',
+    sourceFolder: '../src/services/wiki/plugin/ipcSyncAdaptorUI',
+    entryPoints: [],
+  },
+  {
+    name: 'watch-filesystem-adaptor',
+    sourceFolder: '../src/services/wiki/plugin/watchFileSystemAdaptor',
+    entryPoints: [
+      'loader.ts',
+      'in-tagtree-of.ts',
+      'WatchFileSystemAdaptor.ts',
+      'routingUtilities.ts',
+    ],
+  },
 ];
 
 /**

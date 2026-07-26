@@ -1,7 +1,7 @@
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
 import { BehaviorSubject, Observable } from 'rxjs';
 
-import { ExternalAPIChannel } from '@/constants/channels';
+import { ProviderRegistryChannel } from '@/constants/channels';
 import type { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema/types';
 import type { ExternalAPILogEntity } from '@services/database/schema/externalAPILog';
 import { ModelMessage } from 'ai';
@@ -348,7 +348,7 @@ export interface IProviderRegistryService {
 }
 
 export const ProviderRegistryServiceIPCDescriptor = {
-  channel: ExternalAPIChannel.name,
+  channel: ProviderRegistryChannel.name,
   properties: {
     initialize: ProxyPropertyType.Function,
     streamFromAI: ProxyPropertyType.Function$,

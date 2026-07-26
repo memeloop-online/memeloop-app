@@ -144,7 +144,10 @@ export interface WindowMeta {
   [WindowNames.addWorkspace]: { addWorkspaceTab?: CreateWorkspaceTabs };
   [WindowNames.any]: { uri?: string };
   [WindowNames.auth]: undefined;
-  [WindowNames.editWorkspace]: { workspaceID?: string };
+  [WindowNames.editWorkspace]: {
+    workspaceID?: string;
+    preferenceGotoTab?: string;
+  };
   [WindowNames.gitHistory]: { workspaceID?: string };
   [WindowNames.main]: { forceClose?: boolean };
   [WindowNames.tidgiMiniWindow]: undefined;

@@ -1,20 +1,26 @@
 import { app, dialog, globalShortcut, ipcMain, MessageBoxOptions, shell, webContents } from 'electron';
 import fs from 'fs-extra';
 import { inject, injectable } from 'inversify';
+import { randomBytes } from 'node:crypto';
 import path from 'path';
 import { Observable } from 'rxjs';
 
 import { NativeChannel } from '@/constants/channels';
+import { ZX_FOLDER } from '@/constants/paths';
 import { githubDesktopUrl } from '@/constants/urls';
-import { container } from '@services/container';
 import { getLoggerForLabel, logger } from '@services/libs/log';
-import { getLocalHostUrlWithActualIP, getUrlWithCorrectProtocol, replaceUrlPortWithSettingPort } from '@services/libs/url';
+import { getAllLocalHostUrlsWithActualIP, getLocalHostUrlWithActualIP, getUrlWithCorrectProtocol, replaceUrlPortWithSettingPort } from '@services/libs/url';
 import type { IPreferenceService } from '@services/preferences/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
+import type { IWikiService } from '@services/wiki/interface';
+import { ZxWorkerControlActions } from '@services/wiki/interface';
+import type { IZxFileInput } from '@services/wiki/wikiWorker';
 import type { IWindowService } from '@services/windows/interface';
 import { WindowNames } from '@services/windows/WindowProperties';
 import type { IWorkspaceService } from '@services/workspaces/interface';
+import { isWikiWorkspace } from '@services/workspaces/interface';
 import i18next from 'i18next';
+import { ZxNotInitializedError } from './error';
 import { findEditorOrDefault, findGitGUIAppOrDefault, launchExternalEditor } from './externalApp';
 import type { INativeService, IPickDirectoryOptions } from './interface';
 import { getShortcutCallback, registerShortcutByKey } from './keyboardShortcutHelpers';
@@ -26,6 +32,8 @@ export class NativeService implements INativeService {
   constructor(
     @inject(serviceIdentifier.Window) private readonly windowService: IWindowService,
     @inject(serviceIdentifier.Preference) private readonly preferenceService: IPreferenceService,
+    @inject(serviceIdentifier.Wiki) private readonly wikiService: IWikiService,
+    @inject(serviceIdentifier.Workspace) private readonly workspaceService: IWorkspaceService,
   ) {
     this.setupIpcHandlers();
   }
@@ -62,12 +70,11 @@ export class NativeService implements INativeService {
       logger.info('Starting keyboard shortcut registration', { key, shortcut, serviceName, methodName, function: 'NativeService.registerKeyboardShortcut' });
 
       // Save to preferences
-      const preferenceService = container.get<IPreferenceService>(serviceIdentifier.Preference);
       const shortcuts = await this.getKeyboardShortcuts();
       logger.debug('Current shortcuts before registration', { shortcuts, function: 'NativeService.registerKeyboardShortcut' });
 
       shortcuts[key] = shortcut;
-      await preferenceService.set('keyboardShortcuts', shortcuts);
+      await this.preferenceService.set('keyboardShortcuts', shortcuts);
       logger.info('Saved shortcut to preferences', { key, shortcut, function: 'NativeService.registerKeyboardShortcut' });
 
       // Register the shortcut
@@ -89,9 +96,8 @@ export class NativeService implements INativeService {
       const shortcutString = shortcuts[key];
 
       // Remove from preferences
-      const preferenceService = container.get<IPreferenceService>(serviceIdentifier.Preference);
       delete shortcuts[key];
-      await preferenceService.set('keyboardShortcuts', shortcuts);
+      await this.preferenceService.set('keyboardShortcuts', shortcuts);
 
       // Unregister the shortcut using the actual shortcut string, not the key
       if (shortcutString && globalShortcut.isRegistered(shortcutString)) {
@@ -167,6 +173,7 @@ export class NativeService implements INativeService {
       function: 'openPath',
       filePath,
     });
+    // TODO: add a switch that tell user these are dangerous features, use at own risk.
     if (path.isAbsolute(filePath)) {
       if (showItemInFolder) {
         shell.showItemInFolder(filePath);
@@ -174,6 +181,19 @@ export class NativeService implements INativeService {
         const error = await shell.openPath(filePath);
         if (error) {
           throw new Error(error);
+        }
+      }
+    } else {
+      const activeWorkspace = this.workspaceService.getActiveWorkspaceSync();
+      if (activeWorkspace && isWikiWorkspace(activeWorkspace) && activeWorkspace.wikiFolderLocation !== undefined) {
+        const absolutePath = path.resolve(path.join(activeWorkspace.wikiFolderLocation, filePath));
+        if (showItemInFolder) {
+          shell.showItemInFolder(absolutePath);
+        } else {
+          const error = await shell.openPath(absolutePath);
+          if (error) {
+            throw new Error(error);
+          }
         }
       }
     }
@@ -233,9 +253,64 @@ export class NativeService implements INativeService {
     }
   }
 
-  public executeZxScript$(_zxWorkerArguments: unknown, _workspaceID?: string): Observable<string> {
-    return new Observable<string>((observer) => {
-      observer.next('ZX script execution is not available in this version.\n');
+  public executeZxScript$(zxWorkerArguments: IZxFileInput, workspaceID?: string): Observable<string> {
+    const zxWorker = this.wikiService.getWorker(workspaceID ?? this.workspaceService.getActiveWorkspaceSync()?.id ?? '');
+    if (zxWorker === undefined) {
+      const error = new ZxNotInitializedError();
+      return new Observable<string>((observer) => {
+        logger.error(error.message, zxWorkerArguments);
+        observer.next(`${error.message}\n`);
+      });
+    }
+    logger.info('zxWorker execute', { zxWorkerArguments, ZX_FOLDER });
+    const observable = zxWorker.executeZxScript(zxWorkerArguments, ZX_FOLDER);
+    return new Observable((observer) => {
+      observable.subscribe((message) => {
+        switch (message.type) {
+          case 'control': {
+            switch (message.actions) {
+              case ZxWorkerControlActions.start: {
+                if (message.message !== undefined) {
+                  observer.next(message.message);
+                  logger.debug(`zxWorker execute start with message`, { message: message.message });
+                }
+                break;
+              }
+              case ZxWorkerControlActions.error: {
+                const errorMessage = message.message ?? 'get ZxWorkerControlActions.error without message';
+                logger.error(`zxWorker execute failed with error ${errorMessage}`, { message });
+                observer.next(errorMessage);
+                break;
+              }
+              case ZxWorkerControlActions.ended: {
+                const endedMessage = message.message ?? 'get ZxWorkerControlActions.ended without message';
+                logger.info(`zxWorker execute ended with message`, { message: endedMessage });
+                break;
+              }
+            }
+
+            break;
+          }
+          case 'stderr':
+          case 'stdout': {
+            observer.next(message.message);
+            logger.debug(`zxWorker execute has stdout/stderr`, { message: message.message });
+            break;
+          }
+          case 'execution': {
+            observer.next(`${i18next.t('Scripting.ExecutingScript')}
+
+\`\`\`js
+${message.message}
+\`\`\`
+
+`);
+
+            break;
+          }
+            // No default
+        }
+      });
     });
   }
 
@@ -313,13 +388,25 @@ export class NativeService implements INativeService {
 
   public async getLocalHostUrlWithActualInfo(urlToReplace: string, workspaceID: string): Promise<string> {
     let replacedUrl = await getLocalHostUrlWithActualIP(urlToReplace);
-    const workspaceService = container.get<IWorkspaceService>(serviceIdentifier.Workspace);
-    const workspace = await workspaceService.get(workspaceID);
-    if (workspace !== undefined && workspace.wikiFolderLocation !== undefined) {
-      replacedUrl = replaceUrlPortWithSettingPort(replacedUrl, workspace.port ?? 0);
+    const workspace = await this.workspaceService.get(workspaceID);
+    if (workspace !== undefined && isWikiWorkspace(workspace)) {
+      replacedUrl = replaceUrlPortWithSettingPort(replacedUrl, workspace.port);
       replacedUrl = getUrlWithCorrectProtocol(workspace, replacedUrl);
     }
     return replacedUrl;
+  }
+
+  public async getAllLocalHostUrlsWithActualInfo(urlToReplace: string, workspaceID: string): Promise<string[]> {
+    let replacedUrls = getAllLocalHostUrlsWithActualIP(urlToReplace);
+    const workspace = await this.workspaceService.get(workspaceID);
+    if (workspace !== undefined && isWikiWorkspace(workspace)) {
+      replacedUrls = replacedUrls.map(url => {
+        let processed = replaceUrlPortWithSettingPort(url, workspace.port);
+        processed = getUrlWithCorrectProtocol(workspace, processed);
+        return processed;
+      });
+    }
+    return replacedUrls;
   }
 
   public async path(method: 'basename' | 'dirname' | 'join', pathString: string | undefined, ...paths: string[]): Promise<string | undefined> {
@@ -373,7 +460,7 @@ export class NativeService implements INativeService {
 
   public formatFileUrlToAbsolutePath(urlWithFileProtocol: string): string {
     logger.debug('formatting file URL to absolute path', { url: urlWithFileProtocol, function: 'formatFileUrlToAbsolutePath' });
-    let pathname = '';
+    let pathname: string;
     let hostname = '';
     try {
       ({ hostname, pathname } = new URL(urlWithFileProtocol));
@@ -381,22 +468,40 @@ export class NativeService implements INativeService {
       pathname = urlWithFileProtocol.replace('file://', '').replace('open://', '');
       logger.debug(`Parse URL failed, using fallback string replace`, { pathname, function: 'formatFileUrlToAbsolutePath' });
     }
+    /**
+     * urlWithFileProtocol: `file://./files/xxx.png`
+     * hostname: `.`, pathname: `/files/xxx.png`
+     */
     let filePath = decodeURIComponent(`${hostname}${pathname}`);
+    // get "D:/" instead of "/D:/" on windows
     if (process.platform === 'win32' && filePath.startsWith('/')) {
       filePath = filePath.substring(1);
     }
 
+    // Strategy 1: Try as-is (for absolute paths)
     if (fs.existsSync(filePath)) {
       logger.debug('file found (direct path)', { filePath, function: 'formatFileUrlToAbsolutePath' });
       return filePath;
     }
 
+    // Strategy 2: Try relative to workspace folder
+    const workspace = this.workspaceService.getActiveWorkspaceSync();
+    if (workspace !== undefined && isWikiWorkspace(workspace)) {
+      const filePathInWorkspaceFolder = path.resolve(workspace.wikiFolderLocation, filePath);
+      if (fs.existsSync(filePathInWorkspaceFolder)) {
+        logger.debug('file found (workspace relative)', { filePathInWorkspaceFolder, function: 'formatFileUrlToAbsolutePath' });
+        return filePathInWorkspaceFolder;
+      }
+    }
+
+    // Strategy 3: Try relative to TidGi App folder (for bundled assets)
     const inTidGiAppAbsoluteFilePath = path.join(app.getAppPath(), '.webpack', 'renderer', filePath);
     if (fs.existsSync(inTidGiAppAbsoluteFilePath)) {
       logger.debug('file found (app relative)', { inTidGiAppAbsoluteFilePath, function: 'formatFileUrlToAbsolutePath' });
       return inTidGiAppAbsoluteFilePath;
     }
 
+    // File not found - return original URL as fallback
     logger.warn('file not found in any location, returning original URL', { url: urlWithFileProtocol, filePath, function: 'formatFileUrlToAbsolutePath' });
     return urlWithFileProtocol;
   }
@@ -468,5 +573,12 @@ export class NativeService implements INativeService {
         });
       }
     }, 30_000);
+  }
+
+  public async generateMcpToken(): Promise<string> {
+    const token = randomBytes(16).toString('hex'); // 32-char hex
+    await this.preferenceService.set('mcpServerToken', token);
+    logger.info('Generated and saved new MCP auth token');
+    return token;
   }
 }

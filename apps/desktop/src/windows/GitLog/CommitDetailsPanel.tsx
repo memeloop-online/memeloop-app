@@ -702,43 +702,43 @@ export function CommitDetailsPanel(
               <List dense disablePadding data-testid='checkpoint-list'>
                 {checkpoints.length > 0
                   ? checkpoints.slice(0, 5).map((checkpoint) => (
-                      <ListItem
-                        key={checkpoint.hash}
-                        disablePadding
-                        data-testid={`checkpoint-row-${checkpoint.hash}`}
-                        secondaryAction={
-                          <Button
-                            size='small'
-                            onClick={() => {
-                              void handleRestoreCheckpoint(checkpoint.hash);
-                            }}
-                            disabled={isRestoringCheckpoint}
-                            data-testid='restore-checkpoint-button'
-                          >
-                            Restore
-                          </Button>
-                        }
-                      >
-                        <ListItemText
-                          primary={checkpoint.message}
-                          secondary={checkpoint.timestamp}
-                          slotProps={{
-                            primary: { variant: 'body2', sx: { wordBreak: 'break-word' } },
-                            secondary: { variant: 'caption' },
+                    <ListItem
+                      key={checkpoint.hash}
+                      disablePadding
+                      data-testid={`checkpoint-row-${checkpoint.hash}`}
+                      secondaryAction={
+                        <Button
+                          size='small'
+                          onClick={() => {
+                            void handleRestoreCheckpoint(checkpoint.hash);
                           }}
-                        />
-                      </ListItem>
-                    ))
+                          disabled={isRestoringCheckpoint}
+                          data-testid='restore-checkpoint-button'
+                        >
+                          Restore
+                        </Button>
+                      }
+                    >
+                      <ListItemText
+                        primary={checkpoint.message}
+                        secondary={checkpoint.timestamp}
+                        slotProps={{
+                          primary: { variant: 'body2', sx: { wordBreak: 'break-word' } },
+                          secondary: { variant: 'caption' },
+                        }}
+                      />
+                    </ListItem>
+                  ))
                   : (
-                      <ListItem disablePadding data-testid='checkpoint-empty-state'>
-                        <ListItemText
-                          primary='No checkpoints yet'
-                          slotProps={{
-                            primary: { variant: 'body2', color: 'text.secondary' },
-                          }}
-                        />
-                      </ListItem>
-                    )}
+                    <ListItem disablePadding data-testid='checkpoint-empty-state'>
+                      <ListItemText
+                        primary='No checkpoints yet'
+                        slotProps={{
+                          primary: { variant: 'body2', color: 'text.secondary' },
+                        }}
+                      />
+                    </ListItem>
+                  )}
               </List>
 
               <Divider sx={{ my: 1 }} />

@@ -1,10 +1,12 @@
 import { WindowChannel } from '@/constants/channels';
 import { isMac } from '@/helpers/system';
 import { container } from '@services/container';
+import getViewBounds from '@services/libs/getViewBounds';
 import { i18n } from '@services/libs/i18n';
 import type { IMenuService } from '@services/menu/interface';
 import type { IPreferenceService } from '@services/preferences/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
+import type { IViewService } from '@services/view/interface';
 import type { IWorkspaceService } from '@services/workspaces/interface';
 import { ipcMain } from 'electron';
 import type { IWindowService } from './interface';
@@ -13,6 +15,7 @@ import { WindowNames } from './WindowProperties';
 export async function registerMenu(): Promise<void> {
   const menuService = container.get<IMenuService>(serviceIdentifier.MenuService);
   const windowService = container.get<IWindowService>(serviceIdentifier.Window);
+  const viewService = container.get<IViewService>(serviceIdentifier.View);
   const workspaceService = container.get<IWorkspaceService>(serviceIdentifier.Workspace);
   const preferenceService = container.get<IPreferenceService>(serviceIdentifier.Preference);
 
@@ -45,7 +48,9 @@ export async function registerMenu(): Promise<void> {
             mainWindow.webContents.focus();
             mainWindow.webContents.send(WindowChannel.openFindInPage);
             const contentSize = mainWindow.getContentSize();
-            // getActiveWorkspace not available on minimal IWorkspaceService
+            const activeWs = await workspaceService.getActiveWorkspace();
+            const view = activeWs ? viewService.getView(activeWs.id, WindowNames.main) : undefined;
+            view?.setBounds(await getViewBounds(contentSize as [number, number], { findInPage: true }));
           }
         },
         enabled: async () => (await workspaceService.countWorkspaces()) > 0,

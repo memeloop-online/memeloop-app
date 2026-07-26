@@ -241,6 +241,17 @@ export class Git implements IGitService {
     logger.info(`[test-id-git-init-complete]`, { wikiFolderPath });
   }
 
+  public async initScopedWikiGit(
+    repoPath: string,
+    scopedPath: string,
+  ): Promise<void> {
+    await gitOperations.initScopedWikiGit(repoPath, scopedPath);
+    logger.info('[test-id-git-init-complete]', {
+      wikiFolderPath: repoPath,
+      scopedPath,
+    });
+  }
+
   public async commitAndSync(workspace: IWorkspace, configs: ICommitAndSyncConfigs): Promise<boolean> {
     // Note: we no longer pre-check net.isOnline() here because it can return false even when
     // the user IS online (e.g. VPN, certain firewall configs, Electron quirks). The underlying

@@ -8,7 +8,7 @@ Feature: TidGi Application Launch
     When I launch the TidGi application
     And I wait for the page to load completely
     And I should see a "page body" element with selector "body"
-    And the window title should contain "太记"
+    And the window title should contain "MemeLoop Desktop"
     # Verify renderer logging works by navigating to preferences
     When I click on a "settings button" element with selector "#open-preferences-button"
     When I switch to "preferences" window

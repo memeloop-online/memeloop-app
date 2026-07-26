@@ -19,7 +19,7 @@ if (typeof document !== 'undefined') {
       _options?: IdleRequestOptions,
     ) =>
       window.setTimeout(() => {
-        callback({ timeRemaining: () => 50, didTimeout: false } as IdleDeadline);
+        callback({ timeRemaining: () => 50, didTimeout: false });
       }, 0);
     (window as unknown as Record<string, unknown>).cancelIdleCallback = (id: number) => {
       window.clearTimeout(id);
@@ -36,7 +36,10 @@ vi.mock('@services/libs/workerAdapter', async () => {
   const rxjs = await import('rxjs');
   return {
     createWorkerProxy: () => ({
+      configureHost: async () => ({ ok: true }),
       ping: async () => ({ ok: true }),
+      startServer: async (port: number) => ({ nodeId: 'test-node-id', port }),
+      stopServer: async () => ({ ok: true }),
       createAgent: async () => ({ conversationId: 'test-conversation-id' }),
       sendMessage: async () => ({ ok: true }),
       cancelAgent: async () => ({ ok: true }),

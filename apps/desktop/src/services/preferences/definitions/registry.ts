@@ -28,12 +28,14 @@ import type {
 } from './types';
 import { updatesSection } from './updates';
 import { wikiSection } from './wiki';
+import { workspaceGroupsSection } from './workspaceGroups';
 
 /**
  * Ordered list of all sections. Display order matches array order.
  */
 export const allSections: ISectionDefinition[] = [
   wikiSection,
+  workspaceGroupsSection,
   generalSection,
   tidgiMiniWindowSection,
   syncSection,
@@ -115,6 +117,15 @@ export function buildZodSchema(): z.ZodObject<Record<string, z.ZodType>> {
   shape.language = z.string();
   // Memeloop node server port
   shape.memeloopNodePort = z.number();
+  // Service settings not currently rendered by a built-in preference item.
+  shape.analyticsEnabled = z.boolean();
+  shape.analyticsHost = z.string();
+  shape.analyticsHostname = z.string();
+  shape.analyticsSiteId = z.string();
+  shape.mcpServerEnabled = z.boolean();
+  shape.mcpServerPort = z.number().int().min(1).max(65_535);
+  shape.mcpServerRequireToken = z.boolean();
+  shape.mcpServerToken = z.string();
   return z.object(shape) as z.ZodObject<Record<string, z.ZodType>>;
 }
 

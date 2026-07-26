@@ -66,7 +66,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: lts/*
+          node-version: 24
 
       # Windows specific: Set up CV dependency for pngquant-bin
       # Also sets up MSVC (Microsoft Visual C++) compiler for native modules (nsfw, better-sqlite3)

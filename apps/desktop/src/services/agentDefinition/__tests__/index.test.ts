@@ -165,6 +165,4 @@ describe('AgentDefinitionService getAgentDefs integration', () => {
     const templates = await agentDefinitionService.getAgentTemplates();
     expect(Array.isArray(templates)).toBe(true);
   });
-
-
 });

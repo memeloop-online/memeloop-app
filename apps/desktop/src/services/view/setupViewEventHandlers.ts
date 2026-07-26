@@ -7,10 +7,13 @@ import { buildResourcePath } from '@/constants/paths';
 import getViewBounds from '@services/libs/getViewBounds';
 import type { IWorkspace } from '@services/workspaces/interface';
 import { isWikiWorkspace } from '@services/workspaces/interface';
+import { isHtmlWikiWorkspace } from '@services/workspaces/workspacePaths';
 
 import { ViewChannel, WindowChannel } from '@/constants/channels';
+import { TIDGI_PROTOCOL_SCHEME } from '@/constants/protocol';
 import { isWin } from '@/helpers/system';
 import { container } from '@services/container';
+import type { IDeepLinkService } from '@services/deepLink/interface';
 import { logger } from '@services/libs/log';
 import { isSameOrigin } from '@services/libs/url';
 import type { IPreferenceService } from '@services/preferences/interface';
@@ -18,8 +21,10 @@ import serviceIdentifier from '@services/serviceIdentifier';
 import type { IWindowService } from '@services/windows/interface';
 import { WindowNames } from '@services/windows/WindowProperties';
 import type { IWorkspaceService } from '@services/workspaces/interface';
+import type { IWorkspaceViewService } from '@services/workspacesView/interface';
 import { ViewLoadUrlError } from './error';
 import { handleNewWindow } from './handleNewWindow';
+import { tryInterceptHtmlWikiDownload } from './htmlWikiDownloadIntercept';
 import { handleViewFileContentLoading } from './setupViewFileProtocol';
 
 export interface IViewContext {
@@ -48,8 +53,10 @@ export default function setupViewEventHandlers(
   };
 
   const workspaceService = container.get<IWorkspaceService>(serviceIdentifier.Workspace);
+  const workspaceViewService = container.get<IWorkspaceViewService>(serviceIdentifier.WorkspaceView);
   const windowService = container.get<IWindowService>(serviceIdentifier.Window);
   const preferenceService = container.get<IPreferenceService>(serviceIdentifier.Preference);
+  const deepLinkService = container.get<IDeepLinkService>(serviceIdentifier.DeepLink);
 
   handleViewFileContentLoading(view);
   logger.info('Wiki view created', {
@@ -60,13 +67,21 @@ export default function setupViewEventHandlers(
   });
   view.webContents.on('did-start-loading', async () => {
     const workspaceObject = await workspaceService.get(workspace.id);
+    // this event might be triggered
+    // even after the workspace obj and WebContentsView
+    // are destroyed. See https://github.com/atomery/webcatalog/issues/836
     if (workspaceObject === undefined) {
       return;
     }
-    if (workspaceObject.active && browserWindow !== undefined && !browserWindow.isDestroyed()) {
+    if (workspaceObject.active && (await workspaceService.workspaceDidFailLoad(workspace.id)) && browserWindow !== undefined && !browserWindow.isDestroyed()) {
+      // fix https://github.com/webcatalog/singlebox-legacy/issues/228
       const contentSize = browserWindow.getContentSize();
       view.setBounds(await getViewBounds(contentSize as [number, number], { windowName }));
     }
+    await workspaceService.updateMetaData(workspace.id, {
+      didFailLoadErrorMessage: null,
+      isLoading: true,
+    });
   });
   view.webContents.on('will-navigate', async (event, newUrl) => {
     logger.debug('will-navigate called', {
@@ -89,6 +104,13 @@ export default function setupViewEventHandlers(
       logger.debug('will-navigate skipped due to same origin (home/last)', { newUrl, homeUrl, lastUrl, function: 'will-navigate' });
       return;
     }
+    // Handle tidgi:// deep links internally (e.g. tidgi://preferences/externalAPI from within wiki pages)
+    if (newUrl.startsWith(`${TIDGI_PROTOCOL_SCHEME}://`)) {
+      logger.info('will-navigate handling tidgi:// deep link internally', { newUrl, function: 'will-navigate' });
+      event.preventDefault();
+      await deepLinkService.openDeepLink(newUrl);
+      return;
+    }
     // if is external website
     logger.debug('will-navigate openExternal', { newUrl, currentUrl, homeUrl, lastUrl });
     await shell.openExternal(newUrl).catch((error_: unknown) => {
@@ -107,6 +129,12 @@ export default function setupViewEventHandlers(
     // event.stopPropagation();
   });
   const throttledDidFinishedLoad = throttle(async (reason: string) => {
+    // if have error, don't realignActiveWorkspace, which will hide the error message
+    if (await workspaceService.workspaceDidFailLoad(workspace.id)) {
+      return;
+    }
+    // After webContents.close() the getter can return undefined (not null) in Electron.
+
     if (view.webContents == null || view.webContents.isDestroyed()) {
       return;
     }
@@ -115,10 +143,17 @@ export default function setupViewEventHandlers(
       id: workspace.id,
       function: 'throttledDidFinishedLoad',
     });
+    // focus on initial load
+    // https://github.com/atomery/webcatalog/issues/398
+    // Get current browser window dynamically to handle workspace hibernation/wake-up scenarios
     const currentBrowserWindow = BrowserWindow.fromWebContents(view.webContents);
     if (currentBrowserWindow && workspace.active && !currentBrowserWindow.isDestroyed() && currentBrowserWindow.isFocused() && !view.webContents.isFocused()) {
       view.webContents.focus();
     }
+    // update isLoading to false when load succeed
+    await workspaceService.updateMetaData(workspace.id, {
+      isLoading: false,
+    });
   }, 2000);
   view.webContents.on('did-finish-load', () => {
     logger.debug('did-finish-load called');
@@ -139,25 +174,41 @@ export default function setupViewEventHandlers(
   // https://electronjs.org/docs/api/web-contents#event-did-fail-load
   // https://github.com/webcatalog/neutron/blob/3d9e65c255792672c8bc6da025513a5404d98730/main-src/libs/views.js#L397
   view.webContents.on('did-fail-load', async (_event, errorCode, errorDesc, _validateUrl, isMainFrame) => {
-    const workspaceObject = await workspaceService.get(workspace.id);
+    const [workspaceObject, workspaceDidFailLoad] = await Promise.all([
+      workspaceService.get(workspace.id),
+      workspaceService.workspaceDidFailLoad(workspace.id),
+    ]);
+    // this event might be triggered
+    // even after the workspace obj and WebContentsView
+    // are destroyed. See https://github.com/atomery/webcatalog/issues/836
     if (workspaceObject === undefined) {
+      return;
+    }
+    if (workspaceDidFailLoad) {
       return;
     }
 
     if (view.webContents == null || view.webContents.isDestroyed()) return;
     if (isMainFrame && errorCode < 0 && errorCode !== -3) {
-      if (errorCode === -102 && view.webContents.getURL().length > 0 && isWikiWorkspace(workspaceObject) && workspaceObject.homeUrl?.startsWith('http')) {
+      // Fix nodejs wiki start slow on system startup, which cause `-102 ERR_CONNECTION_REFUSED` even if wiki said it is booted, we have to retry several times
+      if (errorCode === -102 && view.webContents.getURL().length > 0 && isWikiWorkspace(workspaceObject) && workspaceObject.homeUrl.startsWith('http')) {
         setTimeout(async () => {
           await loadInitialUrlWithCatch();
         }, 1000);
         return;
       }
+      await workspaceService.updateMetaData(workspace.id, {
+        isLoading: false,
+        didFailLoadErrorMessage: `${errorCode} ${errorDesc}`,
+      });
       if (workspaceObject.active && browserWindow !== undefined && !browserWindow.isDestroyed()) {
+        // Hide view offscreen to let error message UI show through
         const contentSize = browserWindow.getContentSize();
         view.setBounds({ x: -contentSize[0], y: -contentSize[1], width: contentSize[0], height: contentSize[1] });
       }
     }
-      if (errorCode === -300 && view.webContents.getURL().length === 0 && isWikiWorkspace(workspaceObject) && workspaceObject.homeUrl?.startsWith('http')) {
+    // edge case to handle failed auth, use setTimeout to prevent infinite loop
+    if (errorCode === -300 && view.webContents.getURL().length === 0 && isWikiWorkspace(workspaceObject) && workspaceObject.homeUrl.startsWith('http')) {
       setTimeout(async () => {
         await loadInitialUrlWithCatch();
       }, 1000);
@@ -181,6 +232,7 @@ export default function setupViewEventHandlers(
   });
   view.webContents.on('did-navigate-in-page', async (_event, url) => {
     logger.debug(`did-navigate-in-page called ${url}`);
+    await workspaceViewService.updateLastUrl(workspace.id, view);
     const workspaceObject = await workspaceService.get(workspace.id);
     // this event might be triggered
     // even after the workspace obj and WebContentsView
@@ -224,7 +276,17 @@ export default function setupViewEventHandlers(
   );
   // Handle downloads
   // https://electronjs.org/docs/api/download-item
-  view.webContents.session.on('will-download', (_event, item) => {
+  // Session is shared across views — only handle downloads initiated by this view.
+  view.webContents.session.on('will-download', (event, item, webContents) => {
+    if (webContents.id !== view.webContents.id) {
+      return;
+    }
+    if (isHtmlWikiWorkspace(workspace)) {
+      const intercepted = tryInterceptHtmlWikiDownload(event, item, view, workspace);
+      if (intercepted) {
+        return;
+      }
+    }
     const { askForDownloadPath, downloadPath } = preferenceService.getPreferences();
     // Set the save path, making Electron not to prompt a save dialog.
     if (askForDownloadPath) {
@@ -250,11 +312,21 @@ export default function setupViewEventHandlers(
         const incString = match === null ? '' : match[1];
 
         const inc = Number.parseInt(incString, 10) || 0;
-        app.badgeCount = inc;
+        await workspaceService.updateMetaData(workspace.id, {
+          badgeCount: inc,
+        });
+        let count = 0;
+        const workspaceMetaData = await workspaceService.getAllMetaData();
+        Object.values(workspaceMetaData).forEach((metaData) => {
+          if (typeof metaData.badgeCount === 'number') {
+            count += metaData.badgeCount;
+          }
+        });
+        app.badgeCount = count;
         if (isWin) {
-          if (inc > 0) {
+          if (count > 0) {
             const icon = nativeImage.createFromPath(path.resolve(buildResourcePath, 'overlay-icon.png'));
-            browserWindow.setOverlayIcon(icon, `You have ${inc} new messages.`);
+            browserWindow.setOverlayIcon(icon, `You have ${count} new messages.`);
           } else {
             browserWindow.setOverlayIcon(null, '');
           }

@@ -78,6 +78,10 @@ export interface IAskAIWithSelectionData {
   agentDefId?: string;
   /** The selected text that user wants to ask AI about */
   selectionText: string;
+  /** Wiki URL associated with the selection. */
+  wikiUrl?: string;
+  /** Workspace associated with the selection. */
+  workspaceId?: string;
 }
 
 export enum ThemeChannel {
@@ -112,6 +116,22 @@ export enum AgentChannel {
 
 export enum ExternalAPIChannel {
   name = 'ExternalAPIChannel',
+}
+
+export enum ProviderRegistryChannel {
+  name = 'ProviderRegistryChannel',
+}
+
+export enum AnalyticsChannel {
+  name = 'AnalyticsChannel',
+}
+
+export enum HtmlWikiChannel {
+  name = 'HtmlWikiChannel',
+}
+
+export enum DeviceNetworkChannel {
+  name = 'DeviceNetworkChannel',
 }
 
 export enum MemeloopNodeChannel {

@@ -5,7 +5,7 @@ import fetch from 'node-fetch';
 import { BehaviorSubject } from 'rxjs';
 import semver from 'semver';
 
-import { container } from '@services/container';
+import type { IAnalyticsService } from '@services/analytics/interface';
 import type { IContextService } from '@services/context/interface';
 import { logger } from '@services/libs/log';
 import type { IMenuService } from '@services/menu/interface';
@@ -23,6 +23,8 @@ export class Updater implements IUpdaterService {
   constructor(
     @inject(serviceIdentifier.Context) private readonly contextService: IContextService,
     @inject(serviceIdentifier.Preference) private readonly preferenceService: IPreferenceService,
+    @inject(serviceIdentifier.Analytics) private readonly analyticsService: IAnalyticsService,
+    @inject(serviceIdentifier.MenuService) private readonly menuService: IMenuService,
   ) {
     this.updaterMetaData$ = new BehaviorSubject<IUpdaterMetaData>(this.updaterMetaData);
   }
@@ -37,15 +39,13 @@ export class Updater implements IUpdaterService {
       ...newUpdaterMetaData,
     };
     this.updateUpdaterSubject();
-    const menuService = container.get<IMenuService>(serviceIdentifier.MenuService);
-    void menuService.buildMenu();
+    void this.menuService.buildMenu();
   }
 
   public async checkForUpdates(): Promise<void> {
     logger.debug('Checking for updates...');
     this.setMetaData({ status: IUpdaterStatus.checkingForUpdate });
-    const menuService = container.get<IMenuService>(serviceIdentifier.MenuService);
-    await menuService.insertMenu('TidGi', [
+    await this.menuService.insertMenu('TidGi', [
       {
         id: 'update',
         label: () => i18next.t('Updater.CheckingForUpdate'),
@@ -55,6 +55,7 @@ export class Updater implements IUpdaterService {
     let latestVersion: string;
     let latestReleasePageUrl: string;
     const allowPrerelease = await this.preferenceService.get('allowPrerelease');
+    void this.analyticsService.track('updater.check_started', { allowPrerelease });
     try {
       const latestReleaseData = await (allowPrerelease
         ? fetch('https://api.github.com/repos/tiddly-gittly/TidGi-Desktop/releases?per_page=1')
@@ -70,12 +71,12 @@ export class Updater implements IUpdaterService {
       latestReleasePageUrl = latestReleaseData.html_url;
     } catch (fetchError) {
       logger.error('Fetching latest release failed', { fetchError });
+      void this.analyticsService.track('updater.check_failed', { allowPrerelease });
       this.setMetaData({
         status: 'error' as IUpdaterStatus,
         info: { errorMessage: (fetchError as Error).message },
       });
-      const menuService = container.get<IMenuService>(serviceIdentifier.MenuService);
-      await menuService.insertMenu('TidGi', [
+      await this.menuService.insertMenu('TidGi', [
         {
           id: 'update',
           label: () => i18next.t('Updater.CheckingFailed'),
@@ -94,9 +95,9 @@ export class Updater implements IUpdaterService {
     const hasNewRelease = semver.gt(latestVersion, currentVersion);
     logger.debug('Compare version', { currentVersion, isLatestRelease: hasNewRelease });
     if (hasNewRelease) {
+      void this.analyticsService.track('updater.update_available', { allowPrerelease });
       this.setMetaData({ status: IUpdaterStatus.updateAvailable, info: { version: latestVersion, latestReleasePageUrl } });
-      const menuService = container.get<IMenuService>(serviceIdentifier.MenuService);
-      await menuService.insertMenu('TidGi', [
+      await this.menuService.insertMenu('TidGi', [
         {
           id: 'update',
           label: () => i18next.t('Updater.UpdateAvailable'),
@@ -106,9 +107,9 @@ export class Updater implements IUpdaterService {
         },
       ]);
     } else {
+      void this.analyticsService.track('updater.update_not_available', { allowPrerelease });
       this.setMetaData({ status: IUpdaterStatus.updateNotAvailable, info: { version: latestVersion } });
-      const menuService = container.get<IMenuService>(serviceIdentifier.MenuService);
-      await menuService.insertMenu('TidGi', [
+      await this.menuService.insertMenu('TidGi', [
         {
           id: 'update',
           label: () => i18next.t('Updater.UpdateNotAvailable'),

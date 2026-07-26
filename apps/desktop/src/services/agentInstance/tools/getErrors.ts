@@ -41,7 +41,7 @@ async function executeGetErrors(parameters: z.infer<typeof GetErrorsToolSchema>)
   }
 
   try {
-    const tiddlers = await wikiService.wikiOperationInServer(WikiChannel.getTiddlersAsJson, target.id, [title]) as Array<{text?: string}>;
+    const tiddlers = await wikiService.wikiOperationInServer(WikiChannel.getTiddlersAsJson, target.id, [title]) as Array<{ text?: string }>;
     if (!tiddlers || tiddlers.length === 0) {
       return { success: false, error: `Tiddler "${title}" not found in workspace "${workspaceName}".` };
     }

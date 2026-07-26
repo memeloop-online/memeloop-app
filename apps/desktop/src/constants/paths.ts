@@ -57,7 +57,16 @@ export const TIDDLYWIKI_PACKAGE_FOLDER = path.resolve(PACKAGE_PATH_BASE, 'tiddly
  * When wiki uses a local TiddlyWiki installation, we still need to load TidGi's custom plugins from here.
  */
 export const TIDDLYWIKI_BUILT_IN_PLUGINS_PATH = path.resolve(PACKAGE_PATH_BASE, 'tiddlywiki', 'plugins');
-export const SQLITE_BINARY_PATH = path.resolve(PACKAGE_PATH_BASE, 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');
+const processReport = process.report.getReport() as { header?: { glibcVersionRuntime?: string } };
+const sqlitePlatform = process.platform === 'linux' && !processReport.header?.glibcVersionRuntime
+  ? 'linuxmusl'
+  : process.platform;
+export const SQLITE_BINARY_PATH = path.resolve(
+  PACKAGE_PATH_BASE,
+  'better-sqlite3',
+  'prebuilds',
+  `${sqlitePlatform}-${process.arch}.node`,
+);
 
 /**
  * Check if a wiki folder has its own TiddlyWiki installation and return the appropriate boot path.

@@ -68,8 +68,13 @@ export async function registerViewMenu(): Promise<void> {
           browserWindow.webContents.zoomFactor = 1;
           return;
         }
-        // getActiveWorkspace not available on minimal IWorkspaceService
-        void container.get<IViewService>(serviceIdentifier.View);
+        const viewService = container.get<IViewService>(serviceIdentifier.View);
+        const workspaceService2 = container.get<IWorkspaceService>(serviceIdentifier.Workspace);
+        const activeWorkspace = await workspaceService2.getActiveWorkspace();
+        if (activeWorkspace) {
+          const view = viewService.getView(activeWorkspace.id, WindowNames.main);
+          view?.webContents.setZoomFactor(1);
+        }
       },
       enabled: hasWorkspaces,
     },
@@ -83,8 +88,13 @@ export async function registerViewMenu(): Promise<void> {
           browserWindow.webContents.zoomFactor += 0.05;
           return;
         }
-        // getActiveWorkspace not available on minimal IWorkspaceService
-        void container.get<IViewService>(serviceIdentifier.View);
+        const viewService = container.get<IViewService>(serviceIdentifier.View);
+        const workspaceService2 = container.get<IWorkspaceService>(serviceIdentifier.Workspace);
+        const activeWorkspace = await workspaceService2.getActiveWorkspace();
+        if (activeWorkspace) {
+          const view = viewService.getView(activeWorkspace.id, WindowNames.main);
+          if (view) view.webContents.setZoomFactor(view.webContents.getZoomFactor() + 0.05);
+        }
       },
       enabled: hasWorkspaces,
     },
@@ -98,8 +108,13 @@ export async function registerViewMenu(): Promise<void> {
           browserWindow.webContents.zoomFactor -= 0.05;
           return;
         }
-        // getActiveWorkspace not available on minimal IWorkspaceService
-        void container.get<IViewService>(serviceIdentifier.View);
+        const viewService = container.get<IViewService>(serviceIdentifier.View);
+        const workspaceService2 = container.get<IWorkspaceService>(serviceIdentifier.Workspace);
+        const activeWorkspace = await workspaceService2.getActiveWorkspace();
+        if (activeWorkspace) {
+          const view = viewService.getView(activeWorkspace.id, WindowNames.main);
+          if (view) view.webContents.setZoomFactor(view.webContents.getZoomFactor() - 0.05);
+        }
       },
       enabled: hasWorkspaces,
     },
@@ -114,7 +129,17 @@ export async function registerViewMenu(): Promise<void> {
           browserWindow.webContents.reload();
           return;
         }
-        // getActiveWorkspace not available on minimal IWorkspaceService
+        const viewService = container.get<IViewService>(serviceIdentifier.View);
+        const workspaceService2 = container.get<IWorkspaceService>(serviceIdentifier.Workspace);
+        const activeWorkspace = await workspaceService2.getActiveWorkspace();
+        if (activeWorkspace) {
+          for (const windowName of [WindowNames.main, WindowNames.tidgiMiniWindow] as const) {
+            const view = viewService.getView(activeWorkspace.id, windowName);
+            if (view?.webContents) {
+              view.webContents.reload();
+            }
+          }
+        }
       },
       enabled: hasWorkspaces,
     },

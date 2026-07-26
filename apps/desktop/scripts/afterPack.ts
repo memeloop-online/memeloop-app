@@ -8,20 +8,20 @@ import path from 'path';
 
 /**
  * Running afterPack hook
- * Note: This must be a non-async function that accepts a callback for Electron Packager compatibility
+ * Forge 8 exposes packageAfterPrune as a promise-based Forge hook.
+ * The first argument is the resolved Forge configuration.
  * @param buildPath /var/folders/qj/7j0zx32d0l75zmnrl1w3m3b80000gn/T/electron-packager/darwin-x64/TidGi-darwin-x64/Electron.app/Contents/Resources/app
  * @param electronVersion 12.0.6
  * @param platform darwin / win32 (even on win11 x64)
  * @param arch x64
- * @param callback Callback to signal completion
  */
-export default (
+export default async (
+  _forgeConfig: unknown,
   buildPath: string,
   _electronVersion: string,
   platform: string,
   arch: string,
-  callback: () => void,
-): void => {
+): Promise<void> => {
   const cwd = path.resolve(buildPath, '..');
   const appNodeModulesDirectory = path.resolve(buildPath, 'node_modules');
   const projectRoot = path.resolve(__dirname, '..');
@@ -53,6 +53,18 @@ export default (
     return `sqlite-vec-${os}-${arch}`;
   };
 
+  const getBetterSqlitePrebuildPaths = (): string[][] => {
+    if (platform === 'linux') {
+      // Keep both libc variants so the same Linux package can start on glibc
+      // and musl hosts. better-sqlite3 selects the correct N-API binary.
+      return [
+        ['better-sqlite3', 'prebuilds', `linux-${arch}.node`],
+        ['better-sqlite3', 'prebuilds', `linuxmusl-${arch}.node`],
+      ];
+    }
+    return [['better-sqlite3', 'prebuilds', `${platform}-${arch}.node`]];
+  };
+
   console.log(
     'Copy npm packages with node-worker dependencies with binary (dugite) or __filename usages (tiddlywiki), which cannot be prepared properly by webpack',
   );
@@ -68,9 +80,9 @@ export default (
     );
 
     const packagePathsToCopyDereferenced: string[][] = [
-      // Wiki functionality removed in memeloop-desktop - tiddlywiki no longer needed
-      // node binary
-      ['better-sqlite3', 'build', 'Release', 'better_sqlite3.node'],
+      ...getBetterSqlitePrebuildPaths(),
+      // Wiki workers load boot/core/plugin files from process.resourcesPath.
+      ['tiddlywiki'],
       // `ws` optional native deps (required in our bundled Electron runtime when it tries to resolve them)
       ['bufferutil'],
       ['utf-8-validate'],
@@ -104,96 +116,70 @@ export default (
       packagePathsToCopyDereferenced.push(['app-path', 'main']);
     }
 
-    console.log('Copy linked monorepo packages (memeloop, memeloop-cli, @memeloop/protocol, @memeloop/react-ui, @memeloop/prompt-editor)');
-    const linkedPackages = ['memeloop', 'memeloop-cli', '@memeloop/protocol', '@memeloop/react-ui', '@memeloop/prompt-editor'];
-    for (const pkgName of linkedPackages) {
-      const source = path.resolve(projectRoot, 'node_modules', pkgName);
-      const dest = path.resolve(cwd, 'node_modules', pkgName);
-      if (fs.existsSync(source)) {
-        try {
-          // dereference follows junctions; ignore broken symlinks by catching ENOENT
-          fs.copySync(source, dest, { dereference: true, errorOnExist: false });
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          console.error(`  Error copying ${pkgName}: ${errorMessage}. Trying without dereference...`);
-          try {
-            fs.copySync(source, dest, { dereference: false, errorOnExist: false });
-            console.log(`  Copied ${pkgName} (non-dereferenced)`);
-          } catch (secondError) {
-            console.error(`  SKIP: ${pkgName} copy failed, continuing...`);
-          }
-        }
-      } else {
-        console.error(`  SKIP: ${pkgName} not found at ${source}`);
-      }
-    }
-
-    // Copy runtime deps that memeloop-cli's CJS bundle requires at module level
-    console.log('Copying memeloop-cli runtime dependencies');
-    const nodeRuntimeDeps = ['@ai-sdk/openai', '@ai-sdk/anthropic', '@ai-sdk/provider', '@ai-sdk/provider-utils'];
-    for (const dep of nodeRuntimeDeps) {
-      const source = path.resolve(projectRoot, 'node_modules', dep);
-      const dest = path.resolve(cwd, 'node_modules', dep);
-      if (fs.existsSync(source)) {
-        try {
-          fs.copySync(source, dest, { dereference: true, errorOnExist: false });
-          console.log(`  Copied ${dep}`);
-        } catch {
-          console.error(`  SKIP: failed to copy ${dep}`);
-        }
-      } else {
-        console.error(`  SKIP: ${dep} not found`);
-      }
-    }
-
     console.log('Copying packagePathsToCopyDereferenced');
     for (const packagePathInNodeModules of packagePathsToCopyDereferenced) {
-      // some binary may not exist in other platforms, so allow failing here.
-      try {
-        const first = packagePathInNodeModules[0] ?? '';
-        const source = resolvePackageSource(...packagePathInNodeModules);
+      const first = packagePathInNodeModules[0] ?? '';
+      const source = resolvePackageSource(...packagePathInNodeModules);
 
-        const destinationMain = path.resolve(
-          cwd,
-          'node_modules',
+      if (!fs.existsSync(source)) {
+        throw new Error(
+          `Required packaged dependency is missing: ${packagePathInNodeModules.join('/')} (looked in ${packageSourceRoots.join(', ')})`,
+        );
+      }
+
+      const destinationMain = path.resolve(
+        cwd,
+        'node_modules',
+        ...packagePathInNodeModules,
+      );
+      fs.copySync(source, destinationMain, { dereference: true });
+
+      // These packages may be required from inside app.asar bundles, so place
+      // them both in Resources/node_modules and Resources/app/node_modules.
+      if (
+        first === 'bufferutil' ||
+        first === 'utf-8-validate' ||
+        first === 'sodium-universal' ||
+        first === 'sodium-native' ||
+        first === 'require-addon' ||
+        first === 'which-runtime' ||
+        first === 'bare-addon-resolve' ||
+        first === 'bare-module-resolve' ||
+        first === 'bare-semver'
+      ) {
+        const destinationApp = path.resolve(
+          appNodeModulesDirectory,
           ...packagePathInNodeModules,
         );
-        fs.copySync(source, destinationMain, { dereference: true });
-
-        // `ws`'s optional native deps may be required from inside `app.asar` bundles,
-        // so place them both in Resources/node_modules and Resources/app/node_modules.
-        if (
-          first === 'bufferutil' ||
-          first === 'utf-8-validate' ||
-          first === 'sodium-universal' ||
-          first === 'sodium-native' ||
-          first === 'require-addon' ||
-          first === 'which-runtime' ||
-          first === 'bare-addon-resolve' ||
-          first === 'bare-module-resolve' ||
-          first === 'bare-semver'
-        ) {
-          const destinationApp = path.resolve(
-            appNodeModulesDirectory,
-            ...packagePathInNodeModules,
-          );
-          fs.copySync(source, destinationApp, { dereference: true });
-        }
-      } catch (error) {
-        // some binary may not exist in other platforms, so allow failing here.
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(
-          `Error copying ${packagePathInNodeModules.join('/')} to dist, in afterPack.ts: ${errorMessage}`,
-        );
+        fs.copySync(source, destinationApp, { dereference: true });
       }
     }
 
     console.log('Copy dugite');
     // it has things like `git/bin/libexec/git-core/git-add` link to `git/bin/libexec/git-core/git`, to reduce size, so can't use `dereference: true, recursive: true` here.
+    // pnpm exposes the package itself as a symlink. Resolve only that outer
+    // link, then preserve dugite's internal links in the copied Git runtime.
+    const dugiteSource = fs.realpathSync(path.join(sourceNodeModulesFolder, 'dugite'));
+    const dugiteDestination = path.join(cwd, 'node_modules', 'dugite');
+    fs.removeSync(dugiteDestination);
     fs.copySync(
-      path.join(sourceNodeModulesFolder, 'dugite'),
-      path.join(cwd, 'node_modules', 'dugite'),
+      dugiteSource,
+      dugiteDestination,
       { dereference: false },
+    );
+    // The Vite main bundle keeps `require('dugite')` external, so Node must
+    // find its lightweight JS entry under app/node_modules. Keep the 155 MB
+    // embedded Git distribution only in Resources/node_modules; GitService
+    // points dugite to it through LOCAL_GIT_DIRECTORY at runtime.
+    fs.copySync(
+      path.join(sourceNodeModulesFolder, 'dugite', 'package.json'),
+      path.join(appNodeModulesDirectory, 'dugite', 'package.json'),
+      { dereference: true },
+    );
+    fs.copySync(
+      path.join(sourceNodeModulesFolder, 'dugite', 'build'),
+      path.join(appNodeModulesDirectory, 'dugite', 'build'),
+      { dereference: true },
     );
 
     if (platform === 'win32') {
@@ -206,7 +192,4 @@ export default (
       );
     }
   }
-
-  /** complete this hook */
-  callback();
 };

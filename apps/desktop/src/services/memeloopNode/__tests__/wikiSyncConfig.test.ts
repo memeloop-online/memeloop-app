@@ -23,11 +23,25 @@ describe('allSections registration', () => {
 });
 
 describe('workspace sync config fields', () => {
-  it('has empty syncable config fields after workspace removal', () => {
-    expect(syncableConfigFields).toEqual([]);
+  it('keeps portable wiki configuration available for cross-device sync', () => {
+    expect(syncableConfigFields).toEqual(
+      expect.arrayContaining([
+        'name',
+        'gitUrl',
+        'storageService',
+        'readOnlyMode',
+        'enableFileSystemWatch',
+        'syncOnStartup',
+      ]),
+    );
   });
 
-  it('has empty syncable config defaults after workspace removal', () => {
-    expect(syncableConfigDefaultValues).toEqual({});
+  it('provides safe defaults for a restored wiki workspace', () => {
+    expect(syncableConfigDefaultValues).toMatchObject({
+      name: '',
+      storageService: 'local',
+      readOnlyMode: false,
+      syncOnStartup: true,
+    });
   });
 });

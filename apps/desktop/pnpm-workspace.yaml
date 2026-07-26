@@ -1,2 +1,22 @@
 packages:
   - packages/*
+
+overrides:
+  '@electron/rebuild': 4.2.0
+  node-abi: 4.33.0
+  prebuild-install: latest
+  node-addon-api: ^7.1.1
+
+onlyBuiltDependencies:
+  - '@swc/core'
+  - better-sqlite3
+  - bufferutil
+  - dprint
+  - dugite
+  - electron
+  - electron-winstaller
+  - esbuild
+  - nsfw
+  - registry-js
+  - unrs-resolver
+  - utf-8-validate

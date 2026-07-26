@@ -4,8 +4,7 @@
     "strict": true,
     "paths": {
       "@/*": ["./src/*"],
-      "@memeloop/protocol": ["../../../memeloop/packages/memeloop-protocol"],
-      "@memeloop/ui": ["../../../memeloop/packages/memeloop-ui"]
+      "@memeloop/protocol": ["../../../memeloop/packages/memeloop-protocol"]
     }
   },
   "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]

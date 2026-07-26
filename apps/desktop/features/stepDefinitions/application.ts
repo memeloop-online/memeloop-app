@@ -5,8 +5,6 @@ import path from 'path';
 import { _electron as electron } from 'playwright';
 import type { ElectronApplication, Page } from 'playwright';
 import { windowDimension, WindowNames } from '../../src/services/windows/WindowProperties';
-import type { MemeloopCloudFixtureHandle } from '../supports/memeloopCloudFixture';
-import type { RemoteMemeloopTestNodeHandle } from '../supports/memeloopRemoteTestNode';
 import { MockOAuthServer } from '../supports/mockOAuthServer';
 import { MockOpenAIServer } from '../supports/mockOpenAI';
 import { getPackedAppPath, makeSlugPath } from '../supports/paths';
@@ -81,8 +79,6 @@ export class ApplicationWorld {
   currentWindow: Page | undefined; // New state-managed current window
   mockOpenAIServer: MockOpenAIServer | undefined;
   mockOAuthServer: MockOAuthServer | undefined;
-  memeloopCloudFixture: MemeloopCloudFixtureHandle | undefined;
-  remoteMemeloopNode: RemoteMemeloopTestNodeHandle | undefined;
   savedWorkspaceId: string | undefined; // For storing workspace ID between steps
   scenarioName: string = 'default'; // Scenario name from Cucumber pickle
   scenarioSlug: string = 'default'; // Sanitized scenario name for file paths
@@ -254,10 +250,21 @@ setWorldConstructor(ApplicationWorld);
 
 async function launchTidGiApplication(world: ApplicationWorld): Promise<void> {
   const packedAppPath = getPackedAppPath();
+  const testUserDataPath = path.resolve(
+    process.cwd(),
+    'test-artifacts',
+    world.scenarioSlug,
+    'userData-test',
+  );
+  await fs.ensureDir(testUserDataPath);
 
   world.app = await electron.launch({
     executablePath: packedAppPath,
     args: [
+      // Chromium 136+ disables remote debugging for its default profile.
+      // Playwright's Electron driver uses CDP, so select the same isolated
+      // scenario profile that the application uses before Chromium starts.
+      `--user-data-dir=${testUserDataPath}`,
       `--test-scenario=${world.scenarioSlug}`,
       '--no-sandbox',
       '--disable-dev-shm-usage',
@@ -266,7 +273,7 @@ async function launchTidGiApplication(world: ApplicationWorld): Promise<void> {
       '--disable-background-timer-throttling',
       '--disable-backgrounding-occluded-windows',
       '--disable-renderer-backgrounding',
-      '--disable-features=TranslateUI',
+      '--disable-features=TranslateUI,DevToolsDebuggingRestrictions',
       '--disable-ipc-flooding-protection',
       '--force-device-scale-factor=1',
       '--high-dpi-support=1',
@@ -304,6 +311,16 @@ async function launchTidGiApplication(world: ApplicationWorld): Promise<void> {
     },
     cwd: process.cwd(),
     timeout: PLAYWRIGHT_TIMEOUT,
+  });
+
+  const applicationProcess = world.app.process();
+  applicationProcess.stderr?.on('data', (chunk: Buffer) => {
+    console.error(`[TidGi E2E stderr] ${chunk.toString().trimEnd()}`);
+  });
+  applicationProcess.on('exit', (code, signal) => {
+    if (code !== 0 || signal) {
+      console.error(`[TidGi E2E exit] code=${String(code)} signal=${String(signal)}`);
+    }
   });
 
   // Do not block launch step on firstWindow; this can exceed Cucumber's 5s step timeout.

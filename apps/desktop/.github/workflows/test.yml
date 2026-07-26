@@ -19,7 +19,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: lts/*
+          node-version: 24
           cache: 'pnpm'
 
       # Install C++ build tools for native modules (nsfw, better-sqlite3)

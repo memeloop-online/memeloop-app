@@ -1,7 +1,7 @@
 import { WikiEmbeddingChannel } from '@/constants/channels';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
 
-export { type IWikiEmbeddingService, type EmbeddingStatus, type EmbeddingStats } from './interface';
+export { type EmbeddingStats, type EmbeddingStatus, type IWikiEmbeddingService } from './interface';
 
 export const WikiEmbeddingServiceIPCDescriptor = {
   channel: WikiEmbeddingChannel.name,

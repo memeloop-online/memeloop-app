@@ -1,14 +1,7 @@
-import { injectable } from 'inversify';
-import {
-  parseSSHConfig,
-  sshExec,
-  checkRemoteMemeloop,
-  installRemoteMemeloop,
-  startRemoteMemeloop,
-  type SSHHost,
-} from './index';
-import type { IRemoteSetupService } from './interface';
 import { logger } from '@services/libs/log';
+import { injectable } from 'inversify';
+import { checkRemoteMemeloop, installRemoteMemeloop, parseSSHConfig, sshExec, type SSHHost, startRemoteMemeloop } from './index';
+import type { IRemoteSetupService } from './interface';
 
 @injectable()
 export class RemoteSetupService implements IRemoteSetupService {

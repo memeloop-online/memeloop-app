@@ -40,10 +40,18 @@ export function parseSSHConfig(): SSHHost[] {
       current = { host: value };
     } else if (current) {
       switch (lowerKey) {
-        case 'hostname': current.hostname = value; break;
-        case 'user': current.user = value; break;
-        case 'port': current.port = parseInt(value, 10); break;
-        case 'identityfile': current.identityFile = value.replace('~', os.homedir()); break;
+        case 'hostname':
+          current.hostname = value;
+          break;
+        case 'user':
+          current.user = value;
+          break;
+        case 'port':
+          current.port = parseInt(value, 10);
+          break;
+        case 'identityfile':
+          current.identityFile = value.replace('~', os.homedir());
+          break;
       }
     }
   }
@@ -63,8 +71,10 @@ export async function sshExec(host: SSHHost, command: string, timeoutMs = 30000)
 
   // StrictHostKeyChecking=no for first connection, ConnectTimeout=10
   const sshArgs = [
-    '-o', 'StrictHostKeyChecking=no',
-    '-o', 'ConnectTimeout=10',
+    '-o',
+    'StrictHostKeyChecking=no',
+    '-o',
+    'ConnectTimeout=10',
     ...args,
     `${host.user ?? 'root'}@${host.hostname ?? host.host}`,
     `"${command}"`,

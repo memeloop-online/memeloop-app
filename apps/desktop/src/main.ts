@@ -27,9 +27,12 @@ import { WindowNames } from '@services/windows/WindowProperties';
 import type { IAgentDefinitionService } from '@services/agentDefinition/interface';
 import { AgentInstanceService } from '@services/agentInstance';
 import type { IAgentInstanceService } from '@services/agentInstance/interface';
+import type { IAnalyticsService } from '@services/analytics/interface';
 import type { IContextService } from '@services/context/interface';
 import type { IDatabaseService } from '@services/database/interface';
 import type { IDeepLinkService } from '@services/deepLink/interface';
+import type { IDeviceNetworkService } from '@services/deviceNetwork/interface';
+import type { IExternalAPIService } from '@services/externalAPI/interface';
 import type { IGitService } from '@services/git/interface';
 import { initializeObservables } from '@services/libs/initializeObservables';
 import type { IMemeloopNodeService } from '@services/memeloopNode/interface';
@@ -39,11 +42,16 @@ import type { IProviderRegistryService } from '@services/providerRegistry/interf
 import type { IThemeService } from '@services/theme/interface';
 import type { IUpdaterService } from '@services/updater/interface';
 import type { IViewService } from '@services/view/interface';
+import type { IWikiService } from '@services/wiki/interface';
+import type { IWikiEmbeddingService } from '@services/wikiEmbedding/interface';
+import type { IWikiGitWorkspaceService } from '@services/wikiGitWorkspace/interface';
 import EventEmitter from 'events';
 import { initDevelopmentExtension } from './debug';
 import { isLinux } from './helpers/system';
 import type { IPreferenceService } from './services/preferences/interface';
 import type { IWindowService } from './services/windows/interface';
+import type { IWorkspaceService } from './services/workspaces/interface';
+import type { IWorkspaceViewService } from './services/workspacesView/interface';
 
 logger.info('App booting', { pid: process.pid });
 // Label the Node.js main process so it stands out in the OS process list
@@ -137,6 +145,15 @@ const contextService = container.get<IContextService>(
 const databaseService = container.get<IDatabaseService>(
   serviceIdentifier.Database,
 );
+const analyticsService = container.get<IAnalyticsService>(
+  serviceIdentifier.Analytics,
+);
+const deviceNetworkService = container.get<IDeviceNetworkService>(
+  serviceIdentifier.DeviceNetwork,
+);
+const externalAPIService = container.get<IExternalAPIService>(
+  serviceIdentifier.ExternalAPI,
+);
 const memeloopNodeService = container.get<IMemeloopNodeService>(
   serviceIdentifier.MemeloopNode,
 );
@@ -164,6 +181,19 @@ const viewService = container.get<IViewService>(serviceIdentifier.View);
 const nativeService = container.get<INativeService>(
   serviceIdentifier.NativeService,
 );
+const wikiService = container.get<IWikiService>(serviceIdentifier.Wiki);
+const wikiEmbeddingService = container.get<IWikiEmbeddingService>(
+  serviceIdentifier.WikiEmbedding,
+);
+const wikiGitWorkspaceService = container.get<IWikiGitWorkspaceService>(
+  serviceIdentifier.WikiGitWorkspace,
+);
+const workspaceService = container.get<IWorkspaceService>(
+  serviceIdentifier.Workspace,
+);
+const workspaceViewService = container.get<IWorkspaceViewService>(
+  serviceIdentifier.WorkspaceView,
+);
 
 let beforeQuitCleanupPromise: Promise<void> | undefined;
 let shouldSkipBeforeQuitInterception = false;
@@ -171,6 +201,16 @@ let shouldSkipBeforeQuitInterception = false;
 const runBeforeQuitCleanup = async (): Promise<void> => {
   logger.info('App before-quit - starting cleanup');
   try {
+    // Stop accepting orchestration requests while the worker is still alive.
+    try {
+      await memeloopNodeService.stopServer();
+      logger.info('App before-quit - memeloop node server stopped');
+    } catch (error) {
+      logger.error('App before-quit - memeloop node server stop failed', {
+        error,
+      });
+    }
+
     try {
       const agentInstanceService = container.get<IAgentInstanceService>(
         serviceIdentifier.AgentInstance,
@@ -183,15 +223,9 @@ const runBeforeQuitCleanup = async (): Promise<void> => {
       });
     }
 
-    // Stop memeloop node server
-    try {
-      await memeloopNodeService.stopServer();
-      logger.info('App before-quit - memeloop node server stopped');
-    } catch (error) {
-      logger.error('App before-quit - memeloop node server stop failed', {
-        error,
-      });
-    }
+    await deviceNetworkService.stop();
+    await wikiService.stopAllWiki();
+    logger.info('App before-quit - network and wiki workers stopped');
 
     // Then do remaining cleanup in parallel
     await Promise.all([
@@ -230,6 +264,7 @@ const commonInit = async (): Promise<void> => {
   await databaseService.initializeForApp();
   // Initialize i18n early so error messages can be translated
   await initRendererI18NHandler();
+  await workspaceService.initializeMenu();
 
   // Apply preferences that need to be set early
   const useHardwareAcceleration = await preferenceService.get(
@@ -251,6 +286,8 @@ const commonInit = async (): Promise<void> => {
   await Promise.all([
     agentDefinitionService.initialize(),
     providerRegistryService.initialize(),
+    wikiEmbeddingService.initialize(),
+    externalAPIService.initialize(),
   ]);
 
   // Start memeloop node server
@@ -280,8 +317,16 @@ const commonInit = async (): Promise<void> => {
 
   initializeObservables();
 
+  // Restore persistent wiki workspaces before rendering any workspace view.
+  await wikiGitWorkspaceService.initialize();
+  await workspaceService.initializeDefaultPageWorkspaces();
+
   // Initialize tidgi mini window if enabled
   await windowService.initializeTidgiMiniWindow();
+  await workspaceViewService.initializeAllWorkspaceView();
+  logger.info(
+    '[test-id-ALL_WORKSPACE_VIEW_INITIALIZED] All workspace views initialized',
+  );
 
   // Process any pending deep link
   await deepLinkService.processPendingDeepLink();
@@ -301,7 +346,12 @@ const commonInit = async (): Promise<void> => {
       const handleMaximize = (): void => {
         // getContentSize is not updated immediately
         // try once after 0.2s (for fast computer), another one after 1s (to be sure)
-      // Window resize handling without workspace view
+        setTimeout(() => {
+          void workspaceViewService.realignActiveWorkspace();
+        }, 200);
+        setTimeout(() => {
+          void workspaceViewService.realignActiveWorkspace();
+        }, 1000);
       };
       mainWindow.on('maximize', handleMaximize);
       mainWindow.on('unmaximize', handleMaximize);
@@ -309,6 +359,13 @@ const commonInit = async (): Promise<void> => {
   }
   // trigger whenTrulyReady
   ipcMain.emit(MainChannel.commonInitFinished);
+
+  try {
+    await deviceNetworkService.start();
+  } catch (error) {
+    logger.error('Failed to start DeviceNetworkService', { error });
+  }
+  void analyticsService.trackAppLaunch();
 };
 
 /**
@@ -333,6 +390,9 @@ app.on('ready', async () => {
   try {
     // buildLanguageMenu needs menuService which is initialized in commonInit
     await buildLanguageMenu();
+    if (await preferenceService.get('syncBeforeShutdown')) {
+      wikiGitWorkspaceService.registerSyncBeforeShutdown();
+    }
     await updaterService.checkForUpdates();
   } catch (error) {
     logger.error('Error during app ready handler', {

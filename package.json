@@ -4,21 +4,8 @@
   "description": "MemeLoop App monorepo — desktop (Electron) + mobile (Expo)",
   "license": "MIT",
   "packageManager": "pnpm@10.33.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@swc/core",
-      "better-sqlite3",
-      "bufferutil",
-      "dprint",
-      "dugite",
-      "electron",
-      "electron-winstaller",
-      "esbuild",
-      "nsfw",
-      "registry-js",
-      "unrs-resolver",
-      "utf-8-validate"
-    ]
+  "engines": {
+    "node": ">=24.0.0"
   },
   "scripts": {
     "check": "pnpm -r run check",

@@ -13,7 +13,7 @@ import taskAgents from './agentFrameworks/taskAgents.json';
 import { handleWorkerMessages } from '@services/libs/workerAdapter';
 
 import { onApprovalRequest, resolveApproval, resolveQuestionAnswer } from 'memeloop';
-import type { IWikiManager, TiddlerFields } from 'memeloop-cli';
+import type { IWikiManager, TiddlerFields } from 'memeloop-cli/runtime';
 import { TerminalSessionManager } from './terminal/sessionManager';
 
 const { parentPort } = require('worker_threads') as typeof import('worker_threads');
@@ -565,12 +565,13 @@ let orchestrationClient:
   | undefined;
 let stopNodeRuntime: (() => Promise<void>) | undefined;
 let createRemoteOrchestrationHttpHandlerFunction:
-  | typeof import('memeloop-cli').createRemoteOrchestrationHttpHandler
+  | typeof import('memeloop-cli/runtime').createRemoteOrchestrationHttpHandler
   | undefined;
 let runtimeInitPromise: Promise<void> | undefined;
 
 interface DesktopHostConfig {
   dataDir: string;
+  sqliteNativeBinding: string;
   orchestrationAccessToken: string;
   orchestrationHost?: string;
 }
@@ -598,19 +599,18 @@ async function ensureRuntimeInitialized(): Promise<void> {
   }
 
   runtimeInitPromise = (async () => {
-    // Avoid worker module init crashes: load memeloop-cli lazily.
-    const memeloopNode = await import('memeloop-cli');
+    // Load focused entries so Desktop does not pull CLI/TUI/libp2p dependencies
+    // into the worker when it only needs the orchestration runtime and identity.
+    const [memeloopRuntime, memeloopAuth] = await Promise.all([
+      import('memeloop-cli/runtime'),
+      import('memeloop-cli/auth'),
+    ]);
     const {
       createNodeRuntime,
       ToolRegistry,
       createRemoteOrchestrationHttpHandler,
-      loadOrCreateNodeKeypair: loadKeypair,
-    } = memeloopNode as unknown as {
-      createNodeRuntime: typeof memeloopNode.createNodeRuntime;
-      ToolRegistry: typeof memeloopNode.ToolRegistry;
-      createRemoteOrchestrationHttpHandler: typeof memeloopNode.createRemoteOrchestrationHttpHandler;
-      loadOrCreateNodeKeypair: typeof memeloopNode.loadOrCreateNodeKeypair;
-    };
+    } = memeloopRuntime;
+    const { loadOrCreateNodeKeypair: loadKeypair } = memeloopAuth;
 
     createRemoteOrchestrationHttpHandlerFunction = createRemoteOrchestrationHttpHandler;
     const configuredHost = requireHostConfig();
@@ -645,6 +645,7 @@ async function ensureRuntimeInitialized(): Promise<void> {
 
     const runtimeResult = await createNodeRuntime({
       dataDir: configuredHost.dataDir,
+      sqliteNativeBinding: configuredHost.sqliteNativeBinding,
       localNodeId,
       storage: inMemoryStorage,
       llmProvider,
@@ -742,7 +743,7 @@ let desktopNodePort: number | undefined;
 let desktopNodeStarted = false;
 let desktopNodeStartPromise: Promise<void> | undefined;
 
-async function ensureDesktopNodeStarted(): Promise<void> {
+async function ensureDesktopNodeStarted(requestedPort?: number): Promise<void> {
   await ensureRuntimeInitialized();
   if (desktopNodeStarted) return;
   if (desktopNodeStartPromise) {
@@ -753,10 +754,14 @@ async function ensureDesktopNodeStarted(): Promise<void> {
   desktopNodeStartPromise = (async () => {
     let stage = 'init';
     try {
-      const desiredPort = parseInt(process.env.TIDGI_MEMELOOP_PORT ?? '', 10);
+      const environmentPort = parseInt(process.env.TIDGI_MEMELOOP_PORT ?? '', 10);
       const configuredHost = requireHostConfig();
       stage = 'resolve-port';
-      const port = Number.isFinite(desiredPort) && desiredPort > 0 ? desiredPort : 0;
+      const port = typeof requestedPort === 'number' && Number.isFinite(requestedPort) && requestedPort > 0
+        ? requestedPort
+        : Number.isFinite(environmentPort) && environmentPort > 0
+        ? environmentPort
+        : 0;
       const listenHost = configuredHost.orchestrationHost ?? '127.0.0.1';
       workerLog(
         'warn',
@@ -832,7 +837,7 @@ async function ensureDesktopNodeStarted(): Promise<void> {
   await desktopNodeStartPromise;
 }
 
-async function stopDesktopNodeServer(): Promise<void> {
+async function stopDesktopHttpServer(): Promise<void> {
   if (desktopNodeServer) {
     const server = desktopNodeServer;
     desktopNodeServer = undefined;
@@ -843,6 +848,11 @@ async function stopDesktopNodeServer(): Promise<void> {
       })
     );
   }
+  desktopNodePort = undefined;
+}
+
+async function shutdownDesktopNode(): Promise<void> {
+  await stopDesktopHttpServer();
   await stopNodeRuntime?.();
   stopNodeRuntime = undefined;
 }
@@ -859,6 +869,9 @@ const memeloopWorker = {
     if (!path.isAbsolute(config.dataDir)) {
       throw new Error('MemeLoop worker dataDir must be absolute');
     }
+    if (!path.isAbsolute(config.sqliteNativeBinding)) {
+      throw new Error('MemeLoop worker SQLite native binding path must be absolute');
+    }
     if (config.orchestrationAccessToken.length < 32) {
       throw new Error('MemeLoop orchestration access token is too short');
     }
@@ -868,7 +881,7 @@ const memeloopWorker = {
   subscribeLogs: () => logSubject.asObservable(),
   ping: async () => {
     workerLog('warn', '[memeloop-worker] ping');
-    await ensureDesktopNodeStarted();
+    await ensureRuntimeInitialized();
     return {
       ok: true,
       initializedAt: workerState.initializedAt,
@@ -878,6 +891,22 @@ const memeloopWorker = {
         ? `http://127.0.0.1:${desktopNodePort}/v1/orchestration/resources`
         : undefined,
     };
+  },
+  startServer: async (port: number) => {
+    await ensureDesktopNodeStarted(port);
+    return {
+      running: desktopNodeStarted,
+      port: desktopNodePort,
+      nodeId: localNodeId,
+    };
+  },
+  stopServer: async () => {
+    await stopDesktopHttpServer();
+    return { ok: true };
+  },
+  shutdown: async () => {
+    await shutdownDesktopNode();
+    return { ok: true };
   },
   createAgent: async (definitionId: string, initialMessage?: string) => {
     workerLog('warn', '[memeloop-worker] createAgent', { definitionId });
@@ -1019,7 +1048,7 @@ const memeloopWorker = {
 export type MemeLoopWorker = typeof memeloopWorker;
 
 process.on('beforeExit', () => {
-  void stopDesktopNodeServer();
+  void shutdownDesktopNode();
 });
 
 handleWorkerMessages(memeloopWorker);

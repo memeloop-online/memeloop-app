@@ -101,22 +101,6 @@ After(async function(this: ApplicationWorld, { pickle }) {
     }
   }
 
-  if (this.remoteMemeloopNode) {
-    try {
-      await this.remoteMemeloopNode.stop();
-    } finally {
-      this.remoteMemeloopNode = undefined;
-    }
-  }
-
-  if (this.memeloopCloudFixture) {
-    try {
-      await this.memeloopCloudFixture.stop();
-    } finally {
-      this.memeloopCloudFixture = undefined;
-    }
-  }
-
   const scenarioRoot = path.resolve(
     process.cwd(),
     'test-artifacts',

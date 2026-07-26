@@ -40,8 +40,7 @@ export const TEST_SCENARIO_SLUG = getTestScenarioSlug();
 // In some Electron/Vite builds, require('electron').app is undefined at
 // module evaluation time. Use electron.app (via default import) as the
 // canonical reference and provide fallbacks when unavailable.
-const appAvailable: boolean =
-  typeof electron === 'object' && electron !== null && typeof (electron as Record<string, unknown>).app === 'object';
+const appAvailable: boolean = typeof electron === 'object' && electron !== null && typeof (electron as Record<string, unknown>).app === 'object';
 
 function getElectronApp(): Pick<Electron.App, 'getPath' | 'setPath'> {
   if (appAvailable) {

@@ -59,6 +59,14 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
       '@services': path.resolve(__dirname, './src/services'),
       // Linked monorepo packages: use sources so main/worker bundles work without a prior `pnpm build` in each package.
+      'memeloop/device-network': path.resolve(
+        __dirname,
+        '../../../memeloop/packages/memeloop/src/device-network-entry.ts',
+      ),
+      'memeloop/llm-providers': path.resolve(
+        __dirname,
+        '../../../memeloop/packages/memeloop/src/llm-providers.ts',
+      ),
       memeloop: path.resolve(__dirname, '../../../memeloop/packages/memeloop/src'),
       'memeloop-cli': path.resolve(
         __dirname,
@@ -103,12 +111,6 @@ export default defineConfig({
         // MCP SDK is dynamically imported and may not be installed
         '@modelcontextprotocol/sdk',
         /^@modelcontextprotocol\/sdk\//,
-
-        // Linked monorepo packages — resolve at runtime, don't bundle
-        'memeloop',
-        'memeloop-cli',
-        /^memeloop-cli\//,
-        '@memeloop/protocol',
 
         // TypeORM's optional peer dependencies (dynamically read from package.json)
         // Use RegExp to match both package name and sub-paths (e.g., @sap/hana-client/extension/Stream)

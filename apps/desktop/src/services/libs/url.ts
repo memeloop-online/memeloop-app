@@ -1,5 +1,5 @@
 import { defaultServerIP } from '@/constants/urls';
-import { internalIpV4 } from '@/helpers/ip';
+import { getAllLocalIpV4, internalIpV4 } from '@/helpers/ip';
 import { logger } from '@services/libs/log';
 import type { IWorkspace } from '@services/workspaces/interface';
 
@@ -12,6 +12,21 @@ export async function getLocalHostUrlWithActualIP(originalUrl: string): Promise<
   const internalIp = await internalIpV4();
   const localHostUrlWithActualIP = originalUrl.replace(/((?:\d{1,3}\.){3}\d{1,3}|localhost)/, internalIp ?? defaultServerIP);
   return localHostUrlWithActualIP;
+}
+
+export function getAllLocalHostUrlsWithActualIP(originalUrl: string): string[] {
+  const addresses = getAllLocalIpV4();
+  if (addresses.length === 0) {
+    return [
+      originalUrl.replace(
+        /((?:\d{1,3}\.){3}\d{1,3}|localhost)/,
+        'localhost',
+      ),
+    ];
+  }
+  return addresses.map((address) =>
+    originalUrl.replace(/((?:\d{1,3}\.){3}\d{1,3}|localhost)/, address),
+  );
 }
 
 export function getUrlWithCorrectProtocol(_workspace: IWorkspace, originalUrl: string): string {

@@ -8,14 +8,24 @@ export enum PageType {
    */
   help = 'help',
   /**
+   * A TiddlyWiki workspace page.
+   */
+  wiki = 'wiki',
+  /**
    * Chat page for AI agents.
    */
   agent = 'agent',
-  /** @deprecated Add workspace page - no longer supported */
+  /** Special page type for the add-workspace button. */
   add = 'add',
 }
-export const defaultCreatedPageTypes: PageType[] = [PageType.agent, PageType.help, PageType.guide];
+export const defaultCreatedPageTypes: PageType[] = [
+  PageType.agent,
+  PageType.help,
+  PageType.guide,
+  PageType.add,
+];
 export function isMainWindowPage(pageType: PageType | undefined): boolean {
   if (!pageType) return false;
-  return defaultCreatedPageTypes.includes(pageType);
+  return defaultCreatedPageTypes.includes(pageType) ||
+    pageType === PageType.wiki;
 }

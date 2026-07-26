@@ -1,6 +1,8 @@
 import { container } from '@services/container';
 import type { IPreferenceService } from '@services/preferences/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
+import type { IViewService } from '@services/view/interface';
+import type { IWorkspaceService } from '@services/workspaces/interface';
 import type { IWorkspaceViewService } from '@services/workspacesView/interface';
 import { BrowserWindow } from 'electron';
 import type { IWindowService } from './interface';
@@ -10,13 +12,25 @@ export function registerBrowserViewWindowListeners(newWindow: BrowserWindow, win
   const preferenceService = container.get<IPreferenceService>(serviceIdentifier.Preference);
   const windowService = container.get<IWindowService>(serviceIdentifier.Window);
   const workspaceViewService = container.get<IWorkspaceViewService>(serviceIdentifier.WorkspaceView);
+  const viewService = container.get<IViewService>(serviceIdentifier.View);
 
   // Enable swipe to navigate
   void preferenceService.get('swipeToNavigate').then((swipeToNavigate) => {
     if (swipeToNavigate) {
       if (newWindow === undefined) return;
       newWindow.on('swipe', async (_event, direction) => {
-        // getActiveWorkspace not available on minimal IWorkspaceService
+        const activeWs = await container.get<IWorkspaceService>(serviceIdentifier.Workspace).getActiveWorkspace();
+        const view = activeWs ? viewService.getView(activeWs.id, WindowNames.main) : undefined;
+
+        if (view) {
+          if (direction === 'left') {
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            view.webContents.goBack();
+          } else if (direction === 'right') {
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            view.webContents.goForward();
+          }
+        }
       });
     }
   });
@@ -36,7 +50,10 @@ export function registerBrowserViewWindowListeners(newWindow: BrowserWindow, win
 
   newWindow.on('focus', async () => {
     if (windowName !== WindowNames.main || newWindow === undefined) return;
-    // getActiveWorkspace not available on minimal IWorkspaceService
+    const activeWs = await container.get<IWorkspaceService>(serviceIdentifier.Workspace).getActiveWorkspace();
+    const view = activeWs ? viewService.getView(activeWs.id, WindowNames.main) : undefined;
+
+    view?.webContents.focus();
   });
 
   newWindow.on('enter-full-screen', async () => {
@@ -65,6 +82,6 @@ export function registerBrowserViewWindowListeners(newWindow: BrowserWindow, win
   // showView() → removeChildView + addChildView + focus, which forces a repaint.
   newWindow.on('show', async () => {
     if (newWindow === undefined) return;
-    // refreshActiveWorkspaceView not available on minimal IWorkspaceViewService
+    await workspaceViewService.refreshActiveWorkspaceView();
   });
 }

@@ -6,9 +6,8 @@ import { logger } from '@services/libs/log';
 import type { IPreferenceService } from '@services/preferences/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
 import { inject, injectable } from 'inversify';
-import { CloudClient } from 'memeloop-cli/auth';
-import { getDefaultKeypairPath, loadOrCreateNodeKeypair } from 'memeloop-cli';
-import type { NodeGitHandler, NodeKeypair } from 'memeloop-cli';
+import type { NodeGitHandler } from 'memeloop-cli';
+import { CloudClient, getDefaultKeypairPath, loadOrCreateNodeKeypair, type NodeKeypair } from 'memeloop-cli/auth';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import type http from 'node:http';
@@ -105,13 +104,14 @@ const KNOWN_NODES_PATH = () => path.join(MEMELOOP_DIR(), 'known_nodes.json');
 const CLOUD_AUTH_PATH = () => path.join(MEMELOOP_DIR(), 'cloud_auth.json');
 
 /**
- * Memeloop node service that runs unified HTTP+WS server with Git handler.
- * Handles /git/{wikiId}/* by directly calling IGitServerService methods,
- * instead of reverse-proxying to TiddlyWiki HTTP server.
+ * Main-process facade for the worker-owned authenticated orchestration server.
+ * Legacy Git endpoint registration remains local bookkeeping until a dedicated
+ * Git transport is mounted.
  */
 @injectable()
 export class MemeloopNode implements IMemeloopNodeService {
   private server: http.Server | null = null;
+  private workerServerRunning = false;
   private serverPort: number | null = null;
   private nodeId: string | null = null;
 
@@ -589,37 +589,46 @@ export class MemeloopNode implements IMemeloopNodeService {
   }
 
   async startServer(port: number): Promise<void> {
-    if (this.server) {
+    if (this.workerServerRunning) {
       logger.warn('Memeloop node server already running', {
         port: this.serverPort,
       });
       return;
     }
 
-    throw new Error(
-      `Desktop memeloop node server startup is not wired to the shared runtime yet (requested port: ${port}).`,
-    );
+    const worker = await this.getAgentService().getMemeLoopWorkerProxy();
+    const status = await worker.startServer(port);
+    if (!status.running || typeof status.port !== 'number') {
+      throw new Error('MemeLoop worker did not start its orchestration server.');
+    }
+    this.workerServerRunning = true;
+    this.serverPort = status.port;
+    this.nodeId = status.nodeId ?? null;
   }
 
   async stopServer(): Promise<void> {
-    if (!this.server) {
+    if (!this.workerServerRunning && !this.server) {
       return;
     }
 
-    return new Promise((resolve, reject) => {
-      this.server!.close((error) => {
-        if (error) {
-          logger.error('Error stopping memeloop node server', { error });
-          reject(error);
-        } else {
-          logger.info('Memeloop node server stopped');
-          this.server = null;
-          this.serverPort = null;
-          this.nodeId = null;
-          resolve();
-        }
+    if (this.workerServerRunning) {
+      const worker = await this.getAgentService().getMemeLoopWorkerProxy();
+      await worker.stopServer();
+      this.workerServerRunning = false;
+    }
+    if (this.server) {
+      const server = this.server;
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
       });
-    });
+      this.server = null;
+    }
+    this.serverPort = null;
+    this.nodeId = null;
+    logger.info('Memeloop node server stopped');
   }
 
   async getServerStatus(): Promise<{
@@ -628,7 +637,7 @@ export class MemeloopNode implements IMemeloopNodeService {
     nodeId?: string;
   }> {
     return {
-      running: this.server !== null,
+      running: this.workerServerRunning || this.server !== null,
       port: this.serverPort ?? undefined,
       nodeId: this.nodeId ?? undefined,
     };

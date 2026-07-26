@@ -7,11 +7,11 @@
  */
 
 import { cloneDeep } from 'lodash';
-import { Observable, Subject } from 'rxjs';
+import { Observable, Subject, type Subscription } from 'rxjs';
 import { Worker } from 'worker_threads';
 
 export interface WorkerMessage<T = unknown> {
-  type: 'call' | 'response' | 'error' | 'stream' | 'complete';
+  type: 'call' | 'response' | 'error' | 'stream' | 'complete' | 'unsubscribe';
   id?: string;
   method?: string;
   args?: unknown[];
@@ -23,6 +23,14 @@ export interface WorkerMessage<T = unknown> {
   };
 }
 
+export interface WorkerProxyOptions {
+  /**
+   * Exact methods that return RxJS Observables. When omitted, the legacy
+   * name-based detection remains available for existing worker integrations.
+   */
+  observableMethods?: readonly string[];
+}
+
 /**
  * Create a worker proxy that mimics threads.js API
  * Usage: const proxy = createWorkerProxy<WorkerType>(worker);
@@ -30,6 +38,7 @@ export interface WorkerMessage<T = unknown> {
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters, @typescript-eslint/no-explicit-any -- T is needed to provide type safety for the returned proxy object, any is needed to support various worker method signatures
 export function createWorkerProxy<T extends Record<string, (...arguments_: any[]) => any>>(
   worker: Worker,
+  options?: WorkerProxyOptions,
 ): T {
   const pendingCalls = new Map<string, {
     resolve: (value: unknown) => void;
@@ -101,9 +110,11 @@ export function createWorkerProxy<T extends Record<string, (...arguments_: any[]
         // Check if the return type should be Observable (for compatibility with existing code)
         // We detect this by checking if the method name suggests streaming behavior
         // Common patterns: init*, start*, sync*, commit*, clone*, force*, execute*, *Observer*, get*Observer
-        const isObservable = method.includes('init') || method.includes('sync') || method.includes('commit') ||
-          method.includes('start') || method.includes('clone') || method.includes('force') ||
-          method.includes('execute') || method.includes('subscribe') || method.toLowerCase().includes('observer');
+        const isObservable = options?.observableMethods
+          ? options.observableMethods.includes(method)
+          : method.includes('init') || method.includes('sync') || method.includes('commit') ||
+            method.includes('start') || method.includes('clone') || method.includes('force') ||
+            method.includes('execute') || method.includes('subscribe') || method.toLowerCase().includes('observer');
 
         if (isObservable) {
           // Return Observable for streaming responses
@@ -136,8 +147,18 @@ export function createWorkerProxy<T extends Record<string, (...arguments_: any[]
             }
 
             return () => {
-              // Cleanup on unsubscribe
               pendingCalls.delete(id);
+              // Propagate cancellation to the worker so long-lived runtime
+              // subscriptions do not survive a renderer/service unsubscribe.
+              try {
+                worker.postMessage({
+                  type: 'unsubscribe',
+                  id,
+                } as WorkerMessage);
+              } catch {
+                // The worker may already be terminating; local cleanup above
+                // is still sufficient in that case.
+              }
             };
           });
         } else {
@@ -180,8 +201,16 @@ export function handleWorkerMessages(methods: Record<string, (...arguments_: any
     throw new Error('This function must be called in a worker thread');
   }
 
+  const activeSubscriptions = new Map<string, Subscription>();
+
   parentPort.on('message', async (message: WorkerMessage) => {
     const { id, method, args, type } = message;
+
+    if (type === 'unsubscribe' && id) {
+      activeSubscriptions.get(id)?.unsubscribe();
+      activeSubscriptions.delete(id);
+      return;
+    }
 
     if (type !== 'call' || !method) return;
 
@@ -204,7 +233,7 @@ export function handleWorkerMessages(methods: Record<string, (...arguments_: any
       // Check if result is Observable
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       if (result && typeof result === 'object' && 'subscribe' in result && typeof result.subscribe === 'function') {
-        (result as Observable<unknown>).subscribe({
+        const subscription = (result as Observable<unknown>).subscribe({
           next: (value: unknown) => {
             parentPort.postMessage({
               type: 'stream',
@@ -213,6 +242,7 @@ export function handleWorkerMessages(methods: Record<string, (...arguments_: any
             } as WorkerMessage);
           },
           error: (error: Error) => {
+            if (id) activeSubscriptions.delete(id);
             parentPort.postMessage({
               type: 'error',
               id,
@@ -224,12 +254,16 @@ export function handleWorkerMessages(methods: Record<string, (...arguments_: any
             } as WorkerMessage);
           },
           complete: () => {
+            if (id) activeSubscriptions.delete(id);
             parentPort.postMessage({
               type: 'complete',
               id,
             } as WorkerMessage);
           },
         });
+        if (id && !subscription.closed) {
+          activeSubscriptions.set(id, subscription);
+        }
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       } else if (result && typeof result === 'object' && 'then' in result && typeof result.then === 'function') {
         // Handle Promise

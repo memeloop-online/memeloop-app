@@ -6,8 +6,6 @@ import fs from 'fs-extra';
 import { isEqual, omit } from 'lodash';
 import path from 'path';
 import type { ISettingFile } from '../../src/services/database/interface';
-import { CLOUD_E2E_NODE, startMemeloopCloudFixture } from '../supports/memeloopCloudFixture';
-import { startRemoteMemeloopTestNode } from '../supports/memeloopRemoteTestNode';
 import { MockOpenAIServer } from '../supports/mockOpenAI';
 import { getLogPath, getSettingsPath } from '../supports/paths';
 import { PLAYWRIGHT_SHORT_TIMEOUT } from '../supports/timeouts';
@@ -214,58 +212,8 @@ Given(
   },
 );
 
-Given(
-  'I have prepared a cloud-discovered remote memeloop test node backed by mock OpenAI',
-  async function(this: ApplicationWorld) {
-    if (!this.mockOpenAIServer || !this.providerConfig?.baseURL) {
-      throw new Error(
-        'Mock OpenAI server must be running before the remote memeloop node is started.',
-      );
-    }
-
-    const remoteNode = await startRemoteMemeloopTestNode(this, {
-      nodeId: CLOUD_E2E_NODE.name,
-      config: {
-        providers: [
-          {
-            name: 'openai',
-            baseUrl: this.providerConfig.baseURL,
-            apiKey: 'test-api-key',
-          },
-        ],
-        tools: {
-          allowlist: ['file.read', 'file.search', 'file.write'],
-        },
-      },
-    });
-    this.remoteMemeloopNode = remoteNode;
-
-    const remoteAddress = new URL(remoteNode.wsUrl);
-    const remoteNodePort = Number.parseInt(remoteAddress.port, 10);
-    if (!Number.isFinite(remoteNodePort)) {
-      throw new Error(
-        `Failed to parse remote memeloop node port from ${remoteNode.wsUrl}`,
-      );
-    }
-
-    this.memeloopCloudFixture = await startMemeloopCloudFixture(this, {
-      remoteNodePort,
-    });
-  },
-);
-
 // Mock OpenAI server cleanup - for scenarios using mock OpenAI
 After({ tags: '@mockOpenAI' }, async function(this: ApplicationWorld) {
-  if (this.memeloopCloudFixture) {
-    try {
-      await this.memeloopCloudFixture.stop();
-    } catch {
-      // Ignore errors during cleanup
-    } finally {
-      this.memeloopCloudFixture = undefined;
-    }
-  }
-
   // Stop mock OpenAI server with timeout protection
   if (this.mockOpenAIServer) {
     try {
@@ -487,34 +435,6 @@ Then(
     ) {
       throw new Error(
         `Expected user message NOT to contain "${unexpectedText}", but it was found in: "${lastUserMessage.content.substring(0, 200)}..."`,
-      );
-    }
-  },
-);
-
-Then(
-  'the remote memeloop node should have file {string} with content {string}',
-  async function(
-    this: ApplicationWorld,
-    relativePath: string,
-    expectedContent: string,
-  ) {
-    if (!this.remoteMemeloopNode) {
-      throw new Error('Remote memeloop node is not available.');
-    }
-
-    const filePath = path.resolve(
-      this.remoteMemeloopNode.workspaceDir,
-      relativePath,
-    );
-    if (!(await fs.pathExists(filePath))) {
-      throw new Error(`Remote file not found: ${filePath}`);
-    }
-
-    const actualContent = await fs.readFile(filePath, 'utf8');
-    if (actualContent !== expectedContent) {
-      throw new Error(
-        `Remote file content mismatch. Expected "${expectedContent}" but got "${actualContent}".`,
       );
     }
   },

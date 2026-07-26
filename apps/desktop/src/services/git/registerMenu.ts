@@ -22,11 +22,25 @@ export async function registerMenu(): Promise<void> {
   const contextService = container.get<IContextService>(serviceIdentifier.Context);
   const syncService = container.get<ISyncService>(serviceIdentifier.Sync);
 
-  const hasActiveWikiWorkspace = async (): Promise<boolean> => false;
+  const hasActiveWikiWorkspace = async (): Promise<boolean> => {
+    const activeWorkspace = await workspaceService.getActiveWorkspace();
+    return activeWorkspace !== undefined && isWikiWorkspace(activeWorkspace);
+  };
 
-  const hasActiveSyncableWorkspace = async (): Promise<boolean> => false;
+  const hasActiveSyncableWorkspace = async (): Promise<boolean> => {
+    const activeWorkspace = await workspaceService.getActiveWorkspace();
+    if (!activeWorkspace || !isWikiWorkspace(activeWorkspace)) return false;
+    if (activeWorkspace.storageService === SupportedStorageServices.local) return false;
+    if (!activeWorkspace.gitUrl) return false;
+    const userInfo = await authService.getStorageServiceUserInfo(activeWorkspace.storageService);
+    return userInfo !== undefined;
+  };
 
-  const isAIEnabled = async (): Promise<boolean> => false;
+  const isAIEnabled = async (): Promise<boolean> => {
+    const activeWorkspace = await workspaceService.getActiveWorkspace();
+    if (!activeWorkspace || !isWikiWorkspace(activeWorkspace)) return false;
+    return gitService.isAIGenerateBackupTitleEnabled();
+  };
 
   // Always register all items; visibility is determined dynamically so AI items appear/disappear
   // when the user enables or disables AI without needing an app restart.
@@ -37,7 +51,14 @@ export async function registerMenu(): Promise<void> {
       visible: hasActiveWikiWorkspace,
       enabled: hasActiveWikiWorkspace,
       click: async () => {
-        // no-op: active workspace concept removed
+        const activeWorkspace = await workspaceService.getActiveWorkspace();
+        if (activeWorkspace !== undefined && isWikiWorkspace(activeWorkspace)) {
+          await gitService.commitAndSync(activeWorkspace, {
+            dir: activeWorkspace.wikiFolderLocation,
+            commitOnly: true,
+            commitMessage: i18n.t('LOG.CommitBackupMessage'),
+          });
+        }
       },
     },
     {
@@ -46,7 +67,13 @@ export async function registerMenu(): Promise<void> {
       visible: isAIEnabled,
       enabled: isAIEnabled,
       click: async () => {
-        // no-op: active workspace concept removed
+        const activeWorkspace = await workspaceService.getActiveWorkspace();
+        if (activeWorkspace !== undefined && isWikiWorkspace(activeWorkspace)) {
+          await gitService.commitAndSync(activeWorkspace, {
+            dir: activeWorkspace.wikiFolderLocation,
+            commitOnly: true,
+          });
+        }
       },
     },
   ];
@@ -59,10 +86,16 @@ export async function registerMenu(): Promise<void> {
       visible: hasActiveSyncableWorkspace,
       enabled: async () => {
         const online = await contextService.isOnline();
-        return online && await hasActiveSyncableWorkspace();
+        return online && (await hasActiveSyncableWorkspace());
       },
       click: async () => {
-        // no-op: active workspace concept removed
+        const activeWorkspace = await workspaceService.getActiveWorkspace();
+        if (activeWorkspace !== undefined && isWikiWorkspace(activeWorkspace)) {
+          await syncService.syncWikiIfNeeded(activeWorkspace, {
+            commitMessage: i18n.t('LOG.CommitBackupMessage'),
+            force: true,
+          });
+        }
       },
     },
     {
@@ -70,14 +103,20 @@ export async function registerMenu(): Promise<void> {
       id: 'sync-now-ai',
       visible: async () => {
         const online = await contextService.isOnline();
-        return online && await isAIEnabled() && await hasActiveSyncableWorkspace();
+        return online && (await isAIEnabled()) && (await hasActiveSyncableWorkspace());
       },
       enabled: async () => {
         const online = await contextService.isOnline();
-        return online && await isAIEnabled() && await hasActiveSyncableWorkspace();
+        return online && (await isAIEnabled()) && (await hasActiveSyncableWorkspace());
       },
       click: async () => {
-        // no-op: active workspace concept removed
+        const activeWorkspace = await workspaceService.getActiveWorkspace();
+        if (activeWorkspace !== undefined && isWikiWorkspace(activeWorkspace)) {
+          await syncService.syncWikiIfNeeded(activeWorkspace, {
+            useAICommitMessage: true,
+            force: true,
+          });
+        }
       },
     },
   ];
@@ -91,7 +130,10 @@ export async function registerMenu(): Promise<void> {
         id: 'git-history',
         visible: hasActiveWikiWorkspace,
         click: async () => {
-          // no-op: active workspace concept removed
+          const activeWorkspace = await workspaceService.getActiveWorkspace();
+          if (activeWorkspace !== undefined && isWikiWorkspace(activeWorkspace)) {
+            await windowService.open(WindowNames.gitHistory, { workspaceID: activeWorkspace.id }, { recreate: true });
+          }
         },
       },
       ...commitMenuItems,
