@@ -8,6 +8,7 @@ import {
   type CloudDeviceClient,
   type CloudDeviceRecord,
   createDeviceOrchestrationStreamHandler,
+  createDevicePairingInvite,
   createReadOnlyOrchestrationClient,
   createRemoteOrchestrationHandler,
   type Device,
@@ -15,6 +16,7 @@ import {
   type DeviceConnectionGrant,
   type DeviceRelayReservationToken,
   type DeviceTrustStore,
+  encodeDevicePairingInvite,
   type LocalDeviceIdentity,
   type LocalPairingRequestOptions,
   type MemeLoopDuplexStream,
@@ -353,6 +355,11 @@ export class DeviceNetworkService implements IDeviceNetworkService {
 
   public async getLocalDevice(): Promise<Device> {
     return this.core!.getLocalDevice();
+  }
+
+  public async getPairingInvite(): Promise<string> {
+    const localDevice = await this.getLocalDevice();
+    return encodeDevicePairingInvite(createDevicePairingInvite(localDevice));
   }
 
   public async listDevices(): Promise<Device[]> {

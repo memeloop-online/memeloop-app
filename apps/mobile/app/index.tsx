@@ -1,5 +1,5 @@
 import { View, StyleSheet } from 'react-native';
-import { Text, Card, Button } from 'react-native-paper';
+import { Text, Card } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 
 export default function HomeScreen() {

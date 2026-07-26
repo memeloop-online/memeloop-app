@@ -5,6 +5,10 @@ import {
   OrchestrationError,
   type AgentOrchestrationClient,
 } from '@memeloop/protocol';
+import {
+  createDeviceOrchestrationTransport,
+  type DeviceNetworkService,
+} from 'memeloop/device-network';
 
 export const MOBILE_ORCHESTRATION_CAPABILITIES = createRemoteOnlyHostCapabilities({
   resourceKinds: [
@@ -48,6 +52,19 @@ export function createMobileOrchestrationClient(
         }
         return { Authorization: `Bearer ${accessToken}` };
       },
+    }),
+  );
+}
+
+/** Connect to a mutually paired Desktop over the Noise-authenticated stream. */
+export function createPairedDeviceOrchestrationClient(
+  deviceNetwork: DeviceNetworkService,
+  peerId: string,
+): AgentOrchestrationClient {
+  return createRemoteOrchestrationClient(
+    createDeviceOrchestrationTransport({
+      deviceNetwork,
+      peerId,
     }),
   );
 }

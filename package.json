@@ -11,5 +11,9 @@
     "check": "pnpm -r run check",
     "lint": "pnpm -r run lint",
     "test:unit": "pnpm -r run test:unit"
+  },
+  "devDependencies": {
+    "@babel/helper-module-imports": "^7.29.7",
+    "@babel/traverse": "^7.29.7"
   }
 }

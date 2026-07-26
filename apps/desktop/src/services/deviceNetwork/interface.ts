@@ -23,6 +23,7 @@ export interface DeviceNetworkRuntimeOptions {
 
 export interface IDeviceNetworkService extends CoreDeviceNetworkService {
   getLocalIdentity(): Promise<LocalDeviceIdentity>;
+  getPairingInvite(): Promise<string>;
   configureRuntime(options: DeviceNetworkRuntimeOptions): void;
   devices$: BehaviorSubject<Device[]>;
   pairingSessions$: BehaviorSubject<PairingSession[]>;
@@ -35,6 +36,7 @@ export const DeviceNetworkServiceIPCDescriptor = {
     stop: ProxyPropertyType.Function,
     getLocalDevice: ProxyPropertyType.Function,
     getLocalIdentity: ProxyPropertyType.Function,
+    getPairingInvite: ProxyPropertyType.Function,
     listDevices: ProxyPropertyType.Function,
     listPairingSessions: ProxyPropertyType.Function,
     requestLocalPairing: ProxyPropertyType.Function,

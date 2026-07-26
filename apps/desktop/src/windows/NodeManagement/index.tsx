@@ -2,6 +2,7 @@ import { Helmet } from '@dr.pogodin/react-helmet';
 import type { KnownNodeEntry } from '@memeloop/protocol';
 import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Stack, TextField, Typography } from '@mui/material';
 import { styled } from '@mui/material/styles';
+import type { PairingSession } from '@services/deviceNetwork/interface';
 import type { ICloudDiscoveredNode, IConnectedPeer, NodeIdentityStatus } from '@services/memeloopNode/interface';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NodeCard } from './NodeCard';
@@ -125,6 +126,13 @@ export default function NodeManagement(): React.JSX.Element {
   const [loggingIn, setLoggingIn] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [connectingNodeId, setConnectingNodeId] = useState<string | null>(null);
+  const [devicePairingInvite, setDevicePairingInvite] = useState('');
+  const [devicePairingSessions, setDevicePairingSessions] = useState<
+    PairingSession[]
+  >([]);
+  const [devicePairingError, setDevicePairingError] = useState<string | null>(
+    null,
+  );
   const cloudUrlDirtyReference = useRef(false);
 
   const [pairingDialogOpen, setPairingDialogOpen] = useState(false);
@@ -176,6 +184,36 @@ export default function NodeManagement(): React.JSX.Element {
     }
   }, []);
 
+  const loadDevicePairing = useCallback(async () => {
+    try {
+      setDevicePairingSessions(
+        await window.service.deviceNetwork.listPairingSessions(),
+      );
+      setDevicePairingError(null);
+    } catch (error_) {
+      setDevicePairingError(
+        error_ instanceof Error
+          ? error_.message
+          : 'Secure device network is unavailable',
+      );
+    }
+  }, []);
+
+  const refreshDevicePairingInvite = useCallback(async () => {
+    try {
+      setDevicePairingInvite(
+        await window.service.deviceNetwork.getPairingInvite(),
+      );
+      setDevicePairingError(null);
+    } catch (error_) {
+      setDevicePairingError(
+        error_ instanceof Error
+          ? error_.message
+          : 'Could not create a pairing invitation',
+      );
+    }
+  }, []);
+
   const clearCloudFeedback = useCallback(() => {
     setCloudActionError(null);
     setCloudActionSuccess(null);
@@ -200,15 +238,45 @@ export default function NodeManagement(): React.JSX.Element {
 
   useEffect(() => {
     void loadData();
+    void loadDevicePairing();
 
     const interval = setInterval(() => {
       void loadData();
+      void loadDevicePairing();
     }, 5000);
 
     return () => {
       clearInterval(interval);
     };
-  }, [loadData]);
+  }, [loadData, loadDevicePairing]);
+
+  const acceptDevicePairing = useCallback(
+    async (sessionId: string) => {
+      try {
+        await window.service.deviceNetwork.acceptPairing(sessionId);
+        await loadDevicePairing();
+      } catch (error_) {
+        setDevicePairingError(
+          error_ instanceof Error ? error_.message : 'Could not accept pairing',
+        );
+      }
+    },
+    [loadDevicePairing],
+  );
+
+  const rejectDevicePairing = useCallback(
+    async (sessionId: string) => {
+      try {
+        await window.service.deviceNetwork.rejectPairing(sessionId);
+        await loadDevicePairing();
+      } catch (error_) {
+        setDevicePairingError(
+          error_ instanceof Error ? error_.message : 'Could not reject pairing',
+        );
+      }
+    },
+    [loadDevicePairing],
+  );
 
   const handlePairNode = useCallback((nodeId: string) => {
     setPairingNodeId(nodeId);
@@ -424,6 +492,82 @@ export default function NodeManagement(): React.JSX.Element {
 
         {!loading && !error && (
           <>
+            <Section>
+              <SectionTitle variant='h6'>Pair Mobile Securely</SectionTitle>
+              <SectionCard data-testid='node-management-device-pairing'>
+                <CardContent>
+                  <Typography variant='body2' color='text.secondary' sx={{ mb: 2 }}>
+                    Create a five-minute invitation for a mobile device on this network. The connection uses libp2p Noise encryption and both devices must confirm the same
+                    six-digit code.
+                  </Typography>
+                  {devicePairingError && (
+                    <Alert severity='warning' sx={{ mb: 2 }}>
+                      {devicePairingError}
+                    </Alert>
+                  )}
+                  {devicePairingInvite && (
+                    <TextField
+                      fullWidth
+                      multiline
+                      minRows={3}
+                      value={devicePairingInvite}
+                      slotProps={{ htmlInput: { readOnly: true } }}
+                      label='Temporary pairing invitation'
+                      sx={{ mb: 2 }}
+                    />
+                  )}
+                  <Stack direction='row' spacing={1} sx={{ mb: 2 }}>
+                    <Button
+                      variant='contained'
+                      onClick={() => void refreshDevicePairingInvite()}
+                    >
+                      {devicePairingInvite ? 'Refresh Invitation' : 'Create Invitation'}
+                    </Button>
+                    {devicePairingInvite && (
+                      <Button
+                        variant='outlined'
+                        onClick={() => void navigator.clipboard.writeText(devicePairingInvite)}
+                      >
+                        Copy
+                      </Button>
+                    )}
+                  </Stack>
+                  {devicePairingSessions
+                    .filter((session) => session.status === 'pending')
+                    .map((session) => (
+                      <Alert
+                        key={session.sessionId}
+                        severity='info'
+                        sx={{ mb: 1 }}
+                        action={
+                          <Stack direction='row' spacing={1}>
+                            <Button
+                              size='small'
+                              color='inherit'
+                              onClick={() => void rejectDevicePairing(session.sessionId)}
+                            >
+                              Reject
+                            </Button>
+                            <Button
+                              size='small'
+                              variant='contained'
+                              onClick={() => void acceptDevicePairing(session.sessionId)}
+                            >
+                              Codes Match
+                            </Button>
+                          </Stack>
+                        }
+                      >
+                        Verify {session.remoteDeviceName}:{' '}
+                        <strong>
+                          {session.confirmCode}
+                        </strong>
+                      </Alert>
+                    ))}
+                </CardContent>
+              </SectionCard>
+            </Section>
+
             <Section>
               <SectionTitle variant='h6'>Cloud Account & Settings</SectionTitle>
               <SectionCard data-testid='node-management-cloud-account'>

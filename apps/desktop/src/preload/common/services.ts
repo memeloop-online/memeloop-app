@@ -13,6 +13,7 @@ import { AuthenticationServiceIPCDescriptor, type IAuthenticationService } from 
 import { ContextServiceIPCDescriptor, type IContextService } from '@services/context/interface';
 import { DatabaseServiceIPCDescriptor, type IDatabaseService } from '@services/database/interface';
 import { DeepLinkServiceIPCDescriptor, type IDeepLinkService } from '@services/deepLink/interface';
+import { DeviceNetworkServiceIPCDescriptor, type IDeviceNetworkService } from '@services/deviceNetwork/interface';
 import { GitServiceIPCDescriptor, type IGitService } from '@services/git/interface';
 import { HtmlWikiServiceIPCDescriptor, type IHtmlWikiService } from '@services/htmlWiki/interface';
 import { type IMemeloopNodeService, MemeloopNodeServiceIPCDescriptor } from '@services/memeloopNode/interface';
@@ -53,6 +54,9 @@ export const context = createProxy<IContextService>(
 );
 export const deepLink = createProxy<IDeepLinkService>(
   DeepLinkServiceIPCDescriptor,
+);
+export const deviceNetwork = createProxy<AsyncifyProxy<IDeviceNetworkService>>(
+  DeviceNetworkServiceIPCDescriptor,
 );
 export const externalAPI = createProxy<IProviderRegistryService>(
   ProviderRegistryServiceIPCDescriptor,
@@ -119,6 +123,7 @@ export const descriptors = {
   auth: AuthenticationServiceIPCDescriptor,
   context: ContextServiceIPCDescriptor,
   deepLink: DeepLinkServiceIPCDescriptor,
+  deviceNetwork: DeviceNetworkServiceIPCDescriptor,
   git: GitServiceIPCDescriptor,
   htmlWiki: HtmlWikiServiceIPCDescriptor,
   menu: MenuServiceIPCDescriptor,
