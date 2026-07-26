@@ -7,6 +7,9 @@ import { CloudDeviceAuthorizer, createDeviceIdentity, Libp2pDeviceNetworkService
 import {
   type CloudDeviceClient,
   type CloudDeviceRecord,
+  createDeviceOrchestrationStreamHandler,
+  createReadOnlyOrchestrationClient,
+  createRemoteOrchestrationHandler,
   type Device,
   type DeviceCapabilities,
   type DeviceConnectionGrant,
@@ -30,6 +33,13 @@ import type { DeviceNetworkRuntimeOptions, IDeviceNetworkService } from './inter
 
 const DEVICE_IDENTITY_KEY = 'deviceNetwork.identity.v1';
 const TRUSTED_DEVICES_KEY = 'deviceNetwork.trustedDevices.v1';
+const MOBILE_READ_ONLY_RESOURCE_KINDS = [
+  'AgentDefinition',
+  'AgentWorkload',
+  'AgentRun',
+  'LoopRun',
+  'ToolOperation',
+] as const;
 
 interface EncryptedIdentityRecord {
   peerId: string;
@@ -227,6 +237,7 @@ export class DeviceNetworkService implements IDeviceNetworkService {
     }
 
     const capabilities = await this.buildCapabilities();
+    const orchestrationClient = this.runtimeOptions.orchestrationClient;
     this.core = new Libp2pDeviceNetworkService({
       identity: this.identity!,
       capabilities,
@@ -235,6 +246,16 @@ export class DeviceNetworkService implements IDeviceNetworkService {
       enableMdns: true,
       syncStorage: this.runtimeOptions.syncStorage,
       rpcHandler: this.runtimeOptions.rpcHandler,
+      orchestrationHandler: orchestrationClient
+        ? createDeviceOrchestrationStreamHandler({
+          resolveHandler: () =>
+            createRemoteOrchestrationHandler(
+              createReadOnlyOrchestrationClient(orchestrationClient, {
+                allowedResourceKinds: MOBILE_READ_ONLY_RESOURCE_KINDS,
+              }),
+            ),
+        })
+        : undefined,
     });
     await this.core.start();
 

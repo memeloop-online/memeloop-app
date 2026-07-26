@@ -32,6 +32,7 @@ import type { IContextService } from '@services/context/interface';
 import type { IDatabaseService } from '@services/database/interface';
 import type { IDeepLinkService } from '@services/deepLink/interface';
 import type { IDeviceNetworkService } from '@services/deviceNetwork/interface';
+import { createDesktopOrchestrationClient } from '@services/deviceNetwork/orchestration';
 import type { IExternalAPIService } from '@services/externalAPI/interface';
 import type { IGitService } from '@services/git/interface';
 import { initializeObservables } from '@services/libs/initializeObservables';
@@ -150,6 +151,9 @@ const analyticsService = container.get<IAnalyticsService>(
 );
 const deviceNetworkService = container.get<IDeviceNetworkService>(
   serviceIdentifier.DeviceNetwork,
+);
+const agentInstanceService = container.get<IAgentInstanceService>(
+  serviceIdentifier.AgentInstance,
 );
 const externalAPIService = container.get<IExternalAPIService>(
   serviceIdentifier.ExternalAPI,
@@ -361,6 +365,9 @@ const commonInit = async (): Promise<void> => {
   ipcMain.emit(MainChannel.commonInitFinished);
 
   try {
+    deviceNetworkService.configureRuntime({
+      orchestrationClient: createDesktopOrchestrationClient(agentInstanceService),
+    });
     await deviceNetworkService.start();
   } catch (error) {
     logger.error('Failed to start DeviceNetworkService', { error });

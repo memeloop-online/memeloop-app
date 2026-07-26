@@ -1,6 +1,7 @@
 import { DeviceNetworkChannel } from '@/constants/channels';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
 import type {
+  AgentOrchestrationClient,
   CloudDeviceRecord,
   Device,
   DeviceCapabilities,
@@ -15,6 +16,7 @@ import type { BehaviorSubject } from 'rxjs';
 
 export interface DeviceNetworkRuntimeOptions {
   buildCapabilities?: () => Promise<DeviceCapabilities>;
+  orchestrationClient?: AgentOrchestrationClient;
   rpcHandler?: DeviceRpcHandler;
   syncStorage?: IAgentStorage;
 }
