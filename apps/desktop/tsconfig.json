@@ -8,21 +8,9 @@
     }
   },
   "compilerOptions": {
-    "baseUrl": "./",
     "paths": {
       "@services/*": ["./src/services/*"],
-      "@/*": ["./src/*"],
-      "memeloop": ["../../../memeloop/packages/memeloop/dist"],
-      "memeloop/*": ["../../../memeloop/packages/memeloop/dist/*"],
-      "memeloop-cli": ["../../../memeloop/packages/memeloop-cli/dist"],
-      "memeloop-cli/*": ["../../../memeloop/packages/memeloop-cli/dist/*"],
-      "memeloop-cli/auth": ["../../../memeloop/packages/memeloop-cli/dist/auth.d.ts"],
-      "memeloop-cli/terminal": ["../../../memeloop/packages/memeloop-cli/dist/terminal.d.ts"],
-      "@memeloop/protocol": ["../../../memeloop/packages/memeloop-protocol/dist"],
-      "@memeloop/protocol/*": ["../../../memeloop/packages/memeloop-protocol/dist/*"],
-      "@memeloop/react-ui": ["../../../memeloop/packages/memeloop-react-ui/dist"],
-      "@memeloop/react-ui/*": ["../../../memeloop/packages/memeloop-react-ui/dist/*"],
-      "@memeloop/react-ui/web": ["../../../memeloop/packages/memeloop-react-ui/dist/web/index.d.ts"]
+      "@/*": ["./src/*"]
     },
     "skipLibCheck": true,
     /* Basic Options */
@@ -33,7 +21,7 @@
     "allowJs": true, /* Allow javascript files to be compiled. */
     // "checkJs": true,                       /* Report errors in .js files. */
     "jsx": "react-jsx", /* Specify JSX code generation: 'preserve', 'react-native', or 'react'. */
-    "declaration": false, /* Desktop is an application and does not publish declarations. */
+    "declaration": true, /* Generates corresponding '.d.ts' file. */
     // "declarationMap": true,                /* Generates a sourcemap for each corresponding '.d.ts' file. */
     "sourceMap": true, /* Generates corresponding '.map' file. */
     // "outFile": "./",                       /* Concatenate and emit output to single file. */

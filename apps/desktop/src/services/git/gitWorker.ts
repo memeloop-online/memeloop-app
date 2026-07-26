@@ -1,8 +1,26 @@
 import 'source-map-support/register';
 import { WikiChannel } from '@/constants/channels';
-import { handleWorkerMessages } from '@services/libs/workerAdapter';
-import type { IWorkspace } from '@services/workspaces/interface';
-import { isWikiWorkspace } from '@services/workspaces/interface';
+import { isWikiWorkspace, type IWorkspace } from '@services/workspaces/interface';
+import { getWorkspaceGitScope, isHtmlWikiWorkspace } from '@services/workspaces/workspacePaths';
+import { exec as gitExec } from 'dugite';
+import { handleUtilityProcessMessages } from 'electron-ipc-cat/host';
+
+// Log any uncaught errors to stderr before the utility process exits,
+// so the main process can capture them via child.stderr.
+process.on('uncaughtException', (error: Error) => {
+  process.stderr.write(`[gitWorker] Uncaught exception: ${error.stack ?? error.message}\n`);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason: unknown) => {
+  process.stderr.write(`[gitWorker] Unhandled rejection: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}\n`);
+  process.exit(1);
+});
+
+// Keep the utility process alive between IPC calls.
+// Without this, the process exits when the event loop is empty (after IPC
+// handlers are set up but before any git operation is requested).
+process.stdin?.resume();
+setInterval(() => {}, 60000);
 
 /**
  * Decode git's octal-escaped non-ASCII filenames in log messages.
@@ -135,36 +153,45 @@ function commitAndSyncWiki(workspace: IWorkspace, configs: ICommitAndSyncConfigs
   return new Observable<IGitLogMessage>((observer) => {
     // For sub-wiki, show sync progress in main workspace
     const workspaceIDForNotification = isWikiWorkspace(workspace) && workspace.isSubWiki ? workspace.mainWikiID! : workspace.id;
-    void commitAndSync({
-      ...configs,
-      defaultGitInfo,
-      logger: {
-        debug: (message: string, context: ILoggerContext): void => {
-          observer.next({ message: decodeGitOctalEscapes(message), level: 'debug', meta: { callerFunction: 'commitAndSync', ...context } });
-        },
-        warn: (message: string, context: ILoggerContext): void => {
-          observer.next({ message: decodeGitOctalEscapes(message), level: 'warn', meta: { callerFunction: 'commitAndSync', ...context } });
-        },
-        info: (message: GitStep, context: ILoggerContext): void => {
-          observer.next({ message, level: 'info', meta: { handler: WikiChannel.syncProgress, id: workspaceIDForNotification, callerFunction: 'commitAndSync', ...context } });
-        },
-      },
-      filesToIgnore: ['.DS_Store'],
-    }).then(
-      () => {
-        observer.complete();
-      },
-      (_error: unknown) => {
-        if (_error instanceof Error) {
-          observer.next({ message: `${_error.message} ${_error.stack ?? ''}`, level: 'warn', meta: { callerFunction: 'commitAndSync' } });
-          translateAndLogErrorMessage(_error, errorI18NDict);
-          observer.next({ level: 'error', error: _error });
-        } else {
-          observer.next({ message: String(_error), level: 'warn', meta: { callerFunction: 'commitAndSync' } });
+    void (async () => {
+      if (isHtmlWikiWorkspace(workspace)) {
+        const scope = getWorkspaceGitScope(workspace);
+        if (scope?.managedRelativePath) {
+          await gitExec(['reset'], configs.dir);
+          await gitExec(['add', '--', scope.managedRelativePath], configs.dir);
         }
-        observer.complete();
-      },
-    );
+      }
+      await commitAndSync({
+        ...configs,
+        defaultGitInfo,
+        logger: {
+          debug: (message: string, context: ILoggerContext): void => {
+            observer.next({ message: decodeGitOctalEscapes(message), level: 'debug', meta: { callerFunction: 'commitAndSync', ...context } });
+          },
+          warn: (message: string, context: ILoggerContext): void => {
+            observer.next({ message: decodeGitOctalEscapes(message), level: 'warn', meta: { callerFunction: 'commitAndSync', ...context } });
+          },
+          info: (message: GitStep, context: ILoggerContext): void => {
+            observer.next({ message, level: 'info', meta: { handler: WikiChannel.syncProgress, id: workspaceIDForNotification, callerFunction: 'commitAndSync', ...context } });
+          },
+        },
+        filesToIgnore: ['.DS_Store'],
+      }).then(
+        () => {
+          observer.complete();
+        },
+        (_error: unknown) => {
+          if (_error instanceof Error) {
+            observer.next({ message: `${_error.message} ${_error.stack ?? ''}`, level: 'warn', meta: { callerFunction: 'commitAndSync' } });
+            translateAndLogErrorMessage(_error, errorI18NDict);
+            observer.next({ level: 'error', error: _error });
+          } else {
+            observer.next({ message: String(_error), level: 'warn', meta: { callerFunction: 'commitAndSync' } });
+          }
+          observer.complete();
+        },
+      );
+    })();
   });
 }
 
@@ -182,7 +209,7 @@ function forcePullWiki(workspace: IWorkspace, configs: IForcePullConfigs, errorI
     // For sub-wiki, show sync progress in main workspace
     const workspaceIDForNotification = isWikiWorkspace(workspace) && workspace.isSubWiki ? workspace.mainWikiID! : workspace.id;
     void forcePull({
-      dir: workspace.wikiFolderLocation!,
+      dir: workspace.wikiFolderLocation,
       ...configs,
       defaultGitInfo,
       logger: {
@@ -268,8 +295,20 @@ function translateAndLogErrorMessage(error: Error, errorI18NDict: Record<string,
   }
 }
 
-const gitWorker = { initWikiGit, commitAndSyncWiki, cloneWiki, forcePullWiki, getModifiedFileList, getRemoteUrl };
+const gitWorker = {
+  initWikiGit,
+  commitAndSyncWiki,
+  cloneWiki,
+  forcePullWiki,
+  getModifiedFileList,
+  getRemoteUrl,
+  getMemoryUsage: async () => {
+    const mem = process.memoryUsage();
+    const toMB = (bytes: number): number => Math.round(bytes / 1024 / 1024);
+    return { rss_MB: toMB(mem.rss), heapUsed_MB: toMB(mem.heapUsed), heapTotal_MB: toMB(mem.heapTotal) };
+  },
+};
 export type GitWorker = typeof gitWorker;
 
-// Initialize worker message handling
-handleWorkerMessages(gitWorker);
+// Initialize utility process message handling
+handleUtilityProcessMessages(gitWorker);
