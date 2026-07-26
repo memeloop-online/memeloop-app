@@ -967,43 +967,16 @@ export class MemeloopNode implements IMemeloopNodeService {
   }
 
   async confirmPeerPin(
-    remoteNodeId: string,
-    confirmCode: string,
+    _remoteNodeId: string,
+    _confirmCode: string,
   ): Promise<{ ok: boolean; error?: string }> {
-    // Look up the remote node from connected peers
-    try {
-      const worker = await this.getAgentService().getMemeLoopWorkerProxy();
-      const peers: NodeStatus[] = await worker.getConnectedPeers();
-      const peer = peers.find(
-        (candidate) => candidate.identity.nodeId === remoteNodeId,
-      );
-      if (!peer) return { ok: false, error: 'peer_not_connected' };
-
-      const existing = this.knownNodes.find(
-        (node) => node.nodeId === remoteNodeId,
-      );
-      const now = Date.now();
-      if (existing) {
-        existing.lastConnected = now;
-      } else {
-        this.knownNodes.push({
-          nodeId: remoteNodeId,
-          staticPublicKey: confirmCode,
-          name: peer.identity.name || remoteNodeId,
-          firstSeen: now,
-          lastConnected: now,
-          trustSource: 'pin-pairing',
-        });
-      }
-
-      this.saveKnownNodes();
-      return { ok: true };
-    } catch (error) {
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
+    // The legacy flow never proved possession of the remote static key: it
+    // persisted the user-entered display code as if it were that key. Keep the
+    // IPC method for compatibility, but never create trust through it.
+    return {
+      ok: false,
+      error: 'legacy_pin_pairing_disabled_use_device_network',
+    };
   }
 
   // ── Subscription management ──

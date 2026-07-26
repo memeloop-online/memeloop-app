@@ -6,7 +6,6 @@ import type { PairingSession } from '@services/deviceNetwork/interface';
 import type { ICloudDiscoveredNode, IConnectedPeer, NodeIdentityStatus } from '@services/memeloopNode/interface';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NodeCard } from './NodeCard';
-import { PinPairingDialog } from './PinPairingDialog';
 import { RevokeDialog } from './RevokeDialog';
 
 const Container = styled(Box)(({ theme }) => ({
@@ -108,7 +107,6 @@ export default function NodeManagement(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [connectedPeers, setConnectedPeers] = useState<IConnectedPeer[]>([]);
   const [knownNodes, setKnownNodes] = useState<KnownNodeEntry[]>([]);
-  const [localPinCode, setLocalPinCode] = useState<string>('');
   const [identityStatus, setIdentityStatus] = useState<NodeIdentityStatus | null>(null);
   const [cloudUrlInput, setCloudUrlInput] = useState('');
   const [cloudEmail, setCloudEmail] = useState('');
@@ -135,9 +133,6 @@ export default function NodeManagement(): React.JSX.Element {
   );
   const cloudUrlDirtyReference = useRef(false);
 
-  const [pairingDialogOpen, setPairingDialogOpen] = useState(false);
-  const [pairingNodeId, setPairingNodeId] = useState<string | null>(null);
-
   const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
   const [revokeNodeId, setRevokeNodeId] = useState<string | null>(null);
 
@@ -146,15 +141,13 @@ export default function NodeManagement(): React.JSX.Element {
       setLoading(true);
       setError(null);
 
-      const [peers, known, pinCode] = await Promise.all([
+      const [peers, known] = await Promise.all([
         window.service.memeloopNode.getConnectedPeers(),
         window.service.memeloopNode.getKnownNodes(),
-        window.service.memeloopNode.getLocalPinCode(),
       ]);
 
       setConnectedPeers(peers);
       setKnownNodes(known);
-      setLocalPinCode(pinCode);
     } catch (error_) {
       setError(
         error_ instanceof Error ? error_.message : 'Failed to load node data',
@@ -276,30 +269,6 @@ export default function NodeManagement(): React.JSX.Element {
       }
     },
     [loadDevicePairing],
-  );
-
-  const handlePairNode = useCallback((nodeId: string) => {
-    setPairingNodeId(nodeId);
-    setPairingDialogOpen(true);
-  }, []);
-
-  const handlePairingConfirm = useCallback(
-    async (confirmCode: string) => {
-      if (!pairingNodeId) return;
-
-      const result = await window.service.memeloopNode.confirmPeerPin(
-        pairingNodeId,
-        confirmCode,
-      );
-      if (result.ok) {
-        setPairingDialogOpen(false);
-        setPairingNodeId(null);
-        await loadData();
-      } else {
-        throw new Error(result.error ?? 'PIN confirmation failed');
-      }
-    },
-    [pairingNodeId, loadData],
   );
 
   const handleRevokeNode = useCallback((nodeId: string) => {
@@ -466,7 +435,7 @@ export default function NodeManagement(): React.JSX.Element {
           Node Management
         </Typography>
         <Typography variant='body2' color='text.secondary' sx={{ mt: 1 }}>
-          Manage discovered and connected nodes. Your PIN code: <strong>{localPinCode || 'Loading...'}</strong>
+          Manage discovered and connected nodes. New trust is established only through the secure device pairing flow below.
         </Typography>
       </Header>
 
@@ -954,14 +923,14 @@ export default function NodeManagement(): React.JSX.Element {
                   color='text.secondary'
                   sx={{ mb: 2 }}
                 >
-                  These nodes are discovered but not yet trusted. Pair them using PIN confirmation.
+                  These legacy nodes are discovered but not trusted. Use the secure device pairing invitation above to establish new trust.
                 </Typography>
                 <NodeGrid>
                   {untrustedNodes.map((node) => (
                     <NodeCard
                       key={node.nodeId}
                       node={node}
-                      onPair={handlePairNode}
+                      onPair={undefined}
                       onRevoke={undefined}
                     />
                   ))}
@@ -1011,17 +980,6 @@ export default function NodeManagement(): React.JSX.Element {
           </>
         )}
       </Content>
-
-      <PinPairingDialog
-        open={pairingDialogOpen}
-        nodeId={pairingNodeId ?? ''}
-        localPinCode={localPinCode}
-        onConfirm={handlePairingConfirm}
-        onCancel={() => {
-          setPairingDialogOpen(false);
-          setPairingNodeId(null);
-        }}
-      />
 
       <RevokeDialog
         open={revokeDialogOpen}

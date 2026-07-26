@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { IPreferenceService } from '@services/preferences/interface';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemeloopNode } from '../index';
 
@@ -55,11 +56,12 @@ describe('MemeloopNode auth methods', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memeloop-auth-test-'));
 
     // Override home dir so keypair/known_nodes go to temp
-    const origHome = os.homedir;
     vi.spyOn(os, 'homedir').mockReturnValue(tmpDir);
 
     // Create service (inversify @inject is not used in test — just instantiate directly)
-    service = new MemeloopNode(mockPreferenceService as any);
+    service = new MemeloopNode(
+      mockPreferenceService as unknown as IPreferenceService,
+    );
   });
 
   afterEach(() => {
@@ -112,6 +114,19 @@ describe('MemeloopNode auth methods', () => {
     });
   });
 
+  describe('confirmPeerPin', () => {
+    it('fails closed instead of persisting an unverified display code', async () => {
+      await expect(
+        service.confirmPeerPin('remote-node', 'ABCDEF'),
+      ).resolves.toEqual({
+        ok: false,
+        error: 'legacy_pin_pairing_disabled_use_device_network',
+      });
+      await expect(service.getKnownNodes()).resolves.toEqual([]);
+      expect(workerProxy.getConnectedPeers).not.toHaveBeenCalled();
+    });
+  });
+
   describe('cloud auth', () => {
     it('getCloudUrl returns null when not configured', async () => {
       const url = await service.getCloudUrl();
@@ -159,7 +174,6 @@ describe('MemeloopNode auth methods', () => {
 
   describe('regenerateKeypair', () => {
     it('regenerates keypair and returns new nodeId', async () => {
-      const status1 = await service.getIdentityStatus();
       const result = await service.regenerateKeypair();
       expect(result.nodeId).toBeTruthy();
       // The new nodeId should differ from the original
