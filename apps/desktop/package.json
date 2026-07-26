@@ -1,7 +1,7 @@
 {
-  "name": "tidgi",
-  "productName": "TidGi",
-  "description": "Customizable personal knowledge-base with Github as unlimited storage and blogging platform.",
+  "name": "memeloop-desktop",
+  "productName": "MemeLoop Desktop",
+  "description": "AI agent desktop app powered by MemeLoop.",
   "version": "0.14.1",
   "license": "MPL 2.0",
   "packageManager": "pnpm@11.17.0",
@@ -30,10 +30,12 @@
     "check": "tsc --noEmit --skipLibCheck",
     "validate:push": "pnpm run check && pnpm run lint --max-warnings 0",
     "prepare": "husky",
-    "installType": "typesync"
+    "installType": "typesync",
+    "build:memeloop-react-ui": "pnpm --dir ../../../memeloop/packages/memeloop-react-ui run build",
+    "build:memeloop-packages": "pnpm --dir ../../../memeloop/packages/memeloop run build && pnpm --dir ../../../memeloop/packages/memeloop-cli run build && pnpm --dir ../../../memeloop/packages/memeloop-protocol run build"
   },
-  "repository": "https://github.com/tiddly-gittly/TidGi-Desktop",
-  "author": "Lin Onetwo <linonetwo012@gmail.com>, Quang Lam <quang.lam2807@gmail.com>",
+  "repository": "https://github.com/linonetwo/memeloop-app",
+  "author": "MemeLoop Team",
   "main": ".vite/build/main.js",
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.19",
@@ -51,11 +53,11 @@
     "@fontsource/roboto": "^5.3.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@monaco-editor/react": "^4.7.0",
-    "@mui/icons-material": "^9.2.0",
-    "@mui/material": "^9.2.0",
-    "@mui/system": "^9.2.0",
-    "@mui/types": "^9.1.1",
-    "@mui/x-date-pickers": "^9.10.1",
+    "@mui/icons-material": "^7.3.11",
+    "@mui/material": "^7.3.11",
+    "@mui/system": "^7.3.11",
+    "@mui/types": "^7.4.12",
+    "@mui/x-date-pickers": "^8.19.0",
     "@rjsf/core": "6.7.0",
     "@rjsf/mui": "6.7.0",
     "@rjsf/utils": "6.7.0",
@@ -66,7 +68,7 @@
     "app-path": "^4.0.0",
     "beautiful-react-hooks": "5.0.3",
     "best-effort-json-parser": "1.5.1",
-    "better-sqlite3": "^13.0.1",
+    "better-sqlite3": "13.0.1",
     "bluebird": "3.7.2",
     "croner": "^10.0.1",
     "date-fns": "4.4.0",
@@ -130,7 +132,13 @@
     "wouter": "^3.10.0",
     "zod": "^4.4.3",
     "zustand": "^5.0.14",
-    "zx": "8.8.5"
+    "zx": "8.8.5",
+    "@memeloop/libp2p": "file:../../../memeloop/packages/memeloop-libp2p",
+    "@memeloop/protocol": "link:../../../memeloop/packages/memeloop-protocol",
+    "@memeloop/react-ui": "link:../../../memeloop/packages/memeloop-react-ui",
+    "memeloop": "link:../../../memeloop/packages/memeloop",
+    "memeloop-cli": "link:../../../memeloop/packages/memeloop-cli",
+    "@mui/utils": "^7.3.11"
   },
   "devDependencies": {
     "@cucumber/cucumber": "^13.2.0",
@@ -194,5 +202,8 @@
     "vite-plugin-monaco-editor": "^1.1.0",
     "vitest": "^4.1.10"
   },
-  "private": false
+  "private": false,
+  "engines": {
+    "node": ">=24.0.0"
+  }
 }

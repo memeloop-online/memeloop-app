@@ -124,11 +124,9 @@ class TidGiIPCSyncAdaptor {
         // Large batch (e.g. git checkout): defer to idle callback to avoid blocking UI
         requestIdleCallback(() => {
           syncer.syncFromServer();
-          this.clearUpdatedTiddlers();
         }, { timeout: 2000 });
       } else {
         syncer.syncFromServer();
-        this.clearUpdatedTiddlers();
       }
     }, 500);
     this.sseSubscribed = true;
@@ -231,7 +229,16 @@ class TidGiIPCSyncAdaptor {
   }
 
   getUpdatedTiddlers(_syncer: Syncer, callback: (error: Error | null | undefined, changes: { deletions: string[]; modifications: string[] }) => void): void {
-    callback(null, this.updatedTiddlers);
+    // syncFromServer() only queues a TiddlyWiki task. It does not call this
+    // method synchronously, so clearing in setupSSE() immediately after
+    // syncFromServer() loses the notification before the task can consume it.
+    // Take and clear the queue atomically at the actual consumption boundary.
+    const changes = {
+      deletions: [...new Set(this.updatedTiddlers.deletions)],
+      modifications: [...new Set(this.updatedTiddlers.modifications)],
+    };
+    this.clearUpdatedTiddlers();
+    callback(null, changes);
   }
 
   setLoggerSaveBuffer(loggerForSaving: Logger) {

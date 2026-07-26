@@ -14,6 +14,7 @@ import { ContextServiceIPCDescriptor, type IContextService } from '@services/con
 import { DatabaseServiceIPCDescriptor, type IDatabaseService } from '@services/database/interface';
 import { DeepLinkServiceIPCDescriptor, type IDeepLinkService } from '@services/deepLink/interface';
 import { GitServiceIPCDescriptor, type IGitService } from '@services/git/interface';
+import { HtmlWikiServiceIPCDescriptor, type IHtmlWikiService } from '@services/htmlWiki/interface';
 import { type IMemeloopNodeService, MemeloopNodeServiceIPCDescriptor } from '@services/memeloopNode/interface';
 import { type IMenuService, MenuServiceIPCDescriptor } from '@services/menu/interface';
 import { type INativeService, NativeServiceIPCDescriptor } from '@services/native/interface';
@@ -60,6 +61,9 @@ export const database = createProxy<IDatabaseService>(
   DatabaseServiceIPCDescriptor,
 );
 export const git = createProxy<IGitService>(GitServiceIPCDescriptor);
+export const htmlWiki = createProxy<AsyncifyProxy<IHtmlWikiService>>(
+  HtmlWikiServiceIPCDescriptor,
+);
 export const menu = createProxy<IMenuService>(MenuServiceIPCDescriptor);
 export const memeloopNode = createProxy<IMemeloopNodeService>(
   MemeloopNodeServiceIPCDescriptor,
@@ -116,6 +120,7 @@ export const descriptors = {
   context: ContextServiceIPCDescriptor,
   deepLink: DeepLinkServiceIPCDescriptor,
   git: GitServiceIPCDescriptor,
+  htmlWiki: HtmlWikiServiceIPCDescriptor,
   menu: MenuServiceIPCDescriptor,
   memeloopNode: MemeloopNodeServiceIPCDescriptor,
   native: NativeServiceIPCDescriptor,

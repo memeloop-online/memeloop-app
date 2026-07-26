@@ -143,9 +143,9 @@ describe('DeveloperTools custom items', () => {
     });
   });
 
-  it('keeps developers section schema-driven after custom registration', () => {
+  it('registers the lazy developer tools section', () => {
     registerCustomSections();
-    expect(sectionById.get('developers')?.CustomSectionComponent).toBeUndefined();
+    expect(sectionById.get('developers')?.CustomSectionComponent).toEqual(expect.any(Function));
   });
 
   it('renders external api controls', async () => {

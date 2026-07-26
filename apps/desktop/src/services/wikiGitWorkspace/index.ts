@@ -23,6 +23,7 @@ import { logger } from '@services/libs/log';
 import type { ISyncService } from '@services/sync/interface';
 import { SupportedStorageServices } from '@services/types';
 import { updateGhConfig } from '@services/wiki/plugin/ghPages';
+import { hasGit } from 'git-sync-js';
 import { InitWikiGitError, InitWikiGitRevertError, InitWikiGitSyncedWikiNoGitUserInfoError } from './error';
 import type { IWikiGitWorkspaceService } from './interface';
 

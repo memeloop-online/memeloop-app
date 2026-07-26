@@ -49,9 +49,10 @@ function filterLargePluginDiffs(diff: string): string {
 /**
  * Read content of untracked tiddler files for AI context
  */
-async function getUntrackedFileContents(wikiFolderPath: string): Promise<string> {
+async function getUntrackedFileContents(wikiFolderPath: string, scopedPath?: string): Promise<string> {
   // Use -uall to show all untracked files, not just directories
-  const statusResult = await gitExec(['status', '--porcelain', '-uall'], wikiFolderPath);
+  const pathSpec = scopedPath ? ['--', scopedPath] : [];
+  const statusResult = await gitExec(['status', '--porcelain', '-uall', ...pathSpec], wikiFolderPath);
   if (statusResult.exitCode !== 0 || !statusResult.stdout?.trim()) {
     return '';
   }
@@ -87,17 +88,18 @@ async function getUntrackedFileContents(wikiFolderPath: string): Promise<string>
 /**
  * Get git changes (diff for tracked files, content for untracked files)
  */
-async function getGitChanges(wikiFolderPath: string): Promise<string | undefined> {
+async function getGitChanges(wikiFolderPath: string, scopedPath?: string): Promise<string | undefined> {
+  const pathSpec = scopedPath ? ['--', scopedPath] : [];
   const [unstagedResult, stagedResult] = await Promise.all([
-    gitExec(['diff'], wikiFolderPath),
-    gitExec(['diff', '--cached'], wikiFolderPath),
+    gitExec(['diff', ...pathSpec], wikiFolderPath),
+    gitExec(['diff', '--cached', ...pathSpec], wikiFolderPath),
   ]);
 
   let changes = [unstagedResult.stdout || '', stagedResult.stdout || ''].filter(Boolean).join('\n').trim();
 
   // If no tracked changes, check untracked files
   if (!changes) {
-    changes = await getUntrackedFileContents(wikiFolderPath);
+    changes = await getUntrackedFileContents(wikiFolderPath, scopedPath);
   }
 
   if (!changes) {
@@ -113,7 +115,7 @@ async function getGitChanges(wikiFolderPath: string): Promise<string | undefined
  * @param wikiFolderPath The wiki folder path
  * @param source The source of the call (for debugging)
  */
-export async function generateAICommitMessage(wikiFolderPath: string, source: string = 'unknown'): Promise<string | undefined> {
+export async function generateAICommitMessage(wikiFolderPath: string, source: string = 'unknown', scopedPath?: string): Promise<string | undefined> {
   try {
     const preferenceService = container.get<IPreferenceService>(serviceIdentifier.Preference);
     const preferences = preferenceService.getPreferences();
@@ -129,7 +131,7 @@ export async function generateAICommitMessage(wikiFolderPath: string, source: st
       return undefined;
     }
 
-    const changes = await getGitChanges(wikiFolderPath);
+    const changes = await getGitChanges(wikiFolderPath, scopedPath);
     if (!changes) {
       logger.info('No changes found, skipping AI commit message generation', { source });
       return undefined;

@@ -86,6 +86,13 @@ export interface IFileWithStatus {
   status: GitFileStatus;
 }
 
+/** A recoverable local snapshot kept outside the workspace's visible history. */
+export interface IGitCheckpointInfo {
+  hash: string;
+  message: string;
+  timestamp: string;
+}
+
 /**
  * Git state change event
  */
@@ -95,7 +102,7 @@ export interface IGitStateChange {
   /** The workspace folder that changed */
   wikiFolderLocation: string;
   /** Type of change */
-  type: 'commit' | 'sync' | 'pull' | 'checkout' | 'revert' | 'undo' | 'discard' | 'file-change';
+  type: 'commit' | 'sync' | 'pull' | 'checkout' | 'revert' | 'undo' | 'discard' | 'checkpoint' | 'file-change';
 }
 
 /**
@@ -194,6 +201,9 @@ export interface IGitService {
    * Undo a specific commit by resetting to the parent and keeping changes as unstaged
    */
   undoCommit(workspace: IWorkspace, commitHash: string): Promise<void>;
+  createCheckpoint(workspace: IWorkspace, label?: string): Promise<IGitCheckpointInfo>;
+  listCheckpoints(workspace: IWorkspace): Promise<IGitCheckpointInfo[]>;
+  restoreCheckpoint(workspace: IWorkspace, checkpointHash: string): Promise<void>;
   /**
    * Undo multiple commits sequentially, firing only one git-state notification at the end.
    * Commits must be ordered newest-first (same order as git log).
@@ -253,6 +263,9 @@ export const GitServiceIPCDescriptor = {
     revertCommit: ProxyPropertyType.Function,
     amendCommitMessage: ProxyPropertyType.Function,
     undoCommit: ProxyPropertyType.Function,
+    createCheckpoint: ProxyPropertyType.Function,
+    listCheckpoints: ProxyPropertyType.Function,
+    restoreCheckpoint: ProxyPropertyType.Function,
     syncOrForcePull: ProxyPropertyType.Function,
     isAIGenerateBackupTitleEnabled: ProxyPropertyType.Function,
   },

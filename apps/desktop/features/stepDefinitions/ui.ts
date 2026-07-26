@@ -322,8 +322,14 @@ When(
       });
       const isVisible = await targetWindow.isVisible(selector);
       if (!isVisible) {
+        const html = await targetWindow.content();
+        const diagnostics = {
+          title: await targetWindow.title(),
+          preferenceTestIds: [...html.matchAll(/data-testid=["'](preference-section-[^"']+)/g)].map(match => match[1]),
+          body: (await targetWindow.locator('body').innerText()).slice(0, 1000),
+        };
         throw new Error(
-          `Element "${elementComment}" with selector "${selector}" is not visible`,
+          `Element "${elementComment}" with selector "${selector}" is not visible: ${JSON.stringify(diagnostics)}`,
         );
       }
       await targetWindow.click(selector);

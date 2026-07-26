@@ -5,7 +5,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { commitScopedChanges, discoverAncestorGitRepos, getCommitFiles, getGitLog, initScopedWikiGit } from '../gitOperations';
+import {
+  commitScopedChanges,
+  createCheckpoint,
+  discoverAncestorGitRepos,
+  getCommitFiles,
+  getGitLog,
+  initScopedWikiGit,
+  listCheckpoints,
+  restoreCheckpoint,
+} from '../gitOperations';
 
 async function initRepo(repoPath: string): Promise<void> {
   await gitExec(['init'], repoPath);
@@ -173,6 +182,42 @@ describe('git scoped operations for HTML wiki', () => {
 
     const show = await gitExec(['show', 'HEAD:wiki.html'], repoPath);
     expect(show.stdout).toContain('commit me');
+  });
+
+  it('checkpoint restores the scoped tree without touching sibling project files', async () => {
+    const wikiDirectory = path.join(repoPath, 'wiki');
+    await fs.mkdir(path.join(wikiDirectory, 'tiddlers'), { recursive: true });
+    await fs.writeFile(path.join(wikiDirectory, 'tiddlers', 'Index.tid'), 'checkpoint content', 'utf8');
+    const checkpoint = await createCheckpoint(repoPath, 'before agent run', 'wiki');
+
+    await fs.writeFile(path.join(wikiDirectory, 'tiddlers', 'Index.tid'), 'agent changed content', 'utf8');
+    await fs.writeFile(path.join(wikiDirectory, 'tiddlers', 'Generated.tid'), 'generated', 'utf8');
+    await fs.writeFile(path.join(repoPath, 'notes.txt'), 'downstream project edit', 'utf8');
+    await restoreCheckpoint(repoPath, checkpoint.hash, 'wiki');
+
+    expect(await fs.readFile(path.join(wikiDirectory, 'tiddlers', 'Index.tid'), 'utf8')).toBe('checkpoint content');
+    await expect(fs.access(path.join(wikiDirectory, 'tiddlers', 'Generated.tid'))).rejects.toThrow();
+    expect(await fs.readFile(path.join(repoPath, 'notes.txt'), 'utf8')).toBe('downstream project edit');
+    expect(await listCheckpoints(repoPath)).toEqual([checkpoint]);
+  });
+
+  it('checkpoint restores binary files byte-for-byte and preserves the volatile story list', async () => {
+    const wikiDirectory = path.join(repoPath, 'wiki');
+    const tiddlersDirectory = path.join(wikiDirectory, 'tiddlers');
+    await fs.mkdir(tiddlersDirectory, { recursive: true });
+    const binaryPath = path.join(wikiDirectory, 'asset.bin');
+    const storyListPath = path.join(tiddlersDirectory, '$__StoryList.tid');
+    const originalBytes = Buffer.from([0, 255, 1, 128, 2, 64]);
+    await fs.writeFile(binaryPath, originalBytes);
+    await fs.writeFile(storyListPath, 'story before', 'utf8');
+    const checkpoint = await createCheckpoint(repoPath, 'binary', 'wiki');
+
+    await fs.writeFile(binaryPath, Buffer.from([9, 8, 7]));
+    await fs.writeFile(storyListPath, 'story after', 'utf8');
+    await restoreCheckpoint(repoPath, checkpoint.hash, 'wiki');
+
+    expect(await fs.readFile(binaryPath)).toEqual(originalBytes);
+    expect(await fs.readFile(storyListPath, 'utf8')).toBe('story after');
   });
 
   it('discoverAncestorGitRepos walks up and lists every ancestor that is a git repo', async () => {

@@ -157,7 +157,7 @@ export async function getSimplifiedWorkspaceMenuTemplate(
   template.push({
     label: t('WorkspaceSelector.ViewGitHistory'),
     click: async () => {
-      await service.window.open(WindowNames.gitHistory, { workspaceID: id }, { recreate: true });
+      await service.window.open(WindowNames.gitHistory, { workspaceID: id }, { recreateUnlessWorkspaceID: id });
     },
   });
 
@@ -231,7 +231,7 @@ export async function getWorkspaceMenuTemplate(
     {
       label: t('WorkspaceSelector.ViewGitHistory'),
       click: async () => {
-        await service.window.open(WindowNames.gitHistory, { workspaceID: id }, { recreate: true });
+        await service.window.open(WindowNames.gitHistory, { workspaceID: id }, { recreateUnlessWorkspaceID: id });
       },
     },
     {

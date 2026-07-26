@@ -346,9 +346,13 @@ Then('I should see a(n) {string} element in browser view with selector {string}'
         throw new Error('Element does not exist yet');
       }
     },
-    BACKOFF_OPTIONS,
-  ).catch(() => {
-    throw new Error(`Element "${elementComment}" with selector "${selector}" not found in browser view after multiple attempts`);
+    { ...BACKOFF_OPTIONS, numOfAttempts: 25, startingDelay: 200, maxDelay: 200 },
+  ).catch(async () => {
+    const visibleText = (await getTextContent(this.app!, this.currentWindow))?.slice(0, 1200) ?? '<unavailable>';
+    throw new Error(
+      `Element "${elementComment}" with selector "${selector}" not found in browser view after multiple attempts. ` +
+        `Visible text: ${JSON.stringify(visibleText)}`,
+    );
   });
 });
 

@@ -6,7 +6,7 @@ import { backOff } from 'exponential-backoff';
 import { copy, exists, mkdir, mkdirs, pathExists, readdir, readFile } from 'fs-extra';
 import { inject, injectable } from 'inversify';
 import path from 'path';
-import { Observable } from 'rxjs';
+import { Observable, type Subscription } from 'rxjs';
 import { AlreadyExistError, CopyWikiTemplateError, HTMLCanNotLoadError, WikiRuntimeError } from './error';
 import WikiWorkerFactory from './wikiWorker/index?utilityProcess';
 
@@ -538,10 +538,20 @@ export class Wiki implements IWikiService {
 
   public getWikiChangeObserver$(workspaceID: string): Observable<ITidGiChangedTiddlers> {
     return new Observable((observer) => {
-      let subscription: import('rxjs').Subscription | undefined;
-      const getWikiChangeObserverIIFE = async () => {
+      let disposed = false;
+      let subscription: Subscription | undefined;
+      let subscribedNativeWorker: UtilityProcess | undefined;
+
+      const subscribeToCurrentWorker = async () => {
         try {
           const worker = await this.getWorkerEnsure(workspaceID);
+          const nativeWorker = this.getNativeWorker(workspaceID);
+          if (disposed || nativeWorker === undefined || nativeWorker === subscribedNativeWorker) {
+            return;
+          }
+
+          subscription?.unsubscribe();
+          subscribedNativeWorker = nativeWorker;
           const observable = worker.getWikiChangeObserver();
           subscription = observable.subscribe({
             next: (changes) => {
@@ -551,15 +561,38 @@ export class Wiki implements IWikiService {
               });
               observer.next(changes);
             },
-            error: error => observer.error(error),
-            complete: () => observer.complete(),
+            // A workspace restart disposes the old UtilityProcess observable.
+            // Keep the outer renderer subscription alive; the worker-started
+            // event below reconnects it to the replacement process.
+            error: error => {
+              logger.warn('Wiki change observer disconnected; waiting for worker restart', {
+                workspaceID,
+                error: serializeError(error),
+              });
+            },
           });
         } catch (error) {
-          observer.error(error);
+          if (!disposed) {
+            logger.warn('Failed to subscribe to wiki changes; waiting for worker restart', {
+              workspaceID,
+              error: serializeError(error),
+            });
+          }
         }
       };
-      void getWikiChangeObserverIIFE();
-      return () => subscription?.unsubscribe();
+
+      const startedEventName = wikiWorkerStartedEventName(workspaceID);
+      const handleWorkerStarted = () => {
+        void subscribeToCurrentWorker();
+      };
+      this.wikiWorkerStartedEventTarget.addEventListener(startedEventName, handleWorkerStarted);
+      void subscribeToCurrentWorker();
+
+      return () => {
+        disposed = true;
+        this.wikiWorkerStartedEventTarget.removeEventListener(startedEventName, handleWorkerStarted);
+        subscription?.unsubscribe();
+      };
     });
   }
 

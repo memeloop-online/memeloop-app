@@ -4,6 +4,8 @@ import { lazy, useEffect } from 'react';
 import { Route, Switch, useLocation } from 'wouter';
 
 const AboutPage = lazy(() => import('./About'));
+const AddWorkspace = lazy(() => import('./AddWorkspace'));
+const EditWorkspace = lazy(() => import('./EditWorkspace'));
 const GitHistory = lazy(() => import('./GitLog'));
 const Main = lazy(() => import('../pages/Main'));
 const DialogNotifications = lazy(() => import('./Notifications'));
@@ -28,6 +30,8 @@ export function Pages(): React.JSX.Element {
     <HelmetProvider>
       <Switch>
         <Route path={`/${WindowNames.about}`} component={AboutPage} />
+        <Route path={`/${WindowNames.addWorkspace}`} component={AddWorkspace} />
+        <Route path={`/${WindowNames.editWorkspace}`} component={EditWorkspace} />
         <Route path={`/${WindowNames.gitHistory}`} component={GitHistory} />
         <Route
           path={`/${WindowNames.notifications}`}

@@ -176,18 +176,15 @@ export function NewWikiForm({
               },
             }}
             renderInput={(parameters: AutocompleteRenderInputParams) => {
-              const { slotProps: parametersSlotProps, ...otherParameters } = parameters;
-              const htmlInput = (parametersSlotProps?.htmlInput ?? {}) as React.InputHTMLAttributes<HTMLInputElement>;
               return (
                 <LocationPickerInput
-                  {...otherParameters}
+                  {...parameters}
                   error={errorInWhichComponent.tagNames}
                   label={t('AddWorkspace.TagName')}
                   helperText={tagHelperText}
                   slotProps={{
-                    ...parametersSlotProps,
                     htmlInput: {
-                      ...htmlInput,
+                      ...parameters.inputProps,
                       'data-testid': 'tagname-autocomplete-input',
                     },
                   }}

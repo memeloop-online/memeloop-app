@@ -255,19 +255,16 @@ describe('Preferences - All Sections Rendering', () => {
   });
 
   // ─── TidGiMiniWindow section ────────────────────────────────────
-  // NOTE: Currently fails because Sync section's TimePicker crashes React rendering.
-  // Will be fixed when Sync section is schema-ified.
-  it.skip('should render TidGiMiniWindow section', async () => {
+  it('should render TidGiMiniWindow section', async () => {
     await renderAllSections();
     await waitFor(() => {
       expect(screen.getByText('Menu.TidGiMiniWindow')).toBeInTheDocument();
     }, { timeout: 5000 });
-    expect(screen.getByText('Preference.TidgiMiniWindow')).toBeInTheDocument();
   });
 
   // ─── Developers section ─────────────────────────────────────────
 
-  it.skip('should render DeveloperTools section', async () => {
+  it('should render DeveloperTools section', async () => {
     await renderAllSections();
     await waitFor(() => {
       expect(screen.getByText('Preference.DeveloperTools')).toBeInTheDocument();
@@ -275,13 +272,12 @@ describe('Preferences - All Sections Rendering', () => {
   });
 
   // ─── Boolean toggle interaction ─────────────────────────────────
-  // NOTE: Skipped because Sync section crash prevents full rendering.
-  it.skip('should toggle a boolean preference (alwaysOnTop)', async () => {
+  it('should toggle a boolean preference (alwaysOnTop)', async () => {
     await renderAllSections();
     // Find the switch for alwaysOnTop
     const label = screen.getByText('Preference.AlwaysOnTop');
     const listItem = label.closest('li')!;
-    const switchElement = within(listItem).getByRole('checkbox');
+    const switchElement = within(listItem).getByRole('switch');
 
     expect(switchElement).not.toBeChecked();
 

@@ -29,7 +29,7 @@ export default defineConfig({
     localPlugin(monacoEditorPlugin({})),
   ],
   resolve: {
-    dedupe: ['react', 'react-dom'],
+    dedupe: ['react', 'react-dom', '@mui/material', '@mui/icons-material', '@mui/system', '@emotion/react', '@emotion/styled'],
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@services': path.resolve(__dirname, './src/services'),
@@ -39,10 +39,6 @@ export default defineConfig({
       ),
       react: desktopDependency('react'),
       'react-dom': desktopDependency('react-dom'),
-      '@mui/material': desktopDependency('@mui/material'),
-      '@mui/icons-material': desktopDependency('@mui/icons-material'),
-      '@emotion/react': desktopDependency('@emotion/react'),
-      '@emotion/styled': desktopDependency('@emotion/styled'),
       'simplebar-react': desktopDependency('simplebar-react'),
       '@rjsf/core': desktopDependency('@rjsf/core'),
       '@rjsf/mui': desktopDependency('@rjsf/mui'),
@@ -62,8 +58,8 @@ export default defineConfig({
     rollupOptions: {
       input: path.resolve(__dirname, 'index.html'),
       output: {
-        manualChunks: {
-          'monaco-editor': ['monaco-editor'],
+        manualChunks(id) {
+          return id.includes('/monaco-editor/') ? 'monaco-editor' : undefined;
         },
       },
     },

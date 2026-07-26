@@ -921,7 +921,7 @@ export class AgentInstanceService implements IAgentInstanceService {
       // Find all non-closed, non-volatile agent instances with their definitions
       const activeInstances = await this.agentInstanceRepository.find({
         where: { closed: false, volatile: false },
-        relations: ['agentDefinition'],
+        relations: { agentDefinition: true },
       });
 
       let heartbeatsRestored = 0;
@@ -2070,7 +2070,7 @@ Result: ${JSON.stringify(approvalPrompt)}
     // Also update the in-memory agent messages list
     const agent = await this.agentInstanceRepository.findOne({
       where: { id: agentId },
-      relations: ['messages'],
+      relations: { messages: true },
     });
     if (agent) {
       const deletedSet = new Set(messageIds);

@@ -20,7 +20,9 @@ export default defineConfig({
     // Test environment
     environment: 'jsdom',
 
-    // features/ tests (HTTP/Node.js integration) run in node environment; src/ tests need jsdom
+    // Vitest 4 still accepts this runtime option, although it is absent from
+    // the public InlineConfig type.
+    // @ts-expect-error Vitest runtime compatibility option
     environmentMatchGlobs: [
       ['features/**', 'node'],
     ],
@@ -53,18 +55,18 @@ export default defineConfig({
       ],
     },
 
-    pool: 'forks',
-    poolOptions: {
-      forks: {
-        maxForks: 6,
-        minForks: 2,
-      },
-      isolate: true,
-    },
-
     testTimeout: 30000,
     hookTimeout: 30000,
     reporters: ['default', 'hanging-process'],
+  },
+
+  pool: 'forks',
+  poolOptions: {
+    forks: {
+      maxForks: 6,
+      minForks: 2,
+    },
+    isolate: true,
   },
 
   resolve: {

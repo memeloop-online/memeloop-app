@@ -10,10 +10,83 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { defaultGitInfo } from './defaultGitInfo';
 import { appendGitPathSpec, filterFilesByScope, hasUncommittedChangesInScope } from './gitScope';
-import type { GitFileStatus, IFileDiffResult, IGitLogOptions, IGitLogResult } from './interface';
+import type { GitFileStatus, IFileDiffResult, IGitCheckpointInfo, IGitLogOptions, IGitLogResult } from './interface';
 
 /** Prefix for temporary Git index directories used during amend/undo operations */
 const TEMP_GIT_INDEX_PREFIX = 'tidgi-git-index-';
+const SHADOW_CHECKPOINT_REPO_DIR_NAME = 'shadow-checkpoints';
+const SHADOW_CHECKPOINT_AUTHOR_NAME = 'MemeLoop Checkpoint';
+const SHADOW_CHECKPOINT_AUTHOR_EMAIL = 'checkpoint@memeloop.app';
+const SHADOW_CHECKPOINT_MESSAGE_PREFIX = 'checkpoint';
+const SHADOW_CHECKPOINT_METADATA_FILE_NAME = 'checkpoints.json';
+
+function getShadowCheckpointRepoPath(repoPath: string): string {
+  return path.join(repoPath, '.git', SHADOW_CHECKPOINT_REPO_DIR_NAME);
+}
+
+function getShadowCheckpointMetadataPath(repoPath: string): string {
+  return path.join(getShadowCheckpointRepoPath(repoPath), SHADOW_CHECKPOINT_METADATA_FILE_NAME);
+}
+
+async function readCheckpointMetadata(repoPath: string): Promise<IGitCheckpointInfo[]> {
+  const content = await fs.readFile(getShadowCheckpointMetadataPath(repoPath), 'utf8').catch((error: unknown) => {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return '[]';
+    throw error;
+  });
+  const parsed: unknown = JSON.parse(content);
+  return Array.isArray(parsed) ? parsed as IGitCheckpointInfo[] : [];
+}
+
+async function writeCheckpointMetadata(repoPath: string, checkpoints: IGitCheckpointInfo[]): Promise<void> {
+  await fs.writeFile(getShadowCheckpointMetadataPath(repoPath), JSON.stringify(checkpoints, null, 2), 'utf8');
+}
+
+const checkpointInitLocks = new Map<string, Promise<string>>();
+
+async function ensureShadowCheckpointRepository(repoPath: string): Promise<string> {
+  const shadowGitDirectory = getShadowCheckpointRepoPath(repoPath);
+  if (await fs.access(path.join(shadowGitDirectory, 'HEAD')).then(() => true).catch(() => false)) {
+    return shadowGitDirectory;
+  }
+
+  const existingLock = checkpointInitLocks.get(repoPath);
+  if (existingLock) return existingLock;
+
+  const initialization = (async () => {
+    try {
+      await fs.mkdir(shadowGitDirectory, { recursive: true });
+      const initResult = await gitExec(['--git-dir', shadowGitDirectory, '--work-tree', repoPath, 'init'], repoPath);
+      if (initResult.exitCode !== 0) throw new Error(`Failed to initialize checkpoint repository: ${initResult.stderr}`);
+
+      for (
+        const [key, value] of [
+          ['core.worktree', repoPath],
+          ['commit.gpgSign', 'false'],
+          ['user.name', SHADOW_CHECKPOINT_AUTHOR_NAME],
+          ['user.email', SHADOW_CHECKPOINT_AUTHOR_EMAIL],
+        ] as const
+      ) {
+        const result = await gitExec(['--git-dir', shadowGitDirectory, '--work-tree', repoPath, 'config', key, value], repoPath);
+        if (result.exitCode !== 0) throw new Error(`Failed to configure checkpoint repository (${key}): ${result.stderr}`);
+      }
+      await writeCheckpointMetadata(repoPath, []);
+      return shadowGitDirectory;
+    } finally {
+      checkpointInitLocks.delete(repoPath);
+    }
+  })();
+  checkpointInitLocks.set(repoPath, initialization);
+  return initialization;
+}
+
+function getShadowGitFlags(repoPath: string): string[] {
+  return ['--git-dir', getShadowCheckpointRepoPath(repoPath), '--work-tree', repoPath];
+}
+
+function buildCheckpointMessage(label?: string): string {
+  const trimmedLabel = label?.trim();
+  return trimmedLabel ? `${SHADOW_CHECKPOINT_MESSAGE_PREFIX}: ${trimmedLabel}` : `${SHADOW_CHECKPOINT_MESSAGE_PREFIX}: ${new Date().toISOString()}`;
+}
 
 /**
  * Helper to create git environment variables for commit operations
@@ -599,7 +672,7 @@ export async function getFileContent(
         // Silently fail and throw main error
       }
       const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to read file: ${errorMessage}`);
+      throw new Error(`Failed to read file: ${errorMessage}`, { cause: error });
     }
   }
 
@@ -632,7 +705,7 @@ export async function getFileBinaryContent(
       const buffer = await fs.readFile(fullPath);
       return bufferToDataUrl(buffer, filePath);
     } catch (error) {
-      throw new Error(`Failed to read binary file from working tree: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Failed to read binary file from working tree: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
   }
 
@@ -867,7 +940,7 @@ export async function discardFileChanges(repoPath: string, filePath: string): Pr
     try {
       await fs.unlink(fullPath);
     } catch (error) {
-      throw new Error(`Failed to delete untracked file: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Failed to delete untracked file: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
   } else {
     // For tracked files, use git checkout to restore from HEAD
@@ -904,7 +977,7 @@ export async function addToGitignore(repoPath: string, pattern: string): Promise
     const newContent = content.trim() + (content ? '\n' : '') + pattern + '\n';
     await fs.writeFile(gitignorePath, newContent, 'utf-8');
   } catch (error) {
-    throw new Error(`Failed to update .gitignore: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Failed to update .gitignore: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
 }
 
@@ -933,6 +1006,67 @@ export async function amendCommitMessage(repoPath: string, newMessage: string): 
   } finally {
     await fs.rm(temporaryDirectory, { recursive: true, force: true });
   }
+}
+
+/** Capture the current managed worktree state without changing the user's branch or index. */
+export async function createCheckpoint(repoPath: string, label?: string, scopedPath?: string): Promise<IGitCheckpointInfo> {
+  await ensureShadowCheckpointRepository(repoPath);
+  const flags = getShadowGitFlags(repoPath);
+  const addArguments = [...flags, 'add', '-A'];
+  if (scopedPath) addArguments.push('--', scopedPath);
+  const addResult = await gitExec(addArguments, repoPath);
+  if (addResult.exitCode !== 0) throw new Error(`Failed to stage checkpoint changes: ${addResult.stderr}`);
+
+  const treeResult = await gitExec([...flags, 'write-tree'], repoPath);
+  if (treeResult.exitCode !== 0) throw new Error(`Failed to create checkpoint tree: ${treeResult.stderr}`);
+
+  const checkpoint: IGitCheckpointInfo = {
+    hash: treeResult.stdout.trim(),
+    message: buildCheckpointMessage(label),
+    timestamp: new Date().toISOString(),
+  };
+  const checkpoints = await readCheckpointMetadata(repoPath);
+  await writeCheckpointMetadata(repoPath, [checkpoint, ...checkpoints.filter(item => item.hash !== checkpoint.hash)]);
+  return checkpoint;
+}
+
+export async function listCheckpoints(repoPath: string): Promise<IGitCheckpointInfo[]> {
+  await ensureShadowCheckpointRepository(repoPath);
+  return readCheckpointMetadata(repoPath);
+}
+
+/** Restore a checkpoint through Git so binary files retain their exact bytes. */
+export async function restoreCheckpoint(repoPath: string, checkpointHash: string, scopedPath?: string): Promise<void> {
+  await ensureShadowCheckpointRepository(repoPath);
+  const flags = getShadowGitFlags(repoPath);
+  const verifyResult = await gitExec([...flags, 'cat-file', '-e', `${checkpointHash}^{tree}`], repoPath);
+  if (verifyResult.exitCode !== 0) throw new Error(`Invalid checkpoint hash: ${checkpointHash}`);
+
+  const diffArguments = [...flags, 'diff', '--name-status', '-z', checkpointHash];
+  if (scopedPath) diffArguments.push('--', scopedPath);
+  const diffResult = await gitExec(diffArguments, repoPath);
+  if (diffResult.exitCode !== 0) throw new Error(`Failed to compute checkpoint diff: ${diffResult.stderr}`);
+
+  // Files added after the snapshot are untracked from the shadow repository,
+  // so `git diff` alone cannot see them and checkout will not remove them.
+  const untrackedArguments = [...flags, 'ls-files', '--others', '--exclude-standard', '-z'];
+  if (scopedPath) untrackedArguments.push('--', scopedPath);
+  const untrackedResult = await gitExec(untrackedArguments, repoPath);
+  if (untrackedResult.exitCode !== 0) throw new Error(`Failed to inspect checkpoint additions: ${untrackedResult.stderr}`);
+
+  const additions = [
+    ...parseNullSeparatedNameStatusOutput(diffResult.stdout)
+      .filter(change => ['added', 'renamed', 'copied'].includes(change.status))
+      .map(change => change.path),
+    ...untrackedResult.stdout.split('\0').filter(Boolean),
+  ].filter(filePath => !filePath.includes('$__StoryList.tid'));
+  await Promise.all([...new Set(additions)].map(async filePath => {
+    await fs.rm(path.join(repoPath, filePath), { force: true });
+  }));
+
+  const checkoutArguments = [...flags, 'checkout', checkpointHash, '--', scopedPath ?? '.', ':(exclude)**/$__StoryList.tid'];
+  const checkoutResult = await gitExec(checkoutArguments, repoPath);
+  if (checkoutResult.exitCode !== 0) throw new Error(`Failed to restore checkpoint: ${checkoutResult.stderr}`);
 }
 
 /**

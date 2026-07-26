@@ -10,6 +10,7 @@ import Typography from '@mui/material/Typography';
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { SupportedStorageServices } from '@services/types';
 import { WindowNames } from '@services/windows/WindowProperties';
 import type { WindowMeta } from '@services/windows/WindowProperties';
 import { AllBranchesView } from './AllBranchesView';
@@ -90,7 +91,7 @@ export default function GitHistory(): React.JSX.Element {
   } = useGitHistoryState();
 
   // Determine theme mode for react-git-log
-  const gitLogTheme = theme.palette.mode as 'light' | 'dark';
+  const gitLogTheme = theme.palette.mode;
 
   const showSnackbar = useCallback(
     (message: string, severity: 'success' | 'error' | 'info' = 'info') => {
@@ -368,6 +369,7 @@ export default function GitHistory(): React.JSX.Element {
                   commit={selectedCommit ?? null}
                   selectedCommits={selectedCommits}
                   workspaceID={workspaceInfo.id}
+                  storageService={'storageService' in workspaceInfo ? workspaceInfo.storageService : SupportedStorageServices.local}
                   showSnackbar={showSnackbar}
                   onFileSelect={handleFileSelect}
                   selectedFile={selectedFile}

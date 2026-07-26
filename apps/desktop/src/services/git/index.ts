@@ -735,6 +735,43 @@ export class Git implements IGitService {
     }
   }
 
+  public async createCheckpoint(workspace: IWorkspace, label?: string) {
+    if (!isWikiWorkspace(workspace)) throw new Error('Checkpoints require a wiki workspace');
+    const scope = resolveWorkspaceGitScope(workspace);
+    if (!scope) throw new Error('Unable to resolve Git scope for checkpoint');
+    try {
+      return await this.callGitOp('createCheckpoint', scope.repoPath, label, scope.managedRelativePath);
+    } catch (error) {
+      logger.error('createCheckpoint failed', { error, workspaceID: workspace.id, label });
+      throw error;
+    }
+  }
+
+  public async listCheckpoints(workspace: IWorkspace) {
+    if (!isWikiWorkspace(workspace)) return [];
+    const scope = resolveWorkspaceGitScope(workspace);
+    if (!scope) return [];
+    try {
+      return await this.callGitOp('listCheckpoints', scope.repoPath);
+    } catch (error) {
+      logger.error('listCheckpoints failed', { error, workspaceID: workspace.id });
+      throw error;
+    }
+  }
+
+  public async restoreCheckpoint(workspace: IWorkspace, checkpointHash: string): Promise<void> {
+    if (!isWikiWorkspace(workspace)) throw new Error('Checkpoints require a wiki workspace');
+    const scope = resolveWorkspaceGitScope(workspace);
+    if (!scope) throw new Error('Unable to resolve Git scope for checkpoint');
+    try {
+      await this.callGitOp('restoreCheckpoint', scope.repoPath, checkpointHash, scope.managedRelativePath);
+      this.notifyGitStateChange(workspace.wikiFolderLocation, 'checkpoint');
+    } catch (error) {
+      logger.error('restoreCheckpoint failed', { error, workspaceID: workspace.id, checkpointHash });
+      throw error;
+    }
+  }
+
   public async discardFileChanges(workspace: IWorkspace, filePath: string): Promise<void> {
     if (!isWikiWorkspace(workspace)) return;
     const repoPath = this.resolveRepoPath(workspace);

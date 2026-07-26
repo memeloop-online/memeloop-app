@@ -38,17 +38,15 @@ const Divider = styled(DividerRaw)`
 const animateMoveFromLeft = keyframes`
   from {
     transform: translate3d(-40px, 0, 0);
-    opacity: 0;
   }
 
   to {
     transform: translate3d(0px, 0, 0);
-    opacity: 1;
   }
 `;
 
 const SideMenuListItem = styled(ListItemButton)<{ index: number }>`
-  opacity: 0;
+  opacity: 1;
   animation: ${animateMoveFromLeft} 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   animation-fill-mode: forwards;
   animation-delay: ${({ index }) => index * 0.05}s;

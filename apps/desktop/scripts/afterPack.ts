@@ -6,35 +6,14 @@
 import fs from 'fs-extra';
 import path from 'path';
 
-// Packages whose absence makes the app non-functional at runtime.
-// If any of these fail to copy, packaging itself should fail so that the
-// problem is caught before deployment, not discovered by a user crash.
-const CRITICAL_PACKAGES = ['tiddlywiki', 'better-sqlite3', 'nsfw', 'dugite'];
-
-function copyWithTracking(
-  source: string,
-  destination: string,
-  options: fs.CopyOptionsSync,
-  criticalPackage: string,
-  failures: Set<string>,
-): void {
-  try {
-    fs.copySync(source, destination, options);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`Error copying ${source} → ${destination}: ${errorMessage}`);
-    failures.add(criticalPackage);
-  }
-}
-
 /**
  * Running afterPack hook
- * Note: This must be a non-async function that accepts a callback for Electron Packager compatibility
+ * Forge 8 exposes packageAfterPrune as a promise-based Forge hook.
+ * The first argument is the resolved Forge configuration.
  * @param buildPath /var/folders/qj/7j0zx32d0l75zmnrl1w3m3b80000gn/T/electron-packager/darwin-x64/TidGi-darwin-x64/Electron.app/Contents/Resources/app
  * @param electronVersion 12.0.6
  * @param platform darwin / win32 (even on win11 x64)
  * @param arch x64
- * @param callback Callback to signal completion, receives Error if critical deps missing
  */
 export default async (
   _forgeConfig: unknown,
@@ -43,150 +22,185 @@ export default async (
   platform: string,
   arch: string,
 ): Promise<void> => {
-  const failures = new Set<string>();
-  let unexpectedError: unknown = null;
+  const cwd = path.resolve(buildPath, '..');
+  const appNodeModulesDirectory = path.resolve(buildPath, 'node_modules');
+  const projectRoot = path.resolve(__dirname, '..');
+  const linkedWorkspaceNodeModulesDirectory = path.resolve(
+    projectRoot,
+    '../../../memeloop/node_modules/.pnpm/node_modules',
+  );
+  const packageSourceRoots = [
+    path.resolve(projectRoot, 'node_modules'),
+    linkedWorkspaceNodeModulesDirectory,
+  ];
 
-  try {
-    const cwd = path.resolve(buildPath, '..');
-    const projectRoot = path.resolve(__dirname, '..');
-
-    console.log('Copy npm packages with utility process dependencies with binary (dugite) or __filename usages (tiddlywiki), which cannot be prepared properly by webpack');
-
-    if (['production', 'test'].includes(process.env.NODE_ENV ?? '')) {
-      console.log('Copying tiddlywiki dependency to dist');
-      const sourceNodeModulesFolder = path.resolve(projectRoot, 'node_modules');
-
-      // zx — non-critical
-      try {
-        fs.copySync(
-          path.join(sourceNodeModulesFolder, 'zx'),
-          path.join(cwd, 'node_modules', 'zx'),
-          { dereference: true },
-        );
-      } catch (error) {
-        console.error(`Error copying zx to dist: ${error instanceof Error ? error.message : String(error)}`);
-      }
-
-      const packagePathsToCopyDereferenced: Array<{ segments: string[]; critical: string | null; dereference?: boolean }> = [
-        { segments: ['tiddlywiki', 'package.json'], critical: 'tiddlywiki' },
-        { segments: ['tiddlywiki', 'boot'], critical: 'tiddlywiki' },
-        { segments: ['tiddlywiki', 'core'], critical: 'tiddlywiki' },
-        // core-server: introduced in TiddlyWiki 5.4.0, contains Commander module ($tw.Commander) required by load-modules startup
-        { segments: ['tiddlywiki', 'core-server'], critical: 'tiddlywiki' },
-        // only copy plugins that is used in src/services/wiki/wikiWorker/startNodeJSWiki.ts, other plugins can be installed via JSON from online plugin library
-        { segments: ['tiddlywiki', 'plugins', 'linonetwo'], critical: 'tiddlywiki' },
-        { segments: ['tiddlywiki', 'plugins', 'tiddlywiki', 'filesystem'], critical: 'tiddlywiki' },
-        { segments: ['tiddlywiki', 'plugins', 'tiddlywiki', 'tiddlyweb'], critical: 'tiddlywiki' },
-        { segments: ['tiddlywiki', 'tiddlywiki.js'], critical: 'tiddlywiki' },
-        // better-sqlite3: electron-rebuild compiles from source for Electron
-        // (prebuilds/ are deleted before rebuild in CI to force compilation)
-        { segments: ['better-sqlite3', 'build', 'Release', 'better_sqlite3.node'], critical: 'better-sqlite3' },
-        { segments: ['better-sqlite3', 'package.json'], critical: 'better-sqlite3' },
-        { segments: ['better-sqlite3', 'lib'], critical: 'better-sqlite3' },
-        // nsfw native module
-        { segments: ['nsfw', 'build', 'Release', 'nsfw.node'], critical: 'nsfw' },
-        // rotating-file-stream: pure ESM, external for Node.js native require().
-        // Only need the CJS dist + package.json for export resolution.
-        { segments: ['rotating-file-stream', 'package.json'], critical: null },
-        { segments: ['rotating-file-stream', 'dist', 'cjs', 'index.js'], critical: null },
-        { segments: ['rotating-file-stream', 'dist', 'cjs', 'package.json'], critical: null },
-        // sqlite-vec: non-critical vector search extension
-        { segments: ['sqlite-vec', 'package.json'], critical: null },
-        { segments: ['sqlite-vec', 'index.cjs'], critical: null },
-        { segments: [`sqlite-vec-${platform === 'win32' ? 'windows' : platform}-${arch}`], critical: null },
-      ];
-
-      // macOS only: copy app-path binary for finding apps (non-critical)
-      if (platform === 'darwin') {
-        packagePathsToCopyDereferenced.push({ segments: ['app-path', 'main'], critical: null });
-      }
-
-      console.log('Copying packagePathsToCopyDereferenced');
-      for (const { segments, critical, dereference = true } of packagePathsToCopyDereferenced) {
-        const source = path.resolve(sourceNodeModulesFolder, ...segments);
-        const destination = path.resolve(cwd, 'node_modules', ...segments);
-        const criticalPackage = critical ?? segments[0];
-        const copyOptions = { dereference };
-        // some binary may not exist in other platforms, so allow failing for non-critical packages
-        if (critical === null) {
-          try {
-            fs.copySync(source, destination, copyOptions);
-          } catch {
-            // non-critical, platform-specific binary may not exist — allowed to fail silently
-          }
-        } else {
-          copyWithTracking(source, destination, copyOptions, criticalPackage, failures);
-        }
-      }
-
-      // MCP SDK — non-critical
-      console.log('Copy @modelcontextprotocol/sdk');
-      const mcpSdkDestination = path.join(cwd, 'node_modules', '@modelcontextprotocol', 'sdk');
-      try {
-        fs.copySync(
-          path.join(sourceNodeModulesFolder, '@modelcontextprotocol', 'sdk'),
-          mcpSdkDestination,
-          { dereference: true },
-        );
-        // The SDK package has "type": "module", so Node.js treats all .js files as ESM.
-        // Its CJS dist lives under dist/cjs/ with .js extensions, which breaks require()
-        // at runtime. Override the type for the CJS subtree so require() works in the
-        // packaged Electron app.
-        fs.writeJsonSync(path.join(mcpSdkDestination, 'dist', 'cjs', 'package.json'), { type: 'commonjs' });
-      } catch (error) {
-        console.error(`Error copying @modelcontextprotocol/sdk: ${error instanceof Error ? error.message : String(error)}`);
-      }
-
-      // dugite — critical (git operations)
-      // it has things like `git/bin/libexec/git-core/git-add` link to `git/bin/libexec/git-core/git`, to reduce size, so can't use `dereference: true, recursive: true` here.
-      console.log('Copy dugite');
-      copyWithTracking(
-        path.join(sourceNodeModulesFolder, 'dugite'),
-        path.join(cwd, 'node_modules', 'dugite'),
-        { dereference: false },
-        'dugite',
-        failures,
-      );
-
-      if (platform === 'win32') {
-        console.log('Copy registry-js (Windows only)');
-        // registry-js has native binary that is loaded using relative path (../../build/Release/registry.node)
-        try {
-          fs.copySync(
-            path.join(sourceNodeModulesFolder, 'registry-js'),
-            path.join(cwd, 'node_modules', 'registry-js'),
-            { dereference: true },
-          );
-        } catch (error) {
-          console.error(`Error copying registry-js: ${error instanceof Error ? error.message : String(error)}`);
-        }
+  const resolvePackageSource = (...packagePathInNodeModules: string[]) => {
+    for (const sourceRoot of packageSourceRoots) {
+      const candidate = path.resolve(sourceRoot, ...packagePathInNodeModules);
+      if (fs.existsSync(candidate)) {
+        return candidate;
       }
     }
-  } catch (error) {
-    unexpectedError = error;
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`Unexpected error in afterPack hook: ${errorMessage}`);
-  }
 
-  // Collect errors from the try block and throw if anything critical failed.
-  let postError: Error | null = null;
-  const missingCritical = [...failures].filter(package_ => CRITICAL_PACKAGES.includes(package_));
-  if (missingCritical.length > 0) {
-    postError = new Error(
-      `afterPack: critical dependencies failed to copy: ${missingCritical.join(', ')}. ` +
-        `The packaged app will crash at runtime. Check build logs for details.`,
+    return path.resolve(
+      packageSourceRoots[0] ?? projectRoot,
+      ...packagePathInNodeModules,
     );
-    console.error(postError.message);
-  } else if (unexpectedError !== null) {
-    if (unexpectedError instanceof Error) {
-      postError = unexpectedError;
-    } else if (typeof unexpectedError === 'string') {
-      postError = new Error(unexpectedError);
-    } else {
-      postError = new Error(JSON.stringify(unexpectedError));
+  };
+
+  const getSqliteVecPlatformPackageName = () => {
+    const os = platform === 'win32' ? 'windows' : platform;
+    return `sqlite-vec-${os}-${arch}`;
+  };
+
+  const getBetterSqliteBinaryPaths = (): string[][] => {
+    const compiledBinary = ['better-sqlite3', 'build', 'Release', 'better_sqlite3.node'];
+    if (fs.existsSync(resolvePackageSource(...compiledBinary))) {
+      return [compiledBinary];
     }
-  }
-  if (postError !== null) {
-    throw postError;
+
+    // Some better-sqlite3 v13 distributions expose N-API binaries under
+    // prebuilds instead. Supporting both layouts keeps local installs and CI
+    // source builds deterministic without guessing which installer ran.
+    if (platform === 'linux') {
+      // Keep both libc variants so the same Linux package can start on glibc
+      // and musl hosts. better-sqlite3 selects the correct N-API binary.
+      return [
+        ['better-sqlite3', 'prebuilds', `linux-${arch}.node`],
+        ['better-sqlite3', 'prebuilds', `linuxmusl-${arch}.node`],
+      ];
+    }
+    return [['better-sqlite3', 'prebuilds', `${platform}-${arch}.node`]];
+  };
+
+  console.log(
+    'Copy runtime dependencies used by UtilityProcess and the MemeLoop agent worker',
+  );
+
+  if (['production', 'test'].includes(process.env.NODE_ENV ?? '')) {
+    console.log('Copying runtime dependencies to dist');
+    const sourceNodeModulesFolder = packageSourceRoots[0] ?? path.resolve(projectRoot, 'node_modules');
+
+    fs.cpSync(
+      path.join(sourceNodeModulesFolder, 'zx'),
+      path.join(cwd, 'node_modules', 'zx'),
+      { dereference: true, recursive: true },
+    );
+
+    const packagePathsToCopyDereferenced: string[][] = [
+      ...getBetterSqliteBinaryPaths(),
+      // Wiki workers load boot/core/plugin files from process.resourcesPath.
+      ['tiddlywiki'],
+      // `ws` optional native deps (required in our bundled Electron runtime when it tries to resolve them)
+      ['bufferutil'],
+      ['utf-8-validate'],
+      // Noise handshake resolves native crypto addons relative to package files at runtime.
+      ['sodium-universal'],
+      ['sodium-native'],
+      ['require-addon'],
+      ['which-runtime'],
+      ['bare-addon-resolve'],
+      ['bare-module-resolve'],
+      ['bare-semver'],
+      // Pure ESM/CJS packages externalized by vite.main.config.ts.
+      ['rotating-file-stream', 'package.json'],
+      ['rotating-file-stream', 'dist', 'cjs', 'index.js'],
+      ['rotating-file-stream', 'dist', 'cjs', 'package.json'],
+      // nsfw native module
+      ['nsfw', 'build', 'Release', 'nsfw.node'],
+      // Refer to `node_modules\sqlite-vec\index.cjs` for latest file names
+      // sqlite-vec: copy main entry files and platform-specific binary
+      ['sqlite-vec', 'package.json'],
+      ['sqlite-vec', 'index.cjs'],
+      [getSqliteVecPlatformPackageName()],
+    ];
+
+    // macOS only: copy app-path binary for finding apps
+    if (platform === 'darwin') {
+      packagePathsToCopyDereferenced.push(['app-path', 'main']);
+    }
+
+    console.log('Copying packagePathsToCopyDereferenced');
+    const optionalPackages = new Set(['bufferutil', 'utf-8-validate']);
+    for (const packagePathInNodeModules of packagePathsToCopyDereferenced) {
+      const first = packagePathInNodeModules[0] ?? '';
+      const source = resolvePackageSource(...packagePathInNodeModules);
+
+      if (!fs.existsSync(source)) {
+        // ws deliberately falls back to its portable JavaScript implementation
+        // when these optional native accelerators are not installed.
+        if (optionalPackages.has(first)) {
+          console.log(`Skipping optional packaged dependency: ${first}`);
+          continue;
+        }
+        throw new Error(
+          `Required packaged dependency is missing: ${packagePathInNodeModules.join('/')} (looked in ${packageSourceRoots.join(', ')})`,
+        );
+      }
+
+      const destinationMain = path.resolve(
+        cwd,
+        'node_modules',
+        ...packagePathInNodeModules,
+      );
+      fs.copySync(source, destinationMain, { dereference: true });
+
+      // These packages may be required from inside app.asar bundles, so place
+      // them both in Resources/node_modules and Resources/app/node_modules.
+      if (
+        first === 'bufferutil' ||
+        first === 'utf-8-validate' ||
+        first === 'sodium-universal' ||
+        first === 'sodium-native' ||
+        first === 'require-addon' ||
+        first === 'which-runtime' ||
+        first === 'bare-addon-resolve' ||
+        first === 'bare-module-resolve' ||
+        first === 'bare-semver'
+      ) {
+        const destinationApp = path.resolve(
+          appNodeModulesDirectory,
+          ...packagePathInNodeModules,
+        );
+        fs.copySync(source, destinationApp, { dereference: true });
+      }
+    }
+
+    console.log('Copy dugite');
+    // it has things like `git/bin/libexec/git-core/git-add` link to `git/bin/libexec/git-core/git`, to reduce size, so can't use `dereference: true, recursive: true` here.
+    // pnpm exposes the package itself as a symlink. Resolve only that outer
+    // link, then preserve dugite's internal links in the copied Git runtime.
+    const dugiteSource = fs.realpathSync(path.join(sourceNodeModulesFolder, 'dugite'));
+    const dugiteDestination = path.join(cwd, 'node_modules', 'dugite');
+    fs.removeSync(dugiteDestination);
+    fs.copySync(
+      dugiteSource,
+      dugiteDestination,
+      { dereference: false },
+    );
+    // The Vite main bundle keeps `require('dugite')` external, so Node must
+    // find its lightweight JS entry under app/node_modules. Keep the 155 MB
+    // embedded Git distribution only in Resources/node_modules; GitService
+    // points dugite to it through LOCAL_GIT_DIRECTORY at runtime.
+    fs.copySync(
+      path.join(sourceNodeModulesFolder, 'dugite', 'package.json'),
+      path.join(appNodeModulesDirectory, 'dugite', 'package.json'),
+      { dereference: true },
+    );
+    fs.copySync(
+      path.join(sourceNodeModulesFolder, 'dugite', 'build'),
+      path.join(appNodeModulesDirectory, 'dugite', 'build'),
+      { dereference: true },
+    );
+
+    if (platform === 'win32') {
+      console.log('Copy registry-js (Windows only)');
+      // registry-js has native binary that is loaded using relative path (../../build/Release/registry.node)
+      fs.copySync(
+        path.join(sourceNodeModulesFolder, 'registry-js'),
+        path.join(cwd, 'node_modules', 'registry-js'),
+        { dereference: true },
+      );
+    }
   }
 };

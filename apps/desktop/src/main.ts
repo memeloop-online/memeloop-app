@@ -4,7 +4,6 @@ import 'reflect-metadata';
 import './helpers/singleInstance';
 import './services/database/configSetting';
 import { app, ipcMain, powerMonitor, protocol } from 'electron';
-import unhandled from 'electron-unhandled';
 import inspector from 'node:inspector';
 import { initJsonRepairLogger, initTidgiConfigLogger } from './services/database/configSetting';
 
@@ -12,6 +11,7 @@ import { MainChannel } from '@/constants/channels';
 import { isDevelopmentOrTest, isTest } from '@/constants/environment';
 import { TIDGI_PROTOCOL_SCHEME } from '@/constants/protocol';
 import { container } from '@services/container';
+import { setupUnhandled } from '@services/libs/electronUnhandledBridge';
 import { initRendererI18NHandler } from '@services/libs/i18n';
 import { destroyLogger, logger } from '@services/libs/log';
 import { buildLanguageMenu } from '@services/menu/buildLanguageMenu';
@@ -436,14 +436,17 @@ app.on('before-quit', (event): void => {
   }
 });
 
-unhandled({
+void setupUnhandled({
   showDialog: !isDevelopmentOrTest,
-  logger: (error: Error) => {
+  logger: (error: Error): void => {
     logger.error('unhandled', { error });
+    analyticsService.trackError(error, 'unhandled');
   },
-  reportButton: (error) => {
+  reportButton: (error: Error): void => {
     reportErrorToGithubWithTemplates(error);
   },
+}).catch((error: unknown) => {
+  logger.error('Failed to initialize unhandled-error reporting', { error });
 });
 
 // Handle Windows Squirrel events (install/update/uninstall)
