@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24.15.0
+          cache: pnpm
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Use HTTPS for GitHub dependencies
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+
+      - name: Rebuild Electron native modules
+        run: pnpm --dir apps/desktop exec electron-rebuild -f -w better-sqlite3,nsfw
+
+      - name: Check Desktop types
+        run: pnpm --dir apps/desktop run check
+
+      - name: Test Desktop
+        run: pnpm --dir apps/desktop run test:unit
+        env:
+          CI: "true"
+          LOCAL_GIT_DIRECTORY: /usr
+          GIT_EXEC_PATH: /usr/lib/git-core
+
+      - name: Check Mobile
+        run: |
+          pnpm --dir apps/mobile run typecheck
+          pnpm --dir apps/mobile run lint
+
+      - name: Verify network boundary and pinned bootstrap
+        run: >-
+          pnpm --dir apps/desktop exec cross-env ELECTRON_RUN_AS_NODE=1
+          ./node_modules/.bin/electron ./node_modules/vitest/vitest.mjs run
+          src/__tests__/network/legacyNetworkSurface.test.ts
+          src/services/sshRemote/__tests__/bootstrap.test.ts
+          src/services/memeloopNode/__tests__/ipcSurface.test.ts
+          src/services/memeloopNode/__tests__/chatSyncIntegration.test.ts
+
+      - name: Reject local MemeLoop dependency overrides
+        run: |
+          if git grep -n -E '(\.\./){2,}memeloop|@memeloop/protocol|(file|link|workspace):[^[:space:]"]*memeloop' -- ':!.github/workflows/ci.yml'; then
+            echo "Local or obsolete MemeLoop dependency reference found"
+            exit 1
+          fi
