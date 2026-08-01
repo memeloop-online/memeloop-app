@@ -113,6 +113,9 @@ importers:
       ai:
         specifier: ^7.0.37
         version: 7.0.37(zod@4.4.3)
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
       ansi-to-html:
         specifier: ^0.7.2
         version: 0.7.2
@@ -2768,7 +2771,7 @@ packages:
   '@memeloop/libp2p@file:../memeloop/packages/memeloop-libp2p':
     resolution: {directory: ../memeloop/packages/memeloop-libp2p, type: directory}
     peerDependencies:
-      memeloop: ^0.0.1
+      memeloop: ^0.1.4
 
   '@modelcontextprotocol/sdk@1.29.0':
     resolution: {integrity: sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ==}
