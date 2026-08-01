@@ -25,28 +25,8 @@ export default async (
   const cwd = path.resolve(buildPath, '..');
   const appNodeModulesDirectory = path.resolve(buildPath, 'node_modules');
   const projectRoot = path.resolve(__dirname, '..');
-  const linkedWorkspaceNodeModulesDirectory = path.resolve(
-    projectRoot,
-    '../../../memeloop/node_modules/.pnpm/node_modules',
-  );
-  const packageSourceRoots = [
-    path.resolve(projectRoot, 'node_modules'),
-    linkedWorkspaceNodeModulesDirectory,
-  ];
-
-  const resolvePackageSource = (...packagePathInNodeModules: string[]) => {
-    for (const sourceRoot of packageSourceRoots) {
-      const candidate = path.resolve(sourceRoot, ...packagePathInNodeModules);
-      if (fs.existsSync(candidate)) {
-        return candidate;
-      }
-    }
-
-    return path.resolve(
-      packageSourceRoots[0] ?? projectRoot,
-      ...packagePathInNodeModules,
-    );
-  };
+  const sourceNodeModulesFolder = path.resolve(projectRoot, 'node_modules');
+  const resolvePackageSource = (...packagePathInNodeModules: string[]) => path.resolve(sourceNodeModulesFolder, ...packagePathInNodeModules);
 
   const getSqliteVecPlatformPackageName = () => {
     const os = platform === 'win32' ? 'windows' : platform;
@@ -79,7 +59,6 @@ export default async (
 
   if (['production', 'test'].includes(process.env.NODE_ENV ?? '')) {
     console.log('Copying runtime dependencies to dist');
-    const sourceNodeModulesFolder = packageSourceRoots[0] ?? path.resolve(projectRoot, 'node_modules');
 
     fs.cpSync(
       path.join(sourceNodeModulesFolder, 'zx'),
@@ -134,7 +113,7 @@ export default async (
           continue;
         }
         throw new Error(
-          `Required packaged dependency is missing: ${packagePathInNodeModules.join('/')} (looked in ${packageSourceRoots.join(', ')})`,
+          `Required packaged dependency is missing: ${packagePathInNodeModules.join('/')} (looked in ${sourceNodeModulesFolder})`,
         );
       }
 

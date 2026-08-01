@@ -1,23 +1,21 @@
-import {
-  type AgentDefinition,
-  type AttachmentRef,
-  type ChatMessage,
-  type ConversationMeta,
-  createFetchOrchestrationTransport,
-  type RemoteOrchestrationRequest,
-  type RemoteOrchestrationResponse,
-  type RemoteOrchestrationTransport,
-} from '@memeloop/protocol';
 import { createWorkerProxy } from '@services/libs/workerAdapter';
 import { inject, injectable } from 'inversify';
 import {
+  type AgentDefinition,
   type AgentFrameworkContext as MemeLoopAgentFrameworkContext,
+  type AttachmentReference,
+  type ChatMessage,
+  type ConversationMeta,
+  createFetchOrchestrationTransport,
   createMemeLoopRuntime,
   type IAgentStorage,
   type ILLMProvider,
   type IToolRegistry,
   type LocalDeviceIdentity,
   type MemeLoopRuntime,
+  type RemoteOrchestrationRequest,
+  type RemoteOrchestrationResponse,
+  type RemoteOrchestrationTransport,
 } from 'memeloop';
 import { nanoid } from 'nanoid';
 import { randomBytes } from 'node:crypto';
@@ -528,9 +526,9 @@ export class AgentInstanceService implements IAgentInstanceService {
       },
       getAttachment: async (
         _contentHash: string,
-      ): Promise<AttachmentRef | null> => null,
+      ): Promise<AttachmentReference | null> => null,
       saveAttachment: async (
-        _ref: AttachmentRef,
+        _reference: AttachmentReference,
         _data: Buffer | Uint8Array,
       ): Promise<void> => undefined,
       getAgentDefinition: async (

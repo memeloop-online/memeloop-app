@@ -6,14 +6,6 @@ import { analyzer } from 'vite-bundle-analyzer';
 import monacoEditorPlugin from 'vite-plugin-monaco-editor';
 
 const desktopDependency = (packageName: string): string => realpathSync(path.resolve(__dirname, 'node_modules', packageName));
-const memeloopReactUiDependency = (packageName: string): string =>
-  realpathSync(
-    path.resolve(
-      __dirname,
-      '../../../memeloop/packages/memeloop-react-ui/node_modules',
-      packageName,
-    ),
-  );
 
 // The desktop package is also consumable from the repository workspace. pnpm's
 // hoisted linker can expose the same Vite build through two physical module
@@ -33,10 +25,6 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@services': path.resolve(__dirname, './src/services'),
-      '@memeloop/react-ui': path.resolve(
-        __dirname,
-        '../../../memeloop/packages/memeloop-react-ui/dist',
-      ),
       react: desktopDependency('react'),
       'react-dom': desktopDependency('react-dom'),
       'simplebar-react': desktopDependency('simplebar-react'),
@@ -44,12 +32,12 @@ export default defineConfig({
       '@rjsf/mui': desktopDependency('@rjsf/mui'),
       '@rjsf/utils': desktopDependency('@rjsf/utils'),
       '@rjsf/validator-ajv8': desktopDependency('@rjsf/validator-ajv8'),
-      '@assistant-ui/react': memeloopReactUiDependency('@assistant-ui/react'),
+      '@assistant-ui/react': desktopDependency('@assistant-ui/react'),
     },
   },
   optimizeDeps: {
     include: ['monaco-editor'],
-    exclude: ['memeloop', 'memeloop-cli', '@memeloop/protocol', '@memeloop/react-ui'],
+    exclude: ['memeloop', 'memeloop-cli', '@memeloop/react-ui'],
   },
   build: {
     // Output to .vite/renderer for consistency

@@ -1,4 +1,4 @@
-import { REMOTE_ORCHESTRATION_PROTOCOL, type RemoteOrchestrationRequest } from '@memeloop/protocol';
+import { REMOTE_ORCHESTRATION_PROTOCOL, type RemoteOrchestrationRequest } from 'memeloop';
 import { of } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 

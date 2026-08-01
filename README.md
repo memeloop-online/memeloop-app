@@ -15,15 +15,14 @@ memeloop-app/
 
 ## Dependencies
 
-Desktop and mobile depend on `memeloop` monorepo packages via `link:`:
+Desktop and mobile consume the published MemeLoop packages from npm:
 
-| Package | Source |
-|---------|--------|
-| `memeloop` | `../memeloop/packages/memeloop` |
-| `memeloop-node` | `../memeloop/packages/memeloop-node` |
-| `@memeloop/protocol` | `../memeloop/packages/memeloop-protocol` |
-| `@memeloop/ui` | `../memeloop/packages/memeloop-ui` |
-| `@memeloop/prompt-editor` | `../memeloop/packages/memeloop-prompt-editor` |
+| Package | Version |
+|---------|---------|
+| `memeloop` | `0.2.0` |
+| `@memeloop/libp2p` | `0.2.0` |
+| `memeloop-cli` | `0.2.0` (desktop) |
+| `@memeloop/react-ui` | `0.1.1` (desktop) |
 
 ## Quick Start
 
@@ -45,4 +44,4 @@ npx expo start
 
 - **Desktop**: Electron + Vite + React. Services use inversify DI. IPC via electron-ipc-cat.
 - **Mobile**: Expo Router + React Native Paper. Connects through authenticated MemeLoop DeviceNetwork transports.
-- **Shared**: `@memeloop/protocol` (types), `@memeloop/ui` (UI components), `@memeloop/prompt-editor` (form widgets).
+- **Shared**: `memeloop` (portable protocol/types) and `@memeloop/react-ui` (desktop UI components).

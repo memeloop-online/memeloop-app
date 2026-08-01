@@ -1,5 +1,5 @@
-import type { RemoteOrchestrationRequest, RemoteOrchestrationResponse } from '@memeloop/protocol';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
+import type { RemoteOrchestrationRequest, RemoteOrchestrationResponse } from 'memeloop';
 import type { Observable } from 'rxjs';
 
 import { AgentChannel } from '@/constants/channels';

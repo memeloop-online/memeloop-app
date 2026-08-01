@@ -10,18 +10,7 @@
   "compilerOptions": {
     "paths": {
       "@services/*": ["./src/services/*"],
-      "@/*": ["./src/*"],
-      "memeloop": ["../../../memeloop/packages/memeloop/dist"],
-      "memeloop/*": ["../../../memeloop/packages/memeloop/dist/*"],
-      "memeloop-cli": ["../../../memeloop/packages/memeloop-cli/dist"],
-      "memeloop-cli/*": ["../../../memeloop/packages/memeloop-cli/dist/*"],
-      "memeloop-cli/auth": ["../../../memeloop/packages/memeloop-cli/dist/auth.d.ts"],
-      "memeloop-cli/terminal": ["../../../memeloop/packages/memeloop-cli/dist/terminal.d.ts"],
-      "@memeloop/protocol": ["../../../memeloop/packages/memeloop-protocol/dist"],
-      "@memeloop/protocol/*": ["../../../memeloop/packages/memeloop-protocol/dist/*"],
-      "@memeloop/react-ui": ["../../../memeloop/packages/memeloop-react-ui/dist"],
-      "@memeloop/react-ui/*": ["../../../memeloop/packages/memeloop-react-ui/dist/*"],
-      "@memeloop/react-ui/web": ["../../../memeloop/packages/memeloop-react-ui/dist/web/index.d.ts"]
+      "@/*": ["./src/*"]
     },
     "skipLibCheck": true,
     /* Basic Options */

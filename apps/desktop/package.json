@@ -30,9 +30,7 @@
     "check": "tsc --noEmit --skipLibCheck",
     "validate:push": "pnpm run check && pnpm run lint --max-warnings 0",
     "prepare": "husky",
-    "installType": "typesync",
-    "build:memeloop-react-ui": "pnpm --dir ../../../memeloop/packages/memeloop-react-ui run build",
-    "build:memeloop-packages": "pnpm --dir ../../../memeloop/packages/memeloop run build && pnpm --dir ../../../memeloop/packages/memeloop-cli run build && pnpm --dir ../../../memeloop/packages/memeloop-protocol run build"
+    "installType": "typesync"
   },
   "repository": "https://github.com/linonetwo/memeloop-app",
   "author": "MemeLoop Team",
@@ -134,11 +132,10 @@
     "zod": "^4.4.3",
     "zustand": "^5.0.14",
     "zx": "8.8.5",
-    "@memeloop/libp2p": "file:../../../memeloop/packages/memeloop-libp2p",
-    "@memeloop/protocol": "link:../../../memeloop/packages/memeloop-protocol",
-    "@memeloop/react-ui": "link:../../../memeloop/packages/memeloop-react-ui",
-    "memeloop": "link:../../../memeloop/packages/memeloop",
-    "memeloop-cli": "link:../../../memeloop/packages/memeloop-cli",
+    "@memeloop/libp2p": "0.2.0",
+    "@memeloop/react-ui": "0.1.1",
+    "memeloop": "0.2.0",
+    "memeloop-cli": "0.2.0",
     "@mui/utils": "^7.3.11"
   },
   "devDependencies": {

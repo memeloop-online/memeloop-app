@@ -1,7 +1,5 @@
 import 'source-map-support/register';
 
-import type { AgentDefinition, AttachmentRef, ChatMessage, ConversationMeta } from '@memeloop/protocol';
-
 import { nanoid } from 'nanoid';
 import { timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
@@ -12,7 +10,7 @@ import taskAgents from './agentFrameworks/taskAgents.json';
 
 import { handleWorkerMessages } from '@services/libs/workerAdapter';
 
-import { onApprovalRequest, resolveApproval, resolveQuestionAnswer } from 'memeloop';
+import { type AgentDefinition, type AttachmentReference, type ChatMessage, type ConversationMeta, onApprovalRequest, resolveApproval, resolveQuestionAnswer } from 'memeloop';
 import type { IWikiManager, TiddlerFields } from 'memeloop-cli/runtime';
 import { TerminalSessionManager } from './terminal/sessionManager';
 
@@ -370,9 +368,9 @@ const inMemoryStorage = {
       }
     }
   },
-  getAttachment: async (_contentHash: string): Promise<AttachmentRef | null> => null,
+  getAttachment: async (_contentHash: string): Promise<AttachmentReference | null> => null,
   saveAttachment: async (
-    _reference: AttachmentRef,
+    _reference: AttachmentReference,
     _data: Buffer | Uint8Array,
   ): Promise<void> => undefined,
   getAgentDefinition: async (id: string): Promise<AgentDefinition | null> => {
@@ -559,7 +557,7 @@ let runtime: any;
 let storage: any;
 let toolRegistry: any;
 let orchestrationClient:
-  | import('@memeloop/protocol').AgentOrchestrationClient
+  | import('memeloop').AgentOrchestrationClient
   | undefined;
 let stopNodeRuntime: (() => Promise<void>) | undefined;
 let createRemoteOrchestrationHttpHandlerFunction:

@@ -1,4 +1,4 @@
-import { type AgentOrchestrationClient, createRemoteOrchestrationClient, type RemoteOrchestrationTransport } from '@memeloop/protocol';
+import { type AgentOrchestrationClient, createRemoteOrchestrationClient, type RemoteOrchestrationTransport } from 'memeloop';
 import type { Observable } from 'rxjs';
 
 type Notification<T> =

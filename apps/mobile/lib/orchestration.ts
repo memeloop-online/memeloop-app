@@ -1,16 +1,17 @@
 import {
   createFetchOrchestrationTransport,
-  createRemoteOnlyHostCapabilities,
   createRemoteOrchestrationClient,
   OrchestrationError,
+  type AgentOrchestrationCapabilities,
   type AgentOrchestrationClient,
-} from '@memeloop/protocol';
+} from 'memeloop';
 import {
   createDeviceOrchestrationTransport,
   type DeviceNetworkService,
 } from 'memeloop/device-network';
 
-export const MOBILE_ORCHESTRATION_CAPABILITIES = createRemoteOnlyHostCapabilities({
+export const MOBILE_ORCHESTRATION_CAPABILITIES: AgentOrchestrationCapabilities = {
+  operations: ['get', 'list', 'watch'],
   resourceKinds: [
     'AgentDefinition',
     'AgentWorkload',
@@ -18,7 +19,8 @@ export const MOBILE_ORCHESTRATION_CAPABILITIES = createRemoteOnlyHostCapabilitie
     'LoopRun',
     'ToolOperation',
   ],
-});
+  interfaces: ['resource'],
+};
 
 export interface MobileOrchestrationClientOptions {
   endpoint: string;

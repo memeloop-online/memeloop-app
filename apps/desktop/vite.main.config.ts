@@ -41,13 +41,6 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@services': path.resolve(__dirname, './src/services'),
-      // Bundle linked MemeLoop sources into the desktop main/agent-worker
-      // chunks, so development and packaging do not depend on stale dist output.
-      'memeloop/device-network': path.resolve(__dirname, '../../../memeloop/packages/memeloop/src/device-network-entry.ts'),
-      'memeloop/llm-providers': path.resolve(__dirname, '../../../memeloop/packages/memeloop/src/llm-providers.ts'),
-      memeloop: path.resolve(__dirname, '../../../memeloop/packages/memeloop/src'),
-      'memeloop-cli': path.resolve(__dirname, '../../../memeloop/packages/memeloop-cli/dist'),
-      '@memeloop/protocol': path.resolve(__dirname, '../../../memeloop/packages/memeloop-protocol/src'),
       'i18next-fs-backend': path.resolve(__dirname, './node_modules/i18next-fs-backend/cjs/index.js'),
       'i18next-electron-fs-backend': path.resolve(__dirname, './node_modules/i18next-electron-fs-backend/cjs/index.js'),
     },

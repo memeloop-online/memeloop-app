@@ -76,3 +76,6 @@ minimumReleaseAgeExclude:
   - ai@7.0.37
   - fs-extra@11.4.0
   - inversify@8.2.3
+  - '@memeloop/libp2p@0.2.0'
+  - memeloop-cli@0.2.0
+  - memeloop@0.2.0

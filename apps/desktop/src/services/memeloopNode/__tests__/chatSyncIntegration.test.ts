@@ -1,4 +1,4 @@
-import type { ChatMessage, ConversationMeta } from '@memeloop/protocol';
+import type { ChatMessage, ConversationMeta } from 'memeloop';
 import { ChatSyncEngine, PeerNodeSyncAdapter, type PeerNodeTransport } from 'memeloop';
 import type { IAgentStorage } from 'memeloop';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -76,6 +76,7 @@ describe('ChatSyncEngine Desktop integration', () => {
       exchangeVersionVector: vi.fn(async () => ({
         remoteVersion: { 'remote-node': 5 },
         missingForRemote: [],
+        missingForLocal: [],
       })),
       pullMissingMetadata: vi.fn(async () => ({ items: [] })),
       pullMissingMessages: vi.fn(async () => []),
@@ -108,6 +109,7 @@ describe('ChatSyncEngine Desktop integration', () => {
       exchangeVersionVector: vi.fn(async () => ({
         remoteVersion: { 'remote-node': 1 },
         missingForRemote: [],
+        missingForLocal: [],
       })),
       pullMissingMetadata: vi.fn(async () => ({ items: [remoteMeta] })),
       pullMissingMessages: vi.fn(async () => []),
