@@ -51,13 +51,14 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: "true"
 
       - name: Rebuild Electron native modules
-        run: pnpm --dir apps/desktop exec electron-rebuild -f -w better-sqlite3,nsfw
+        working-directory: apps/desktop
+        run: ./node_modules/.bin/electron-rebuild -f -w better-sqlite3,nsfw
 
       - name: Check Desktop types
-        run: pnpm --dir apps/desktop run check
+        run: pnpm --filter memeloop-desktop run check
 
       - name: Test Desktop
-        run: pnpm --dir apps/desktop run test:unit
+        run: pnpm --filter memeloop-desktop run test:unit
         env:
           CI: "true"
           LOCAL_GIT_DIRECTORY: /usr
@@ -65,12 +66,13 @@ jobs:
 
       - name: Check Mobile
         run: |
-          pnpm --dir apps/mobile run typecheck
-          pnpm --dir apps/mobile run lint
+          pnpm --filter @memeloop/mobile run typecheck
+          pnpm --filter @memeloop/mobile run lint
 
       - name: Verify network boundary and pinned bootstrap
+        working-directory: apps/desktop
         run: >-
-          pnpm --dir apps/desktop exec cross-env ELECTRON_RUN_AS_NODE=1
+          ./node_modules/.bin/cross-env ELECTRON_RUN_AS_NODE=1
           ./node_modules/.bin/electron ./node_modules/vitest/vitest.mjs run
           src/__tests__/network/legacyNetworkSurface.test.ts
           src/services/sshRemote/__tests__/bootstrap.test.ts
