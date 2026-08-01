@@ -24,10 +24,6 @@ export enum WindowNames {
   notifications = 'notifications',
   preferences = 'preferences',
   /**
-   * Remote terminal viewer window
-   */
-  remoteTerminal = 'remoteTerminal',
-  /**
    * Remote server setup wizard
    */
   remoteSetup = 'remoteSetup',
@@ -102,10 +98,6 @@ export const windowDimension: Record<
     width: 840,
     height: 700,
   },
-  [WindowNames.remoteTerminal]: {
-    width: 1400,
-    height: 900,
-  },
   [WindowNames.remoteSetup]: {
     width: 900,
     height: 700,
@@ -151,7 +143,6 @@ export interface WindowMeta {
   [WindowNames.tidgiMiniWindow]: undefined;
   [WindowNames.notifications]: undefined;
   [WindowNames.preferences]: IPreferenceWindowMeta;
-  [WindowNames.remoteTerminal]: { nodeId?: string };
   [WindowNames.remoteSetup]: undefined;
   [WindowNames.nodeManagement]: undefined;
   [WindowNames.subscription]: undefined;

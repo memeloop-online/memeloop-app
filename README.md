@@ -44,5 +44,5 @@ npx expo start
 ## Architecture
 
 - **Desktop**: Electron + Vite + React. Services use inversify DI. IPC via electron-ipc-cat.
-- **Mobile**: Expo Router + React Native Paper. Connects to memeloop-node via WebSocket.
+- **Mobile**: Expo Router + React Native Paper. Connects through authenticated MemeLoop DeviceNetwork transports.
 - **Shared**: `@memeloop/protocol` (types), `@memeloop/ui` (UI components), `@memeloop/prompt-editor` (form widgets).

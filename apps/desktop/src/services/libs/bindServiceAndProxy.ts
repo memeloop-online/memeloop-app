@@ -92,8 +92,6 @@ import type { IWorkspaceViewService } from '@services/workspacesView/interface';
 import { WorkspaceViewServiceIPCDescriptor } from '@services/workspacesView/interface';
 import { ProviderRegistryService } from '../providerRegistry';
 import { type IProviderRegistryService, ProviderRegistryServiceIPCDescriptor } from '../providerRegistry/interface';
-import { RemoteTerminalService } from '../remoteTerminal';
-import { type IRemoteTerminalService, RemoteTerminalServiceIPCDescriptor } from '../remoteTerminal/interface';
 import { type IRemoteSetupService, RemoteSetupServiceIPCDescriptor } from '../sshRemote/interface';
 import { RemoteSetupService } from '../sshRemote/service';
 
@@ -174,10 +172,6 @@ export function bindServiceAndProxy(): void {
   container
     .bind<IRemoteSetupService>(serviceIdentifier.RemoteSetup)
     .to(RemoteSetupService)
-    .inSingletonScope();
-  container
-    .bind<IRemoteTerminalService>(serviceIdentifier.RemoteTerminal)
-    .to(RemoteTerminalService)
     .inSingletonScope();
   container
     .bind<ISyncService>(serviceIdentifier.Sync)
@@ -283,9 +277,6 @@ export function bindServiceAndProxy(): void {
   const preferenceService = container.get<IPreferenceService>(
     serviceIdentifier.Preference,
   );
-  const remoteTerminalService = container.get<IRemoteTerminalService>(
-    serviceIdentifier.RemoteTerminal,
-  );
   const remoteSetupService = container.get<IRemoteSetupService>(
     serviceIdentifier.RemoteSetup,
   );
@@ -337,7 +328,6 @@ export function bindServiceAndProxy(): void {
   registerProxy(nativeService, NativeServiceIPCDescriptor);
   registerProxy(notificationService, NotificationServiceIPCDescriptor);
   registerProxy(preferenceService, PreferenceServiceIPCDescriptor);
-  registerProxy(remoteTerminalService, RemoteTerminalServiceIPCDescriptor);
   registerProxy(remoteSetupService, RemoteSetupServiceIPCDescriptor);
   registerProxy(syncService, SyncServiceIPCDescriptor);
   registerProxy(systemPreferenceService, SystemPreferenceServiceIPCDescriptor);

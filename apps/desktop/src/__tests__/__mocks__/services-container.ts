@@ -1,6 +1,5 @@
 import type { IMemeloopNodeService } from '@/services/memeloopNode/interface';
 import type { AIStreamResponse } from '@/services/providerRegistry/interface';
-import type { IRemoteTerminalService } from '@/services/remoteTerminal/interface';
 import type { IToolApprovalRequest, IToolPermissionsService } from '@/services/toolPermissions/interface';
 import { AgentBrowserService } from '@services/agentBrowser';
 import { AgentDefinitionService } from '@services/agentDefinition';
@@ -32,7 +31,6 @@ export const serviceInstances: {
   externalAPI: Partial<IProviderRegistryService>;
   toolPermissions: Partial<IToolPermissionsService>;
   memeloopNode: Partial<IMemeloopNodeService>;
-  remoteTerminal: Partial<IRemoteTerminalService>;
 } = {
   window: {
     open: vi.fn().mockResolvedValue(undefined),
@@ -107,41 +105,15 @@ export const serviceInstances: {
     clearSessionApprovals: vi.fn(async () => undefined),
   } as Partial<IToolPermissionsService>,
   memeloopNode: {
-    startServer: vi.fn(async () => undefined),
-    stopServer: vi.fn(async () => undefined),
-    getServerStatus: vi.fn(async () => ({ running: false })),
-    registerWikiGitEndpoint: vi.fn(async () => undefined),
-    unregisterWikiGitEndpoint: vi.fn(async () => undefined),
-    getRegisteredWikis: vi.fn(async () => []),
-    getConnectedPeers: vi.fn(async () => []),
-    listRemoteWikis: vi.fn(async () => []),
-    listAllRemoteWikis: vi.fn(async () => []),
-    listCloudNodes: vi.fn(async () => []),
-    addPeer: vi.fn(async () => ({ nodeId: 'mock-node' })),
-    removePeer: vi.fn(async () => undefined),
-    syncNow: vi.fn(async () => ({ synced: true })),
-    antiEntropy: vi.fn(async () => ({ synced: true })),
-    getSyncStatus: vi.fn(async () => ({ versionVector: {}, peerCount: 0, syncRunning: false })),
-    getIdentityStatus: vi.fn(async () => ({
-      nodeId: '',
-      hasKeypair: false,
-      cloudUrl: null,
-      cloudLoggedIn: false,
-      cloudEmail: null,
-      cloudNodeRegistered: false,
-      knownNodeCount: 0,
-    })),
-    regenerateKeypair: vi.fn(async () => ({ nodeId: 'new-node-id' })),
     cloudLogin: vi.fn(async () => ({ ok: true })),
     cloudLogout: vi.fn(async () => undefined),
     setCloudUrl: vi.fn(async () => undefined),
     getCloudUrl: vi.fn(async () => null),
-    requestNodeOtp: vi.fn(async () => ({ otp: '123456', expiresIn: 300 })),
-    registerNodeWithOtp: vi.fn(async () => ({ nodeId: 'cloud-node-id' })),
-    getKnownNodes: vi.fn(async () => []),
-    removeKnownNode: vi.fn(async () => undefined),
-    getLocalPinCode: vi.fn(async () => 'ABCDEF'),
-    confirmPeerPin: vi.fn(async () => ({ ok: true })),
+    getAccountStatus: vi.fn(async () => ({
+      cloudUrl: null,
+      loggedIn: false,
+      email: null,
+    })),
     getSubscriptionStatus: vi.fn(async () => ({
       plan: 'free' as const,
       status: 'active' as const,
@@ -151,12 +123,6 @@ export const serviceInstances: {
     })),
     openBillingPage: vi.fn(async () => undefined),
   } as Partial<IMemeloopNodeService>,
-  remoteTerminal: {
-    listSessions: vi.fn(async () => []),
-    followSession: vi.fn(async () => ({ sessionId: '', status: 'running' as const, exitCode: null, nextSeq: 0, done: false, chunks: [] })),
-    respondToSession: vi.fn(async () => undefined),
-    cancelSession: vi.fn(async () => undefined),
-  } as unknown as Partial<IRemoteTerminalService>,
 };
 
 // Bind the shared mocks into container so real services resolved from container.get()
@@ -172,3 +138,13 @@ container.bind(serviceIdentifier.AgentBrowser).to(AgentBrowserService).inSinglet
 // Bind real DatabaseService instead of mock
 container.bind(serviceIdentifier.Database).to(DatabaseService).inSingletonScope();
 container.bind(serviceIdentifier.AgentInstance).to(AgentInstanceService).inSingletonScope();
+
+container.get<AgentInstanceService>(serviceIdentifier.AgentInstance)
+  .configureMemeLoopHostIdentity({
+    peerId: '12D3KooWTestDesktopIdentity',
+    publicKeyMultibase: 'zTestPublicKey',
+    privateKeyRef: 'test-only',
+    createdAt: 0,
+    deviceName: 'Test Desktop',
+    platform: 'desktop',
+  });

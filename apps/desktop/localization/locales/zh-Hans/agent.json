@@ -161,8 +161,6 @@
     "AIAgentDescriptionDetail": "这里可以查看和删除智能体对话记录数据库的大小和位置信息",
     "AIAgentManage": "管理智能体",
     "AIAgentManageDescription": "查看和管理智能体实例、调度任务和权限设置",
-    "MemeloopNodePort": "节点服务端口",
-    "MemeloopNodePortDescription": "memeloop 节点服务器的本地端口（点对点同步、移动端同步），修改后需要重启。",
     "ToolApprovalSettings": "工具审批与超时设置",
     "ToolApprovalSettingsDescription": "配置每个工具的审批规则、超时限制、正则过滤和 API 重试设置",
     "ToolPermissions": "工具权限（黑名单/白名单）",
@@ -301,17 +299,7 @@
     "AddScheduledTask": "添加任务",
     "NoScheduledTasks": "没有定时任务。添加一个来定期唤醒智能体。",
     "NodeManagement": "节点管理",
-    "NodeManagementDescription": "管理本地 memeloop 节点的身份、已知节点与对等连接",
-    "NodeIdentity": "节点身份",
-    "NodeIdentityDescription": "查看本节点的 ID、密钥对状态和本地 PIN 码",
-    "KnownNodes": "受信任节点",
-    "KnownNodesDescription": "已建立信任关系的远端节点列表",
-    "ConnectPeer": "连接节点",
-    "ConnectPeerDescription": "通过 WebSocket 地址连接到远端 memeloop 节点",
-    "SyncStatus": "同步状态",
-    "SyncStatusDescription": "查看当前连接的节点数量和同步运行状态",
-    "RemoteWikis": "远端维基",
-    "RemoteWikisDescription": "已连接节点上可用的维基列表"
+    "NodeManagementDescription": "通过 PeerId 管理已认证的 MemeLoop 设备"
   },
   "Prompt": {
     "AutoRefresh": "预览会随输入文本的变化自动刷新",

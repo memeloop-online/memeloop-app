@@ -36,7 +36,6 @@ import { createDesktopOrchestrationClient } from '@services/deviceNetwork/orches
 import type { IExternalAPIService } from '@services/externalAPI/interface';
 import type { IGitService } from '@services/git/interface';
 import { initializeObservables } from '@services/libs/initializeObservables';
-import type { IMemeloopNodeService } from '@services/memeloopNode/interface';
 import type { INativeService } from '@services/native/interface';
 import { reportErrorToGithubWithTemplates } from '@services/native/reportError';
 import type { IProviderRegistryService } from '@services/providerRegistry/interface';
@@ -158,9 +157,6 @@ const agentInstanceService = container.get<IAgentInstanceService>(
 const externalAPIService = container.get<IExternalAPIService>(
   serviceIdentifier.ExternalAPI,
 );
-const memeloopNodeService = container.get<IMemeloopNodeService>(
-  serviceIdentifier.MemeloopNode,
-);
 const preferenceService = container.get<IPreferenceService>(
   serviceIdentifier.Preference,
 );
@@ -205,16 +201,6 @@ let shouldSkipBeforeQuitInterception = false;
 const runBeforeQuitCleanup = async (): Promise<void> => {
   logger.info('App before-quit - starting cleanup');
   try {
-    // Stop accepting orchestration requests while the worker is still alive.
-    try {
-      await memeloopNodeService.stopServer();
-      logger.info('App before-quit - memeloop node server stopped');
-    } catch (error) {
-      logger.error('App before-quit - memeloop node server stop failed', {
-        error,
-      });
-    }
-
     try {
       const agentInstanceService = container.get<IAgentInstanceService>(
         serviceIdentifier.AgentInstance,
@@ -286,6 +272,13 @@ const commonInit = async (): Promise<void> => {
     app.commandLine.appendSwitch('ignore-certificate-errors');
   }
 
+  // The isolated agent runtime must share the host DeviceNetwork identity.
+  // Configure it before agent initialization can start the UtilityProcess.
+  const deviceIdentity = await deviceNetworkService.getLocalIdentity();
+  (agentInstanceService as AgentInstanceService).configureMemeLoopHostIdentity(
+    deviceIdentity,
+  );
+
   // Initialize agent-related services after database is ready
   await Promise.all([
     agentDefinitionService.initialize(),
@@ -293,16 +286,6 @@ const commonInit = async (): Promise<void> => {
     wikiEmbeddingService.initialize(),
     externalAPIService.initialize(),
   ]);
-
-  // Start memeloop node server
-  try {
-    const memeloopPort = await preferenceService.get('memeloopNodePort');
-    const port = typeof memeloopPort === 'number' ? memeloopPort : 5200;
-    await memeloopNodeService.startServer(port);
-    logger.info('Memeloop node server started', { port });
-  } catch (error) {
-    logger.error('Failed to start memeloop node server', { error });
-  }
 
   // if user want a tidgi mini window, we create a new window for that
   // handle workspace name + tiddler name in uri https://www.electronjs.org/docs/latest/tutorial/launch-app-from-url-in-another-app

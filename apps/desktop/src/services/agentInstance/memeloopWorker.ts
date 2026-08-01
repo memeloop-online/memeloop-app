@@ -1,6 +1,6 @@
 import 'source-map-support/register';
 
-import type { AgentDefinition, AttachmentRef, ChatMessage, ConversationMeta, NodeStatus } from '@memeloop/protocol';
+import type { AgentDefinition, AttachmentRef, ChatMessage, ConversationMeta } from '@memeloop/protocol';
 
 import { nanoid } from 'nanoid';
 import { timingSafeEqual } from 'node:crypto';
@@ -552,8 +552,6 @@ onApprovalRequest((request) => {
 
 const wikiManager = new DesktopTiddlyWikiManager();
 
-// Use persistent keypair-derived nodeId instead of random nanoid.
-// Lazy: initialized in ensureRuntimeInitialized when memeloop-cli is available.
 let localNodeId = `tidgi-desktop-${nanoid(8)}`;
 const terminalManager = new TerminalSessionManager();
 
@@ -573,6 +571,7 @@ interface DesktopHostConfig {
   dataDir: string;
   sqliteNativeBinding: string;
   orchestrationAccessToken: string;
+  localPeerId: string;
   orchestrationHost?: string;
 }
 
@@ -601,36 +600,15 @@ async function ensureRuntimeInitialized(): Promise<void> {
   runtimeInitPromise = (async () => {
     // Load focused entries so Desktop does not pull CLI/TUI/libp2p dependencies
     // into the worker when it only needs the orchestration runtime and identity.
-    const [memeloopRuntime, memeloopAuth] = await Promise.all([
-      import('memeloop-cli/runtime'),
-      import('memeloop-cli/auth'),
-    ]);
+    const memeloopRuntime = await import('memeloop-cli/runtime');
     const {
       createNodeRuntime,
       ToolRegistry,
       createRemoteOrchestrationHttpHandler,
     } = memeloopRuntime;
-    const { loadOrCreateNodeKeypair: loadKeypair } = memeloopAuth;
-
     createRemoteOrchestrationHttpHandlerFunction = createRemoteOrchestrationHttpHandler;
     const configuredHost = requireHostConfig();
-
-    // Load the Node SDK keypair from Electron's isolated user-data directory.
-    try {
-      const keypair = loadKeypair(
-        path.join(configuredHost.dataDir, 'keypair.yaml'),
-      );
-      localNodeId = keypair.nodeId;
-      workerLog('warn', '[memeloop-worker] loaded persistent keypair', {
-        nodeId: localNodeId,
-      });
-    } catch (error) {
-      workerLog(
-        'warn',
-        '[memeloop-worker] keypair load failed, using random nodeId',
-        { error },
-      );
-    }
+    localNodeId = configuredHost.localPeerId;
 
     const mainBridgeToolIds = await requestMainBridgeToolList().catch(
       (error) => {
@@ -875,6 +853,9 @@ const memeloopWorker = {
     if (config.orchestrationAccessToken.length < 32) {
       throw new Error('MemeLoop orchestration access token is too short');
     }
+    if (!config.localPeerId.startsWith('12D3Koo')) {
+      throw new Error('MemeLoop worker requires the host DeviceNetwork PeerId');
+    }
     hostConfig = { ...config };
     return { ok: true };
   },
@@ -1014,34 +995,6 @@ const memeloopWorker = {
     });
     resolveApproval(approvalId, decision);
     return { ok: true };
-  },
-
-  // Legacy peer RPC was never backed by a published SDK. Keep the host API
-  // honest while callers migrate to declarative resources.
-  addPeer: async (_wsUrl: string) => {
-    throw new Error(
-      'Legacy peer RPC is unavailable; connect through the resource endpoint.',
-    );
-  },
-  removePeer: async (_nodeId: string) => {
-    return { ok: true };
-  },
-  getConnectedPeers: async (): Promise<NodeStatus[]> => {
-    return [];
-  },
-
-  syncNow: async () => {
-    return { synced: false, reason: 'legacy peer sync is unavailable' };
-  },
-  antiEntropy: async () => {
-    return { synced: false, reason: 'legacy peer sync is unavailable' };
-  },
-  getSyncStatus: async () => {
-    return {
-      versionVector: {},
-      peerCount: 0,
-      syncRunning: false,
-    };
   },
 };
 

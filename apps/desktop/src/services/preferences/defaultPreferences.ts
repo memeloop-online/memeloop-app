@@ -26,7 +26,6 @@ export const defaultPreferences: IPreferences = {
   mcpServerPort: 38_385,
   mcpServerRequireToken: false,
   mcpServerToken: '',
-  memeloopNodePort: 5200,
   pauseNotifications: '',
   pauseNotificationsBySchedule: false,
   pauseNotificationsByScheduleFrom: getDefaultPauseNotificationsByScheduleFrom(),

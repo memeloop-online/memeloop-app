@@ -16,6 +16,7 @@ import {
   type IAgentStorage,
   type ILLMProvider,
   type IToolRegistry,
+  type LocalDeviceIdentity,
   type MemeLoopRuntime,
 } from 'memeloop';
 import { nanoid } from 'nanoid';
@@ -113,6 +114,14 @@ export class AgentInstanceService implements IAgentInstanceService {
   private workerAgentIdByConversationId: Map<string, string> = new Map();
   private readonly memeLoopOrchestrationToken = randomBytes(32).toString('base64url');
   private memeLoopOrchestrationEndpoint?: string;
+  private memeLoopHostIdentity?: LocalDeviceIdentity;
+
+  public configureMemeLoopHostIdentity(identity: LocalDeviceIdentity): void {
+    if (this.memeLoopWorker || this.memeLoopNativeWorker) {
+      throw new Error('MemeLoop host identity must be configured before the UtilityProcess starts');
+    }
+    this.memeLoopHostIdentity = { ...identity };
+  }
 
   /**
    * Internal accessor for the worker proxy — used by MemeloopNode service
@@ -442,6 +451,10 @@ export class AgentInstanceService implements IAgentInstanceService {
             lastMessageTimestamp: row.modified?.getTime() ?? row.created.getTime(),
             messageCount: 0,
             originNodeId: 'desktop',
+            originClock: Math.max(
+              1,
+              row.modified?.getTime() ?? row.created.getTime(),
+            ),
             definitionId: row.agentDefId,
             isUserInitiated: true,
           }),
@@ -541,6 +554,10 @@ export class AgentInstanceService implements IAgentInstanceService {
           lastMessageTimestamp: row.modified?.getTime() ?? row.created.getTime(),
           messageCount: 0,
           originNodeId: 'desktop',
+          originClock: Math.max(
+            1,
+            row.modified?.getTime() ?? row.created.getTime(),
+          ),
           definitionId: row.agentDefId,
           isUserInitiated: true,
         };
@@ -606,6 +623,9 @@ export class AgentInstanceService implements IAgentInstanceService {
   }
 
   private async initializeMemeLoopWorker(): Promise<void> {
+    if (!this.memeLoopHostIdentity) {
+      throw new Error('MemeLoop UtilityProcess cannot start without the host DeviceNetwork identity');
+    }
     if (this.memeLoopWorker) return;
     try {
       const worker = (MemeLoopWorkerFactory as () => Worker)();
@@ -826,6 +846,7 @@ export class AgentInstanceService implements IAgentInstanceService {
         dataDir: path.join(USER_DATA_FOLDER, 'memeloop'),
         sqliteNativeBinding: SQLITE_BINARY_PATH,
         orchestrationAccessToken: this.memeLoopOrchestrationToken,
+        localPeerId: this.memeLoopHostIdentity.peerId,
       });
 
       // Subscribe worker logs via the standard workerAdapter streaming protocol.

@@ -116,7 +116,6 @@ export function buildZodSchema(): z.ZodObject<Record<string, z.ZodType>> {
   // Language is managed by a custom selector
   shape.language = z.string();
   // Memeloop node server port
-  shape.memeloopNodePort = z.number();
   // Service settings not currently rendered by a built-in preference item.
   shape.analyticsEnabled = z.boolean();
   shape.analyticsHost = z.string();

@@ -14,7 +14,6 @@ import type { INativeService } from '@services/native/interface';
 import type { INotificationService } from '@services/notifications/interface';
 import type { IPreferenceService } from '@services/preferences/interface';
 import type { IProviderRegistryService } from '@services/providerRegistry/interface';
-import type { IRemoteTerminalService } from '@services/remoteTerminal/interface';
 import type { ISyncService } from '@services/sync/interface';
 import type { ISystemPreferenceService } from '@services/systemPreferences/interface';
 import type { IThemeService } from '@services/theme/interface';
@@ -45,7 +44,6 @@ export type TidgiService = {
   native: INativeService;
   notification: INotificationService;
   preference: IPreferenceService;
-  remoteTerminal: IRemoteTerminalService;
   sync: ISyncService;
   systemPreference: ISystemPreferenceService;
   theme: IThemeService;

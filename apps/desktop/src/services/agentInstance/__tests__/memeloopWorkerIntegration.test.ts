@@ -3,7 +3,7 @@
  *
  * These tests verify:
  * 1. Worker coexistence with Wiki worker (startup/restart flows)
- * 2. Frontend IPC proxy correctness (MemeloopNode → worker → runtime)
+ * 2. Worker orchestration proxy correctness
  * 3. Bidirectional mapping integrity during conversation lifecycle
  */
 import type { IAgentInstanceService } from '@services/agentInstance/interface';
@@ -18,12 +18,6 @@ type WorkerInternals = {
     createAgent: (defId: string, msg?: string) => Promise<{ conversationId: string }>;
     sendMessage: (convId: string, msg: string) => Promise<{ ok: boolean }>;
     cancelAgent: (convId: string) => Promise<{ ok: boolean }>;
-    getConnectedPeers: () => Promise<unknown[]>;
-    syncNow: () => Promise<{ synced: boolean }>;
-    getSyncStatus: () => Promise<{ versionVector: Record<string, number>; peerCount: number; syncRunning: boolean }>;
-    addPeer: (wsUrl: string) => Promise<{ nodeId: string }>;
-    removePeer: (nodeId: string) => Promise<void>;
-    antiEntropy: () => Promise<{ synced: boolean }>;
   };
   workerConversationByAgentId: Map<string, string>;
   workerAgentIdByConversationId: Map<string, string>;
@@ -148,7 +142,7 @@ describe('MemeLoop worker integration', () => {
     });
   });
 
-  describe('MemeloopNode IPC proxy surface', () => {
+  describe('orchestration worker proxy surface', () => {
     it('worker proxy methods exist when worker is installed', async () => {
       const mockPing = vi.fn(async () => ({
         ok: true,
@@ -162,12 +156,6 @@ describe('MemeLoop worker integration', () => {
         createAgent: vi.fn(),
         sendMessage: vi.fn(),
         cancelAgent: vi.fn(),
-        getConnectedPeers: vi.fn(async () => []),
-        syncNow: vi.fn(async () => ({ synced: true })),
-        getSyncStatus: vi.fn(async () => ({ versionVector: {}, peerCount: 0, syncRunning: false })),
-        addPeer: vi.fn(async () => ({ nodeId: 'peer1' })),
-        removePeer: vi.fn(async () => undefined),
-        antiEntropy: vi.fn(async () => ({ synced: true })),
       } as unknown as WorkerInternals['memeLoopWorker'];
 
       const result = await service.memeLoopWorker!.ping();

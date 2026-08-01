@@ -3,12 +3,18 @@ import settings from 'electron-settings';
 import { inject, injectable } from 'inversify';
 import { BehaviorSubject } from 'rxjs';
 
-import { CloudDeviceAuthorizer, createDeviceIdentity, Libp2pDeviceNetworkService, type RawSeedDeviceIdentity, signDeviceBinding } from '@memeloop/libp2p';
+import {
+  CloudDeviceAuthorizer,
+  createDeviceIdentity,
+  createSignedDevicePairingInvite,
+  Libp2pDeviceNetworkService,
+  type RawSeedDeviceIdentity,
+  signDeviceBinding,
+} from '@memeloop/libp2p';
 import {
   type CloudDeviceClient,
   type CloudDeviceRecord,
   createDeviceOrchestrationStreamHandler,
-  createDevicePairingInvite,
   createReadOnlyOrchestrationClient,
   createRemoteOrchestrationHandler,
   type Device,
@@ -359,7 +365,12 @@ export class DeviceNetworkService implements IDeviceNetworkService {
 
   public async getPairingInvite(): Promise<string> {
     const localDevice = await this.getLocalDevice();
-    return encodeDevicePairingInvite(createDevicePairingInvite(localDevice));
+    await this.ensureIdentity();
+    const invite = await createSignedDevicePairingInvite({
+      identity: this.identity!,
+      multiaddrs: localDevice.multiaddrs ?? [],
+    });
+    return encodeDevicePairingInvite(invite);
   }
 
   public async listDevices(): Promise<Device[]> {

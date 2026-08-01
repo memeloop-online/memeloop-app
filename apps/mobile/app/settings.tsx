@@ -8,9 +8,9 @@ export default function SettingsScreen() {
 
       <Card style={styles.card}>
         <List.Section>
-          <List.Subheader>Node Connection</List.Subheader>
-          <List.Item title="Server URL" description="ws://192.168.1.100:5200" left={(props) => <List.Icon {...props} icon="server" />} />
-          <List.Item title="Auto-discover LAN nodes" description="mDNS discovery enabled" left={(props) => <List.Icon {...props} icon="radar" />} />
+          <List.Subheader>Device Network</List.Subheader>
+          <List.Item title="Device identity" description="Managed in encrypted device storage" left={(props) => <List.Icon {...props} icon="identifier" />} />
+          <List.Item title="Nearby discovery" description="Uses authenticated PeerId connections" left={(props) => <List.Icon {...props} icon="radar" />} />
           <Divider />
           <List.Subheader>Cloud</List.Subheader>
           <List.Item title="Cloud URL" description="Not configured" left={(props) => <List.Icon {...props} icon="cloud" />} />
@@ -18,7 +18,7 @@ export default function SettingsScreen() {
           <Divider />
           <List.Subheader>About</List.Subheader>
           <List.Item title="Version" description="0.1.0" left={(props) => <List.Icon {...props} icon="information" />} />
-          <List.Item title="Node ID" description="Not connected" left={(props) => <List.Icon {...props} icon="identifier" />} />
+          <List.Item title="Network address" description="PeerId only" left={(props) => <List.Icon {...props} icon="shield-key" />} />
         </List.Section>
       </Card>
     </View>

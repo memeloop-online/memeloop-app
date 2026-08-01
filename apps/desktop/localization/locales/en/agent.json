@@ -157,8 +157,6 @@
     "AIAgentDescriptionDetail": "Here you can view and delete the size and location information of the AI Agent conversation records database",
     "AIAgentManage": "Manage AI Agent",
     "AIAgentManageDescription": "View and manage AI agent instances, schedules, and permissions",
-    "MemeloopNodePort": "Node Service Port",
-    "MemeloopNodePortDescription": "Local port for the memeloop node server (peer sync, mobile sync). Restart required to take effect.",
     "ToolApprovalSettings": "Tool Approval & Timeout Settings",
     "ToolApprovalSettingsDescription": "Configure per-tool approval rules, timeout limits, regex patterns, and API retry settings",
     "ToolPermissions": "Tool Permissions (Blacklist/Whitelist)",
@@ -300,17 +298,7 @@
     "AddScheduledTask": "Add Task",
     "NoScheduledTasks": "No scheduled tasks. Add one to periodically wake an agent.",
     "NodeManagement": "Node Management",
-    "NodeManagementDescription": "Manage local memeloop node identity, known nodes, and peer connections",
-    "NodeIdentity": "Node Identity",
-    "NodeIdentityDescription": "View this node's ID, keypair status and local PIN code",
-    "KnownNodes": "Trusted Nodes",
-    "KnownNodesDescription": "List of remote nodes with established trust",
-    "ConnectPeer": "Connect Node",
-    "ConnectPeerDescription": "Connect to a remote memeloop node by WebSocket URL",
-    "SyncStatus": "Sync Status",
-    "SyncStatusDescription": "Current connected peer count and sync running state",
-    "RemoteWikis": "Remote Wikis",
-    "RemoteWikisDescription": "Wikis available on connected nodes"
+    "NodeManagementDescription": "Manage authenticated MemeLoop devices by PeerId"
   },
   "Prompt": {
     "AutoRefresh": "Preview auto-refreshes with input text changes",

@@ -1,5 +1,5 @@
 import type { ChatMessage, ConversationMeta } from '@memeloop/protocol';
-import { ChatSyncEngine, type ChatSyncPeer, PeerNodeSyncAdapter, type PeerNodeTransport } from 'memeloop';
+import { ChatSyncEngine, PeerNodeSyncAdapter, type PeerNodeTransport } from 'memeloop';
 import type { IAgentStorage } from 'memeloop';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -55,19 +55,19 @@ describe('ChatSyncEngine Desktop integration', () => {
     });
 
     await engine.syncOnce();
-    expect(engine.getVersionVector()).toHaveProperty('desktop-test-1', 0);
+    expect(await engine.getVersionVector()).toHaveProperty('desktop-test-1', 0);
   });
 
-  it('bumpLocalVersion increments the node clock', () => {
+  it('bumpLocalVersion increments the node clock', async () => {
     const engine = new ChatSyncEngine({
       nodeId: 'desktop-test-2',
       storage,
       peers: () => [],
     });
 
-    engine.bumpLocalVersion();
-    engine.bumpLocalVersion();
-    expect(engine.getVersionVector()['desktop-test-2']).toBe(2);
+    await engine.bumpLocalVersion();
+    await engine.bumpLocalVersion();
+    expect((await engine.getVersionVector())['desktop-test-2']).toBe(2);
   });
 
   it('PeerNodeSyncAdapter delegates to transport', async () => {
@@ -77,7 +77,7 @@ describe('ChatSyncEngine Desktop integration', () => {
         remoteVersion: { 'remote-node': 5 },
         missingForRemote: [],
       })),
-      pullMissingMetadata: vi.fn(async () => []),
+      pullMissingMetadata: vi.fn(async () => ({ items: [] })),
       pullMissingMessages: vi.fn(async () => []),
       pullAttachmentBlob: vi.fn(async () => null),
     };
@@ -98,6 +98,7 @@ describe('ChatSyncEngine Desktop integration', () => {
       lastMessageTimestamp: 1000,
       messageCount: 1,
       originNodeId: 'remote-node',
+      originClock: 1,
       definitionId: 'task-agent',
       isUserInitiated: true,
     };
@@ -108,7 +109,7 @@ describe('ChatSyncEngine Desktop integration', () => {
         remoteVersion: { 'remote-node': 1 },
         missingForRemote: [],
       })),
-      pullMissingMetadata: vi.fn(async () => [remoteMeta]),
+      pullMissingMetadata: vi.fn(async () => ({ items: [remoteMeta] })),
       pullMissingMessages: vi.fn(async () => []),
       pullAttachmentBlob: vi.fn(async () => null),
     };
@@ -124,7 +125,7 @@ describe('ChatSyncEngine Desktop integration', () => {
     // Verify metadata was upserted
     expect(storage.upsertConversationMetadata).toHaveBeenCalledWith(remoteMeta);
     // Version vector should include remote clock
-    expect(engine.getVersionVector()['remote-node']).toBe(1);
+    expect((await engine.getVersionVector())['remote-node']).toBe(1);
     // pullMissingMessages should have been called for the new conversation
     expect(transport.pullMissingMessages).toHaveBeenCalledWith('remote-node', 'conv-1', []);
   });

@@ -3,11 +3,11 @@ import 'react-native-get-random-values';
 import {
   createDeviceIdentity,
   Libp2pDeviceNetworkService,
+  parseVerifiedDevicePairingInvite,
   type RawSeedDeviceIdentity,
 } from '@memeloop/libp2p/browser';
 import * as SecureStore from 'expo-secure-store';
 import {
-  parseDevicePairingInvite,
   type Device,
   type DeviceNetworkService,
   type DevicePairingInvite,
@@ -141,7 +141,7 @@ class MobileDeviceNetworkController {
 
   async pair(serializedInvite: string): Promise<PairingSession> {
     await this.start();
-    const invite = parseDevicePairingInvite(serializedInvite);
+    const invite = await parseVerifiedDevicePairingInvite(serializedInvite);
     return this.service!.requestLocalPairing(invite.peerId, {
       multiaddrs: invite.multiaddrs,
     });

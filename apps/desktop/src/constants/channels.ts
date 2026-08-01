@@ -142,10 +142,6 @@ export enum ToolPermissionsChannel {
   name = 'ToolPermissionsChannel',
 }
 
-export enum RemoteTerminalChannel {
-  name = 'RemoteTerminalChannel',
-}
-
 // Deprecated: Wiki-related channels kept for backward compatibility with agent tools
 export enum WikiChannel {
   addTiddler = 'wiki-add-tiddler',
@@ -205,5 +201,4 @@ export type Channels =
   | AgentChannel
   | WikiEmbeddingChannel
   | MemeloopNodeChannel
-  | ToolPermissionsChannel
-  | RemoteTerminalChannel;
+  | ToolPermissionsChannel;

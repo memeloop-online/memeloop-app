@@ -32,7 +32,6 @@ export interface IPreferences {
   mcpServerPort: number;
   mcpServerRequireToken: boolean;
   mcpServerToken: string;
-  memeloopNodePort: number;
   pauseNotifications?: string;
   pauseNotificationsBySchedule: boolean;
   pauseNotificationsByScheduleFrom: string;

@@ -202,7 +202,8 @@ export default function NodesScreen() {
           <Dialog.Content>
             <Text variant="bodyMedium" style={styles.instructions}>
               Copy the temporary pairing invitation from Desktop and paste it
-              below. You will verify the same six-digit code on both devices.
+              below. Its signature, public key, expiry and PeerId-bound addresses
+              are verified before the pairing request is opened.
             </Text>
             <TextInput
               label="Pairing invitation"
