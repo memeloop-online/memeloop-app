@@ -7,6 +7,10 @@ overrides:
   prebuild-install: latest
   node-addon-api: ^7.1.1
 
+peerDependencyRules:
+  allowedVersions:
+    memeloop: '>=0.1.0 <0.3.0'
+
 onlyBuiltDependencies:
   - '@swc/core'
   - better-sqlite3

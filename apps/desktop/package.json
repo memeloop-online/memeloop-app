@@ -133,10 +133,10 @@
     "zod": "^4.4.3",
     "zustand": "^5.0.14",
     "zx": "8.8.5",
-    "@memeloop/libp2p": "0.2.0",
+    "@memeloop/libp2p": "0.2.1",
     "@memeloop/react-ui": "0.1.1",
-    "memeloop": "0.2.0",
-    "memeloop-cli": "0.2.0",
+    "memeloop": "0.2.1",
+    "memeloop-cli": "0.2.1",
     "@mui/utils": "^7.3.11"
   },
   "devDependencies": {

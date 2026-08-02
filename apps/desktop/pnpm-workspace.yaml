@@ -13,6 +13,8 @@ overrides:
   "tar-stream>bl": "^4.1.0"
 
 peerDependencyRules:
+  allowedVersions:
+    memeloop: ">=0.1.0 <0.3.0"
   ignoreMissing:
     - moment
     - moment-hijri
@@ -76,6 +78,6 @@ minimumReleaseAgeExclude:
   - ai@7.0.37
   - fs-extra@11.4.0
   - inversify@8.2.3
-  - '@memeloop/libp2p@0.2.0'
-  - memeloop-cli@0.2.0
-  - memeloop@0.2.0
+  - '@memeloop/libp2p@0.2.1'
+  - memeloop-cli@0.2.1
+  - memeloop@0.2.1
