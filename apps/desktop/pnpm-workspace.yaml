@@ -43,6 +43,7 @@ allowBuilds:
   electron-winstaller: true
   esbuild: true
   nsfw: true
+  puppeteer: false
   registry-js: true
   unrs-resolver: true
 
@@ -79,5 +80,6 @@ minimumReleaseAgeExclude:
   - fs-extra@11.4.0
   - inversify@8.2.3
   - '@memeloop/libp2p@0.2.2'
+  - '@memeloop/react-ui@0.1.2'
   - memeloop-cli@0.2.2
   - memeloop@0.2.2
