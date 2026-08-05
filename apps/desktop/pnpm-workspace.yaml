@@ -81,5 +81,5 @@ minimumReleaseAgeExclude:
   - inversify@8.2.3
   - '@memeloop/libp2p@0.2.2'
   - '@memeloop/react-ui@0.1.2'
-  - memeloop-cli@0.2.2
+  - memeloop-cli@0.2.3
   - memeloop@0.2.2
