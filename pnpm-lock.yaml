@@ -265,6 +265,9 @@ importers:
       reflect-metadata:
         specifier: 0.2.2
         version: 0.2.2
+      regexparam:
+        specifier: 3.0.0
+        version: 3.0.0
       registry-js:
         specifier: 1.16.1
         version: 1.16.1
