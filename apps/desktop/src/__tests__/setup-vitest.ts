@@ -9,8 +9,8 @@ if (typeof document !== 'undefined') {
   configure({ computedStyleSupportsPseudoElements: false });
 
   // Fix for JSDOM getComputedStyle issue - strip unsupported second parameter
-  const originalGetComputedStyle = window.getComputedStyle;
-  window.getComputedStyle = (elt) => originalGetComputedStyle.call(window, elt);
+  const originalGetComputedStyle = window.getComputedStyle.bind(window);
+  window.getComputedStyle = (elt) => originalGetComputedStyle(elt);
 
   // JSDOM / Node doesn't implement requestIdleCallback — provide a simple polyfill
   if (typeof window.requestIdleCallback === 'undefined') {
