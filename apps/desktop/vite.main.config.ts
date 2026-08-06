@@ -68,16 +68,10 @@ export default defineConfig({
         'rotating-file-stream',
         ...typeormOptionalDepsRegex,
         'expo-sqlite',
-        // Preserve package-relative native addon resolution used by MemeLoop's
-        // Noise/libp2p stack. afterPack copies these packages outside asar.
+        // Optional native accelerators used by ws. afterPack copies them when
+        // installed and ws otherwise falls back to its portable implementation.
         'bufferutil',
         'utf-8-validate',
-        'sodium-universal',
-        /^sodium-universal\/.*$/,
-        'sodium-native',
-        /^sodium-native\/.*$/,
-        'require-addon',
-        /^require-addon\/.*$/,
       ],
     },
   },

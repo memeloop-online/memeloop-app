@@ -73,14 +73,6 @@ export default async (
       // `ws` optional native deps (required in our bundled Electron runtime when it tries to resolve them)
       ['bufferutil'],
       ['utf-8-validate'],
-      // Noise handshake resolves native crypto addons relative to package files at runtime.
-      ['sodium-universal'],
-      ['sodium-native'],
-      ['require-addon'],
-      ['which-runtime'],
-      ['bare-addon-resolve'],
-      ['bare-module-resolve'],
-      ['bare-semver'],
       // Pure ESM/CJS packages externalized by vite.main.config.ts.
       ['rotating-file-stream', 'package.json'],
       ['rotating-file-stream', 'dist', 'cjs', 'index.js'],
@@ -128,14 +120,7 @@ export default async (
       // them both in Resources/node_modules and Resources/app/node_modules.
       if (
         first === 'bufferutil' ||
-        first === 'utf-8-validate' ||
-        first === 'sodium-universal' ||
-        first === 'sodium-native' ||
-        first === 'require-addon' ||
-        first === 'which-runtime' ||
-        first === 'bare-addon-resolve' ||
-        first === 'bare-module-resolve' ||
-        first === 'bare-semver'
+        first === 'utf-8-validate'
       ) {
         const destinationApp = path.resolve(
           appNodeModulesDirectory,
