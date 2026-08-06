@@ -13,6 +13,9 @@ overrides:
 
 pnpmfileChecksum: sha256-lIFkUl44z62LBhI/qC/00DMf5xie4YLU9ldCFAHgCsA=
 
+patchedDependencies:
+  electron-winstaller@5.4.0: a04438cd276dad5378bc70d92724c14890cf241bd0fb7c1b7df5642dcbead88f
+
 importers:
 
   .:
@@ -10579,7 +10582,7 @@ snapshots:
       '@electron-forge/shared-types': 8.0.0-alpha.9(supports-color@10.2.2)
       fs-extra: 10.1.0
     optionalDependencies:
-      electron-winstaller: 5.4.0(supports-color@10.2.2)
+      electron-winstaller: 5.4.0(patch_hash=a04438cd276dad5378bc70d92724c14890cf241bd0fb7c1b7df5642dcbead88f)(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -15120,7 +15123,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  electron-winstaller@5.4.0(supports-color@10.2.2):
+  electron-winstaller@5.4.0(patch_hash=a04438cd276dad5378bc70d92724c14890cf241bd0fb7c1b7df5642dcbead88f)(supports-color@10.2.2):
     dependencies:
       '@electron/asar': 3.2.1
       debug: 4.4.3(supports-color@10.2.2)

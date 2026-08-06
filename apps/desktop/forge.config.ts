@@ -4,7 +4,7 @@ import type { ForgeConfig } from '@electron-forge/shared-types';
 import { readJsonSync } from 'fs-extra';
 import path from 'path';
 import afterPack from './scripts/afterPack';
-import { MEMELOOP_APP_USER_MODEL_ID, MEMELOOP_EXECUTABLE_NAME, MEMELOOP_PACKAGE_ID, MEMELOOP_PRODUCT_NAME, MEMELOOP_PROTOCOL } from './src/constants/productIdentity';
+import { MEMELOOP_EXECUTABLE_NAME, MEMELOOP_PACKAGE_ID, MEMELOOP_PRODUCT_NAME, MEMELOOP_PROTOCOL } from './src/constants/productIdentity';
 
 const packageJson = readJsonSync(path.join(__dirname, 'package.json')) as { description: string };
 const supportedLanguages = readJsonSync(path.join(__dirname, 'localization', 'supportedLanguages.json')) as Record<string, string>;
@@ -69,7 +69,7 @@ const config: ForgeConfig = {
       platforms: ['win32'],
       config: (arch: string) => {
         return {
-          name: MEMELOOP_APP_USER_MODEL_ID,
+          name: MEMELOOP_EXECUTABLE_NAME,
           exe: `${MEMELOOP_EXECUTABLE_NAME}.exe`,
           setupExe: `Install-MemeLoop-Desktop-Windows-${arch}.exe`,
           setupIcon: 'build-resources/icon-installer.ico',
@@ -83,7 +83,7 @@ const config: ForgeConfig = {
       platforms: ['win32'],
       config: {
         packageAssets: 'build-resources/icon.ico',
-        packageName: 'MemeLoop-Desktop',
+        packageName: 'MemeLoop-Desktop.msix',
         sign: false,
         manifestVariables: {
           packageIdentity: MEMELOOP_PACKAGE_ID,

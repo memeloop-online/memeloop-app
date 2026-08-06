@@ -12,6 +12,11 @@ overrides:
   "rc>ini": "^1.3.8"
   "tar-stream>bl": "^4.1.0"
 
+# electron-winstaller 5.4.0 forgets to call os.arch(), so its approved install
+# script cannot select the bundled 7-Zip binary on a fresh Windows install.
+patchedDependencies:
+  electron-winstaller@5.4.0: patches/electron-winstaller@5.4.0.patch
+
 peerDependencyRules:
   allowedVersions:
     memeloop: ">=0.1.0 <0.3.0"
@@ -44,6 +49,8 @@ allowBuilds:
   esbuild: true
   nsfw: true
   puppeteer: false
+  # protobufjs only reports optional CLI generation hints; it produces no runtime files.
+  protobufjs: false
   registry-js: true
   unrs-resolver: true
 

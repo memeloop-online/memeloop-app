@@ -39,6 +39,7 @@ describe('MemeLoop Desktop product identity', () => {
     const urlsSource = fs.readFileSync(path.resolve(process.cwd(), 'src', 'constants', 'urls.ts'), 'utf8');
 
     expect(forgeSource).toContain('MEMELOOP_EXECUTABLE_NAME');
+    expect(forgeSource).toContain('name: MEMELOOP_EXECUTABLE_NAME');
     expect(forgeSource).toContain('MEMELOOP_PACKAGE_ID');
     expect(forgeSource).toContain('MEMELOOP_PROTOCOL');
     expect(forgeSource).not.toMatch(/name:\s*['"]TidGi['"]/);
