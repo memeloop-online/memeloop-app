@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { createEmptyModelForm } from '../modelForm';
 import { NewModelDialog } from '../NewModelDialog';
 
 describe('NewModelDialog - ComfyUI workflow support', () => {
@@ -17,6 +18,7 @@ describe('NewModelDialog - ComfyUI workflow support', () => {
     currentProvider: 'comfyui',
     providerClass: 'comfyui',
     newModelForm: {
+      ...createEmptyModelForm(),
       name: 'flux',
       caption: 'Flux',
       features: ['imageGeneration' as const],
@@ -97,5 +99,50 @@ describe('NewModelDialog - ComfyUI workflow support', () => {
     render(<NewModelDialog {...defaultProps} editMode={false} />);
 
     expect(await screen.findByText('Save')).toBeInTheDocument();
+  });
+
+  it('shows model metadata fields with saved values in edit mode', async () => {
+    render(
+      <NewModelDialog
+        {...defaultProps}
+        currentProvider='cpa-test'
+        providerClass='openAICompatible'
+        newModelForm={{
+          ...defaultProps.newModelForm,
+          apiMode: 'responses',
+          contextWindowSize: '1050000',
+          maxOutputTokens: '128000',
+          topP: '0.95',
+          supportsReasoningEffort: ['minimal', 'low', 'medium', 'high'],
+          reasoningEffortFormat: 'chat-completions',
+        }}
+        editMode={true}
+      />,
+    );
+
+    expect(await screen.findByTestId('model-context-window-input')).toHaveValue(1_050_000);
+    expect(screen.getByTestId('model-max-output-input')).toHaveValue(128_000);
+    expect(screen.getByTestId('model-top-p-input')).toHaveValue(0.95);
+    expect(screen.getByTestId('model-reasoning-efforts-select')).toBeInTheDocument();
+    expect(screen.getByTestId('model-reasoning-effort-format-select')).toBeInTheDocument();
+  });
+
+  it('blocks saving invalid numeric metadata', async () => {
+    render(
+      <NewModelDialog
+        {...defaultProps}
+        newModelForm={{
+          ...defaultProps.newModelForm,
+          contextWindowSize: '1.5',
+          maxOutputTokens: '0',
+          topP: '1.5',
+        }}
+      />,
+    );
+
+    expect(await screen.findByText('Max input tokens must be a positive safe integer')).toBeInTheDocument();
+    expect(screen.getByText('Max output tokens must be a positive safe integer')).toBeInTheDocument();
+    expect(screen.getByText('Top P must be between 0 and 1')).toBeInTheDocument();
+    expect(screen.getByTestId('save-model-button')).toBeDisabled();
   });
 });

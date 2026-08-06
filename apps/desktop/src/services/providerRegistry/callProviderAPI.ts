@@ -60,6 +60,42 @@ export function createProviderModel(providerConfig: AIProviderConfig, model: Mod
   return createProviderClient(providerConfig, providerConfig.apiKey)(model.name);
 }
 
+export function resolveModelGenerationSettings(config: AiAPIConfig, model: ModelInfo): {
+  maxOutputTokens?: number;
+  topP?: number;
+} {
+  return {
+    maxOutputTokens: config.modelParameters?.maxOutputTokens ?? config.modelParameters?.maxTokens ?? model.maxOutputTokens,
+    topP: config.modelParameters?.topP ?? model.modelOptions?.top_p,
+  };
+}
+
+export function createProviderStreamOptions(
+  config: AiAPIConfig,
+  messages: Array<ModelMessage>,
+  signal: AbortSignal,
+  providerConfig: AIProviderConfig,
+) {
+  const modelConfig = config.default;
+  if (!modelConfig?.model) throw new Error('No default model configured');
+  const selectedModel = providerConfig.models.find(candidate => candidate.name === modelConfig.model) ?? { name: modelConfig.model };
+  const systemMessage = messages.find(message => message.role === 'system');
+  const systemPrompt = (systemMessage ? getFormattedContent(systemMessage.content) : undefined) || 'You are a helpful assistant.';
+  const nonSystemMessages = messages.filter(message => message.role !== 'system');
+  const finalMessages: Array<ModelMessage> = nonSystemMessages.length > 0 ? nonSystemMessages : [{ role: 'user', content: 'Hi' }];
+  const { maxOutputTokens, topP } = resolveModelGenerationSettings(config, selectedModel);
+
+  return {
+    model: createProviderModel(providerConfig, selectedModel),
+    system: systemPrompt,
+    messages: finalMessages,
+    temperature: config.modelParameters?.temperature ?? 0.7,
+    maxOutputTokens,
+    topP,
+    abortSignal: signal,
+  };
+}
+
 export function streamFromProvider(
   config: AiAPIConfig,
   messages: Array<ModelMessage>,
@@ -74,8 +110,6 @@ export function streamFromProvider(
 
   const provider = modelConfig.provider;
   const model = modelConfig.model;
-  const modelParameters = config.modelParameters || {};
-  const { temperature = 0.7 } = modelParameters;
 
   logger.info(`Using AI provider: ${provider}, model: ${model}`);
 
@@ -91,26 +125,7 @@ export function streamFromProvider(
       throw new MissingAPIKeyError(provider);
     }
 
-    const selectedModel = providerConfig.models.find(candidate => candidate.name === model) ?? { name: model };
-
-    // Extract system message from messages if present
-    const systemMessage = messages.find(message => message.role === 'system');
-    const systemPrompt = (systemMessage ? getFormattedContent(systemMessage.content) : undefined) || 'You are a helpful assistant.';
-
-    // Filter out system messages from the messages array since we're handling them separately
-    const nonSystemMessages = messages.filter(message => message.role !== 'system');
-
-    // Ensure we have at least one message to avoid AI library errors
-    const finalMessages: Array<ModelMessage> = nonSystemMessages.length > 0 ? nonSystemMessages : [{ role: 'user' as const, content: 'Hi' }];
-
-    const providerModel = createProviderModel(providerConfig, selectedModel);
-    return streamText({
-      model: providerModel,
-      system: systemPrompt,
-      messages: finalMessages,
-      temperature,
-      abortSignal: signal,
-    });
+    return streamText(createProviderStreamOptions(config, messages, signal, providerConfig));
   } catch (error) {
     if (!error) {
       throw new Error(`${provider} error: Unknown error`, { cause: error });

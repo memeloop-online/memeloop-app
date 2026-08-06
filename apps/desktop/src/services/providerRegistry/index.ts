@@ -15,7 +15,7 @@ import { ModelMessage } from 'ai';
 import { DataSource, Repository } from 'typeorm';
 import { generateEmbeddingsFromProvider } from './callEmbeddingAPI';
 import { generateImageFromProvider } from './callImageGenerationAPI';
-import { streamFromProvider } from './callProviderAPI';
+import { resolveModelGenerationSettings, streamFromProvider } from './callProviderAPI';
 import { generateSpeechFromProvider } from './callSpeechAPI';
 import { generateTranscriptionFromProvider } from './callTranscriptionsAPI';
 import defaultProvidersConfig from './defaultProviders';
@@ -663,12 +663,16 @@ export class ProviderRegistryService implements IProviderRegistryService {
           ?.content,
       ),
     );
+    const selectedModel = this.userSettings.providers
+      .find(provider => provider.provider === modelConfig.provider)
+      ?.models.find(model => model.name === modelConfig.model) ?? { name: modelConfig.model };
+    const generationSettings = resolveModelGenerationSettings(config, selectedModel);
     const requestConfigSummary = {
       messageRoles: messages.map((message) => message.role),
       systemPromptPreview: systemPrompt,
       latestUserPromptPreview: latestUserPrompt,
       temperature: config.modelParameters?.temperature ?? 0.7,
-      topP: config.modelParameters?.topP ?? 0.95,
+      ...generationSettings,
     };
 
     // Prepare messages for logging - convert Buffer to metadata only for better visibility

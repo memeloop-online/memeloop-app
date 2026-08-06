@@ -3,7 +3,10 @@ import type { BehaviorSubject, Observable } from 'rxjs';
 
 import { ExternalAPIChannel } from '@/constants/channels';
 import type { ExternalAPILogEntity } from '@services/database/schema/externalAPILog';
+import type { ModelInfo } from '@services/providerRegistry/interface';
 import type { AiAPIConfig } from 'memeloop';
+
+export type { ModelFeature, ModelInfo } from '@services/providerRegistry/interface';
 
 /**
  * Vercel AI SDK message shape used by the External API service.
@@ -138,31 +141,6 @@ export interface AIImageGenerationResponse {
  * Supported AI providers
  */
 export type AIProvider = string;
-
-/**
- * Model feature types
- */
-export type ModelFeature = 'language' | 'imageGeneration' | 'toolCalling' | 'reasoning' | 'vision' | 'embedding' | 'speech' | 'transcriptions' | 'free';
-
-/**
- * Extended model information
- */
-export interface ModelInfo {
-  /** Unique identifier for the model */
-  name: string;
-  /** Display name for the model */
-  caption?: string;
-  /** Features supported by the model */
-  features?: ModelFeature[];
-  /** Model-specific parameters (e.g., ComfyUI workflow path) */
-  parameters?: Record<string, unknown>;
-  /** Input context window size in tokens (e.g. 128000 for GPT-4o, 200000 for Claude) */
-  contextWindowSize?: number;
-  /** Max output tokens (e.g. 4096, 16384) */
-  maxOutputTokens?: number;
-  /** Additional metadata */
-  metadata?: Record<string, unknown>;
-}
 
 /**
  * AI provider configuration like uri and api key

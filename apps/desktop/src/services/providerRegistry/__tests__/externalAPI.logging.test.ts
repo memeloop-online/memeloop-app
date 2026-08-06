@@ -117,7 +117,7 @@ describe('ExternalAPIService logging', () => {
     const exposed = (await svc.getAIProviders()).find(provider => provider.provider === 'secure-provider');
     expect(exposed).toMatchObject({
       hasApiKey: true,
-      baseURL: 'https://models.example.test/v1',
+      baseURL: 'https://models.example.test',
     });
     expect(exposed).not.toHaveProperty('apiKey');
     expect(exposed).not.toHaveProperty('encryptedApiKey');

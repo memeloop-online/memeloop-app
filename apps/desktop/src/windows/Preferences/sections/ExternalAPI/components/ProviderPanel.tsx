@@ -163,6 +163,7 @@ export function ProviderPanel({
           }}
           fullWidth
           margin='normal'
+          helperText='Include the API version path explicitly (for example, /v1).'
           placeholder={provider.providerClass === 'ollama'
             ? 'http://localhost:11434'
             : 'https://api.example.com/v1'}

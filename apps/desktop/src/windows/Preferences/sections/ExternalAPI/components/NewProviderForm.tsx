@@ -101,6 +101,7 @@ export function NewProviderForm({
           }}
           fullWidth
           margin='normal'
+          helperText='Include the API version path explicitly (for example, /v1).'
           placeholder={formState.providerClass === 'ollama'
             ? 'http://localhost:11434'
             : 'https://api.example.com/v1'}

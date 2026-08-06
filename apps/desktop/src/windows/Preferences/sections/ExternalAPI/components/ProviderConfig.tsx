@@ -9,6 +9,7 @@ import { ListItemText } from '@/components/ListItem';
 import defaultProvidersConfig from '@services/providerRegistry/defaultProviders';
 import { AIProviderConfig, ModelFeature, ModelInfo } from '@services/providerRegistry/interface';
 import { ListItemVertical } from '../../../PreferenceComponents';
+import { createEmptyModelForm, createModelForm, DuplicateModelNameError, type ModelFormState, persistModelForm } from './modelForm';
 import { NewModelDialog } from './NewModelDialog';
 import { NewProviderForm } from './NewProviderForm';
 import { ProviderPanel } from './ProviderPanel';
@@ -36,13 +37,7 @@ interface ProviderFormState {
   apiKey: string;
   baseURL: string;
   models: ModelInfo[];
-  newModel: {
-    name: string;
-    caption: string;
-    features: ModelFeature[];
-    parameters?: Record<string, unknown>;
-    apiMode?: ModelInfo['apiMode'];
-  };
+  newModel: ModelFormState;
 }
 
 /**
@@ -97,7 +92,7 @@ export function ProviderConfig({
           apiKey: provider.apiKey || '',
           baseURL: provider.baseURL || '',
           models: [...provider.models],
-          newModel: { name: '', caption: '', features: ['language'], apiMode: 'chat-completions' },
+          newModel: createEmptyModelForm(),
         };
       }
     });
@@ -229,7 +224,7 @@ export function ProviderConfig({
     setSelectedDefaultModel('');
   };
 
-  const handleModelFormChange = (providerName: string, field: string, value: string | ModelFeature[] | Record<string, unknown>) => {
+  const handleModelFormChange = <K extends keyof ModelFormState>(providerName: string, field: K, value: ModelFormState[K]) => {
     setProviderForms(previous => {
       const currentForm = previous[providerName];
       if (!currentForm) return previous;
@@ -269,10 +264,6 @@ export function ProviderConfig({
           newModel: {
             ...currentForm.newModel,
             features: newFeatures,
-          } satisfies {
-            name: string;
-            caption: string;
-            features: ModelFeature[];
           },
         },
       };
@@ -295,13 +286,7 @@ export function ProviderConfig({
         ...previous,
         [providerName]: {
           ...currentForm,
-          newModel: {
-            name: model.name,
-            caption: model.caption || '',
-            features: model.features || ['language'],
-            parameters: model.parameters || {},
-            apiMode: model.apiMode ?? 'chat-completions',
-          },
+          newModel: createModelForm(model),
         },
       };
     });
@@ -322,37 +307,15 @@ export function ProviderConfig({
         return;
       }
 
-      // Create model with proper type checking using satisfies
-      const newModel = {
-        name: form.newModel.name,
-        caption: form.newModel.caption || undefined,
-        features: form.newModel.features,
-        parameters: form.newModel.parameters,
-        apiMode: form.newModel.apiMode,
-      } satisfies ModelInfo;
-
-      if (!newModel.name) {
-        showMessage(t('Preference.ModelNameRequired'), 'error');
-        return;
-      }
-
-      // In edit mode, check for duplicate names excluding the model being edited
-      if (editingModelName) {
-        if (form.models.some(m => m.name === newModel.name && m.name !== editingModelName)) {
-          showMessage(t('Preference.ModelAlreadyExists'), 'error');
-          return;
-        }
-      } else {
-        if (form.models.some(m => m.name === newModel.name)) {
-          showMessage(t('Preference.ModelAlreadyExists'), 'error');
-          return;
-        }
-      }
-
-      // In edit mode, update existing model; otherwise add new model
-      const updatedModels = editingModelName
-        ? form.models.map(m => m.name === editingModelName ? newModel : m)
-        : [...form.models, newModel];
+      const provider = providers.find(p => p.provider === currentProvider);
+      const updatedModels = await persistModelForm({
+        providerName: currentProvider,
+        providerClass: provider?.providerClass,
+        models: form.models,
+        form: form.newModel,
+        editingModelName,
+        updateProvider: (providerName, config) => window.service.externalAPI.updateProvider(providerName, config),
+      });
 
       setProviderForms(previous => {
         const currentForm = previous[currentProvider];
@@ -363,34 +326,32 @@ export function ProviderConfig({
           [currentProvider]: {
             ...currentForm,
             models: updatedModels,
-            newModel: {
-              name: '',
-              caption: '',
-              features: ['language'],
-              parameters: {},
-              apiMode: 'chat-completions',
-            },
+            newModel: createEmptyModelForm(),
           },
         };
       });
 
-      const provider = providers.find(p => p.provider === currentProvider);
       if (provider) {
-        await window.service.externalAPI.updateProvider(currentProvider, {
-          models: updatedModels,
-        });
-
         setProviders(previous => previous.map(p => p.provider === currentProvider ? { ...p, models: updatedModels } : p));
 
         showMessage(editingModelName ? t('Preference.ModelUpdatedSuccessfully') : t('Preference.ModelAddedSuccessfully'), 'success');
         closeModelDialog();
       }
     } catch (error) {
+      if (error instanceof DuplicateModelNameError) {
+        showMessage(t('Preference.ModelAlreadyExists'), 'error');
+        return;
+      }
       void window.service.native.log('error', editingModelName ? 'Failed to update model' : 'Failed to add model', {
         function: 'ProviderConfig.handleAddModel',
         error,
       });
-      showMessage(editingModelName ? t('Preference.FailedToUpdateModel') : t('Preference.FailedToAddModel'), 'error');
+      const message = error instanceof Error && error.message
+        ? error.message
+        : editingModelName
+        ? t('Preference.FailedToUpdateModel')
+        : t('Preference.FailedToAddModel');
+      showMessage(message, 'error');
     }
   };
 
@@ -458,15 +419,17 @@ export function ProviderConfig({
       // Helper function to clone a model with new provider name
       const cloneModelForProvider = (baseModel: ModelInfo, newProviderName: string): ModelInfo => {
         const typedFeatures: ModelFeature[] = Array.isArray(baseModel.features) ? baseModel.features.map(f => f) : [];
-        const clonedModel: ModelInfo = {
-          name: baseModel.name,
+        return {
+          ...baseModel,
           caption: `${baseModel.caption || baseModel.name} (${newProviderName})`,
           features: typedFeatures,
+          parameters: baseModel.parameters ? { ...baseModel.parameters } : undefined,
+          metadata: baseModel.metadata ? { ...baseModel.metadata } : undefined,
+          modelOptions: baseModel.modelOptions ? { ...baseModel.modelOptions } : undefined,
+          supportsReasoningEffort: baseModel.supportsReasoningEffort
+            ? [...baseModel.supportsReasoningEffort]
+            : undefined,
         };
-        if ('metadata' in baseModel && baseModel.metadata) {
-          clonedModel.metadata = { ...baseModel.metadata };
-        }
-        return clonedModel;
       };
 
       // If the user selected a preset provider, use its first model as the default
@@ -555,12 +518,7 @@ export function ProviderConfig({
           apiKey: '',
           baseURL: newProvider.baseURL || '',
           models: newProvider.models,
-          newModel: {
-            name: '',
-            caption: '',
-            features: ['language'],
-            apiMode: 'chat-completions',
-          },
+          newModel: createEmptyModelForm(),
         },
       }));
       setSelectedTabIndex(updatedProviders.length - 1);
@@ -737,7 +695,7 @@ export function ProviderConfig({
         providerClass={currentProvider ? providers.find(p => p.provider === currentProvider)?.providerClass : undefined}
         newModelForm={currentProvider && providerForms[currentProvider]
           ? providerForms[currentProvider].newModel
-          : { name: '', caption: '', features: ['language'], parameters: {} }}
+          : createEmptyModelForm()}
         availableDefaultModels={availableDefaultModels}
         selectedDefaultModel={selectedDefaultModel}
         onSelectDefaultModel={setSelectedDefaultModel}

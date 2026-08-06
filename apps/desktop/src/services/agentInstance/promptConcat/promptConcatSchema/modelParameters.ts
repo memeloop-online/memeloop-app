@@ -33,6 +33,10 @@ export const ModelParametersSchema = z.object({
     title: t('Schema.ModelParameters.MaxTokensTitle'),
     description: t('Schema.ModelParameters.MaxTokens'),
   }),
+  maxOutputTokens: z.number().optional().meta({
+    title: t('Schema.ModelParameters.MaxTokensTitle'),
+    description: t('Schema.ModelParameters.MaxTokens'),
+  }),
   topP: z.number().optional().meta({
     title: t('Schema.ModelParameters.TopPTitle'),
     description: t('Schema.ModelParameters.TopP'),

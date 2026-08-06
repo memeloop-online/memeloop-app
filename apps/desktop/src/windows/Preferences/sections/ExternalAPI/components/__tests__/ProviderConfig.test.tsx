@@ -5,20 +5,21 @@ import '@testing-library/jest-dom/vitest';
 import { ThemeProvider } from '@mui/material/styles';
 import { lightTheme } from '@services/theme/defaultTheme';
 
-import { AIProviderConfig, ModelFeature, ModelInfo } from '@services/providerRegistry/interface';
+import { AIProviderConfig, ModelInfo } from '@services/providerRegistry/interface';
+import { createModelForm, persistModelForm } from '../modelForm';
 import { ProviderConfig } from '../ProviderConfig';
 
 // Mock data
 const mockLanguageModel: ModelInfo = {
   name: 'gpt-4',
   caption: 'GPT-4 Language Model',
-  features: ['language' as ModelFeature],
+  features: ['language'],
 };
 
 const mockEmbeddingModel: ModelInfo = {
   name: 'text-embedding-3-small',
   caption: 'OpenAI Embedding Model',
-  features: ['embedding' as ModelFeature],
+  features: ['embedding'],
 };
 
 const mockProvider: AIProviderConfig = {
@@ -219,5 +220,33 @@ describe('ProviderConfig Component', () => {
     // 3. Embedding model should be set as default if no existing embedding model
 
     expect(true).toBe(true); // Placeholder - real test would interact with form
+  });
+
+  it('persists the complete Edit form schema through the ProviderConfig save boundary', async () => {
+    const model: ModelInfo = {
+      name: 'gpt-5.6-sol',
+      caption: 'GPT-5.6 Sol',
+      features: ['language', 'reasoning', 'toolCalling', 'vision'],
+      parameters: { custom: 'parameter' },
+      metadata: { vendor: 'cpa' },
+      apiMode: 'responses',
+      contextWindowSize: 1_050_000,
+      maxOutputTokens: 128_000,
+      modelOptions: { top_p: 0.95 },
+      supportsReasoningEffort: ['minimal', 'low', 'medium', 'high'],
+      reasoningEffortFormat: 'chat-completions',
+    };
+    const updateProvider = vi.fn().mockResolvedValue(undefined);
+    const saved = await persistModelForm({
+      providerName: 'cpa-test',
+      providerClass: 'openAICompatible',
+      models: [model],
+      form: createModelForm(model),
+      editingModelName: model.name,
+      updateProvider,
+    });
+
+    expect(saved).toEqual([model]);
+    expect(updateProvider).toHaveBeenCalledWith('cpa-test', { models: [model] });
   });
 });

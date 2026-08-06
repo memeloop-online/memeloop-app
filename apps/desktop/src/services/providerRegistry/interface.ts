@@ -135,6 +135,13 @@ export type AIProvider = string;
  */
 export type ModelFeature = 'language' | 'imageGeneration' | 'toolCalling' | 'reasoning' | 'vision' | 'embedding' | 'speech' | 'transcriptions' | 'free';
 
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high';
+
+export interface ModelOptions {
+  /** OpenAI-compatible nucleus sampling default for this model. */
+  top_p?: number;
+}
+
 /**
  * Extended model information
  */
@@ -151,6 +158,12 @@ export interface ModelInfo {
   contextWindowSize?: number;
   /** Max output tokens (e.g. 4096, 16384) */
   maxOutputTokens?: number;
+  /** Safe model-level defaults which are merged below explicit request parameters. */
+  modelOptions?: ModelOptions;
+  /** Reasoning-effort values advertised by this model. */
+  supportsReasoningEffort?: ReasoningEffort[];
+  /** Wire format used when a reasoning effort is selected. */
+  reasoningEffortFormat?: 'chat-completions';
   /** Additional metadata */
   metadata?: Record<string, unknown>;
   /** OpenAI-compatible wire API used by this model. */

@@ -10,16 +10,19 @@ import {
   FormControlLabel,
   FormGroup,
   InputLabel,
+  ListItemText,
   MenuItem,
   Select,
   TextField,
   Typography,
 } from '@mui/material';
 import defaultProvidersConfig from '@services/providerRegistry/defaultProviders';
-import { ModelFeature, ModelInfo } from '@services/providerRegistry/interface';
+import type { ModelFeature, ModelInfo, ReasoningEffort } from '@services/providerRegistry/interface';
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ModelFeatureChip } from './ModelFeatureChip';
+import { reasoningEffortOptions, validateModelForm } from './modelForm';
+import type { ModelFormState } from './modelForm';
 
 interface ModelDialogProps {
   open: boolean;
@@ -27,17 +30,11 @@ interface ModelDialogProps {
   onAddModel: () => void;
   currentProvider: string | null;
   providerClass?: string;
-  newModelForm: {
-    name: string;
-    caption: string;
-    features: ModelFeature[];
-    parameters?: Record<string, unknown>;
-    apiMode?: ModelInfo['apiMode'];
-  };
+  newModelForm: ModelFormState;
   availableDefaultModels: ModelInfo[];
   selectedDefaultModel: string;
   onSelectDefaultModel: (model: string) => void;
-  onModelFormChange: (field: string, value: string | ModelFeature[] | Record<string, unknown>) => void;
+  onModelFormChange: <K extends keyof ModelFormState>(field: K, value: ModelFormState[K]) => void;
   onFeatureChange: (feature: ModelFeature, checked: boolean) => void;
   editMode?: boolean;
 }
@@ -58,6 +55,8 @@ export function NewModelDialog({
 }: ModelDialogProps) {
   const { t } = useTranslation(['translation', 'agent']);
   const lastSelectedModelReference = useRef<string | null>(null);
+  const validationErrors = validateModelForm(newModelForm);
+  const hasValidationErrors = Object.values(validationErrors).some(Boolean);
 
   // Handle workflow file selection for ComfyUI
   const handleSelectWorkflowFile = async () => {
@@ -82,7 +81,14 @@ export function NewModelDialog({
           onModelFormChange('name', selectedModel.name);
           onModelFormChange('caption', selectedModel.caption || '');
           onModelFormChange('features', selectedModel.features || ['language']);
+          onModelFormChange('parameters', selectedModel.parameters ? { ...selectedModel.parameters } : undefined);
+          onModelFormChange('metadata', selectedModel.metadata ? { ...selectedModel.metadata } : undefined);
           onModelFormChange('apiMode', selectedModel.apiMode || 'chat-completions');
+          onModelFormChange('contextWindowSize', selectedModel.contextWindowSize?.toString() ?? '');
+          onModelFormChange('maxOutputTokens', selectedModel.maxOutputTokens?.toString() ?? '');
+          onModelFormChange('topP', selectedModel.modelOptions?.top_p?.toString() ?? '');
+          onModelFormChange('supportsReasoningEffort', selectedModel.supportsReasoningEffort ?? []);
+          onModelFormChange('reasoningEffortFormat', selectedModel.reasoningEffortFormat ?? 'chat-completions');
         }
       }
     }
@@ -148,6 +154,8 @@ export function NewModelDialog({
                 }}
                 fullWidth
                 margin='normal'
+                error={Boolean(validationErrors.name)}
+                helperText={validationErrors.name}
                 slotProps={{ htmlInput: { 'data-testid': 'new-model-name-input' } }}
               />
 
@@ -178,6 +186,45 @@ export function NewModelDialog({
                 helperText={t('Preference.ModelCaptionHelp', { ns: 'agent' })}
               />
 
+              <TextField
+                label='Max input tokens (context window)'
+                value={newModelForm.contextWindowSize}
+                onChange={(event) => {
+                  onModelFormChange('contextWindowSize', event.target.value);
+                }}
+                fullWidth
+                margin='normal'
+                error={Boolean(validationErrors.contextWindowSize)}
+                helperText={validationErrors.contextWindowSize ?? 'Stored as contextWindowSize with maxInputTokens semantics.'}
+                slotProps={{ htmlInput: { 'data-testid': 'model-context-window-input', min: 1, step: 1, type: 'number' } }}
+              />
+
+              <TextField
+                label='Max output tokens'
+                value={newModelForm.maxOutputTokens}
+                onChange={(event) => {
+                  onModelFormChange('maxOutputTokens', event.target.value);
+                }}
+                fullWidth
+                margin='normal'
+                error={Boolean(validationErrors.maxOutputTokens)}
+                helperText={validationErrors.maxOutputTokens ?? 'Used when a request does not provide an explicit output-token limit.'}
+                slotProps={{ htmlInput: { 'data-testid': 'model-max-output-input', min: 1, step: 1, type: 'number' } }}
+              />
+
+              <TextField
+                label='Default Top P'
+                value={newModelForm.topP}
+                onChange={(event) => {
+                  onModelFormChange('topP', event.target.value);
+                }}
+                fullWidth
+                margin='normal'
+                error={Boolean(validationErrors.topP)}
+                helperText={validationErrors.topP ?? 'Optional model default; an explicit request value takes precedence.'}
+                slotProps={{ htmlInput: { 'data-testid': 'model-top-p-input', min: 0, max: 1, step: 0.01, type: 'number' } }}
+              />
+
               <Typography variant='subtitle2' sx={{ mt: 2, mb: 1 }}>
                 {t('Preference.ModelFeatures', { ns: 'agent' })}
               </Typography>
@@ -199,6 +246,52 @@ export function NewModelDialog({
                   />
                 ))}
               </FormGroup>
+
+              <Typography variant='caption' color='textSecondary'>
+                Thinking support is represented by the Reasoning feature; no separate thinking flag is stored.
+              </Typography>
+
+              <FormControl fullWidth margin='normal'>
+                <InputLabel>Supported reasoning efforts</InputLabel>
+                <Select
+                  multiple
+                  value={newModelForm.supportsReasoningEffort}
+                  label='Supported reasoning efforts'
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    const efforts = (typeof value === 'string' ? value.split(',') : value) as ReasoningEffort[];
+                    onModelFormChange('supportsReasoningEffort', efforts);
+                    if (efforts.length > 0 && !newModelForm.features.includes('reasoning')) {
+                      onFeatureChange('reasoning', true);
+                    }
+                  }}
+                  renderValue={(selected) => selected.join(', ')}
+                  data-testid='model-reasoning-efforts-select'
+                >
+                  {reasoningEffortOptions.map(effort => (
+                    <MenuItem key={effort} value={effort}>
+                      <Checkbox checked={newModelForm.supportsReasoningEffort.includes(effort)} />
+                      <ListItemText primary={effort} />
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {newModelForm.supportsReasoningEffort.length > 0 && (
+                <FormControl fullWidth margin='normal'>
+                  <InputLabel>Reasoning effort format</InputLabel>
+                  <Select
+                    value={newModelForm.reasoningEffortFormat}
+                    label='Reasoning effort format'
+                    onChange={(event) => {
+                      onModelFormChange('reasoningEffortFormat', event.target.value as 'chat-completions');
+                    }}
+                    data-testid='model-reasoning-effort-format-select'
+                  >
+                    <MenuItem value='chat-completions'>Chat Completions</MenuItem>
+                  </Select>
+                </FormControl>
+              )}
 
               {/* ComfyUI workflow path */}
               {providerClass === 'comfyui' && (
@@ -236,7 +329,7 @@ export function NewModelDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>{t('Cancel')}</Button>
-        <Button onClick={onAddModel} variant='contained' color='primary' data-testid='save-model-button'>
+        <Button onClick={onAddModel} variant='contained' color='primary' disabled={hasValidationErrors} data-testid='save-model-button'>
           {editMode ? t('Update') : t('Save')}
         </Button>
       </DialogActions>
