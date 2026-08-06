@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
     branches:
       - master
@@ -50,9 +51,25 @@ jobs:
         env:
           PUPPETEER_SKIP_DOWNLOAD: "true"
 
+      - name: Install Desktop workspace from lockfile
+        working-directory: apps/desktop
+        run: |
+          rm -rf -- node_modules
+          pnpm install --frozen-lockfile
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+
       - name: Rebuild Electron native modules
         working-directory: apps/desktop
         run: ./node_modules/.bin/electron-rebuild -f -w better-sqlite3,nsfw
+
+      - name: Package Desktop smoke
+        working-directory: apps/desktop
+        run: |
+          pnpm run build:plugin
+          ./node_modules/.bin/cross-env NODE_ENV=production ./node_modules/.bin/electron-forge package --platform=linux --arch=x64
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
 
       - name: Check Desktop types
         run: pnpm --filter memeloop-desktop run check
