@@ -1,4 +1,4 @@
-import { TIDGI_PROTOCOL_SCHEME } from '@/constants/protocol';
+import { MEMELOOP_PROTOCOL_SCHEME } from '@/constants/protocol';
 import type { IAnalyticsService } from '@services/analytics/interface';
 import { container } from '@services/container';
 import { logger } from '@services/libs/log';
@@ -209,7 +209,7 @@ export class DeepLinkService implements IDeepLinkService {
       // On Windows/Linux, protocol URLs are passed as command line arguments
       if (process.argv.length >= 2) {
         // Find the protocol URL in command line arguments
-        const protocolUrl = process.argv.find(argument => argument.startsWith(`${TIDGI_PROTOCOL_SCHEME}://`));
+        const protocolUrl = process.argv.find(argument => argument.startsWith(`${MEMELOOP_PROTOCOL_SCHEME}://`));
         if (protocolUrl) {
           logger.info(`Processing initial deep link from command line`, { protocolUrl, function: 'setupWindowsLinuxHandler' });
           // Process after app is ready

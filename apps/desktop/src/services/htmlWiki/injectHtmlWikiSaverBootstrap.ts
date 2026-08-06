@@ -66,7 +66,7 @@ function installHtmlWikiSaverBootstrap(): void {
         onError(error instanceof Error ? error : new Error(String(error)));
       });
     };
-    if (/^tidgi:/.test(document.location.protocol)) {
+    if (/^memeloop:/.test(document.location.protocol)) {
       finishBridge();
       return;
     }
@@ -103,7 +103,7 @@ function installHtmlWikiSaverBootstrap(): void {
     saverHandler.saveWiki = function patchedSaveWiki(options?: ISaveWikiOptions) {
       options = options || {};
       const method = options.method || 'save';
-      if (!/^tidgi:/.test(document.location.protocol) || method === 'download') {
+      if (!/^memeloop:/.test(document.location.protocol) || method === 'download') {
         return originalSaveWiki(options);
       }
       const wiki = options.wiki || this.wiki;

@@ -5,6 +5,7 @@ import fetch from 'node-fetch';
 import { BehaviorSubject } from 'rxjs';
 import semver from 'semver';
 
+import { MEMELOOP_RELEASE_REPOSITORY } from '@/constants/productIdentity';
 import type { IAnalyticsService } from '@services/analytics/interface';
 import type { IContextService } from '@services/context/interface';
 import { logger } from '@services/libs/log';
@@ -58,10 +59,10 @@ export class Updater implements IUpdaterService {
     void this.analyticsService.track('updater.check_started', { allowPrerelease });
     try {
       const latestReleaseData = await (allowPrerelease
-        ? fetch('https://api.github.com/repos/tiddly-gittly/TidGi-Desktop/releases?per_page=1')
+        ? fetch(`https://api.github.com/repos/${MEMELOOP_RELEASE_REPOSITORY}/releases?per_page=1`)
           .then(async (response) => await (response.json() as Promise<IGithubReleaseData[]>))
           .then((json) => json[0])
-        : fetch('https://api.github.com/repos/tiddly-gittly/TidGi-Desktop/releases/latest').then(
+        : fetch(`https://api.github.com/repos/${MEMELOOP_RELEASE_REPOSITORY}/releases/latest`).then(
           async (response) => await (response.json() as Promise<IGithubReleaseData | undefined>),
         ));
       if (latestReleaseData === undefined) {

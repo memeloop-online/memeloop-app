@@ -4,6 +4,7 @@ import type { ForgeConfig } from '@electron-forge/shared-types';
 import { readJsonSync } from 'fs-extra';
 import path from 'path';
 import afterPack from './scripts/afterPack';
+import { MEMELOOP_APP_USER_MODEL_ID, MEMELOOP_EXECUTABLE_NAME, MEMELOOP_PACKAGE_ID, MEMELOOP_PRODUCT_NAME, MEMELOOP_PROTOCOL } from './src/constants/productIdentity';
 
 const packageJson = readJsonSync(path.join(__dirname, 'package.json')) as { description: string };
 const supportedLanguages = readJsonSync(path.join(__dirname, 'localization', 'supportedLanguages.json')) as Record<string, string>;
@@ -24,16 +25,19 @@ const config: ForgeConfig = {
     // cross-device fs.cp can race on TiddlyWiki's very large hard-linked tree;
     // same-device finalization is an atomic rename instead.
     tmpdir: path.resolve(__dirname, '..', '..', '.electron-packager'),
-    name: 'TidGi',
-    executableName: 'tidgi',
+    name: MEMELOOP_PRODUCT_NAME,
+    executableName: MEMELOOP_EXECUTABLE_NAME,
     win32metadata: {
-      CompanyName: 'TiddlyWiki Community',
-      OriginalFilename: 'TidGi Desktop',
+      CompanyName: 'MemeLoop',
+      FileDescription: MEMELOOP_PRODUCT_NAME,
+      InternalName: MEMELOOP_EXECUTABLE_NAME,
+      OriginalFilename: `${MEMELOOP_EXECUTABLE_NAME}.exe`,
+      ProductName: MEMELOOP_PRODUCT_NAME,
     },
     protocols: [
       {
-        name: 'TidGi Launch Protocol',
-        schemes: ['tidgi'],
+        name: 'MemeLoop Desktop Launch Protocol',
+        schemes: [MEMELOOP_PROTOCOL],
       },
     ],
     icon: 'build-resources/icon.ico',
@@ -54,7 +58,7 @@ const config: ForgeConfig = {
       icon: 'build-resources/icon.icns',
       electronLanguages: supportedLanguageCodes,
     },
-    appBundleId: 'com.tidgi',
+    appBundleId: MEMELOOP_PACKAGE_ID,
   },
   hooks: {
     packageAfterPrune: afterPack,
@@ -65,7 +69,9 @@ const config: ForgeConfig = {
       platforms: ['win32'],
       config: (arch: string) => {
         return {
-          setupExe: `Install-TidGi-Windows-${arch}.exe`,
+          name: MEMELOOP_APP_USER_MODEL_ID,
+          exe: `${MEMELOOP_EXECUTABLE_NAME}.exe`,
+          setupExe: `Install-MemeLoop-Desktop-Windows-${arch}.exe`,
           setupIcon: 'build-resources/icon-installer.ico',
           description,
           iconUrl: 'https://raw.githubusercontent.com/tiddly-gittly/TidGi-Desktop/master/build-resources/icon%405x.png',
@@ -77,8 +83,13 @@ const config: ForgeConfig = {
       platforms: ['win32'],
       config: {
         packageAssets: 'build-resources/icon.ico',
+        packageName: 'MemeLoop-Desktop',
         sign: false,
         manifestVariables: {
+          packageIdentity: MEMELOOP_PACKAGE_ID,
+          packageDisplayName: MEMELOOP_PRODUCT_NAME,
+          appExecutable: `${MEMELOOP_EXECUTABLE_NAME}.exe`,
+          appDisplayName: MEMELOOP_PRODUCT_NAME,
           publisher: 'CN=TiddlyWiki Community',
         },
       },
@@ -94,7 +105,7 @@ const config: ForgeConfig = {
       config: {
         options: {
           maintainer: 'Lin Onetwo <linonetwo012@gmail.com>',
-          mimeType: ['x-scheme-handler/tidgi'],
+          mimeType: [`x-scheme-handler/${MEMELOOP_PROTOCOL}`],
         },
       },
     },
@@ -104,7 +115,7 @@ const config: ForgeConfig = {
       config: {
         options: {
           maintainer: 'Lin Onetwo <linonetwo012@gmail.com>',
-          mimeType: ['x-scheme-handler/tidgi'],
+          mimeType: [`x-scheme-handler/${MEMELOOP_PROTOCOL}`],
         },
       },
     },

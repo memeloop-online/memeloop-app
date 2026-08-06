@@ -1,3 +1,4 @@
+import './bootstrapProductIdentity';
 import { uninstall } from './helpers/installV8Cache';
 import 'source-map-support/register';
 import 'reflect-metadata';
@@ -9,7 +10,7 @@ import { initJsonRepairLogger, initTidgiConfigLogger } from './services/database
 
 import { MainChannel } from '@/constants/channels';
 import { isDevelopmentOrTest, isTest } from '@/constants/environment';
-import { TIDGI_PROTOCOL_SCHEME } from '@/constants/protocol';
+import { MEMELOOP_PROTOCOL_SCHEME } from '@/constants/protocol';
 import { container } from '@services/container';
 import { setupUnhandled } from '@services/libs/electronUnhandledBridge';
 import { initRendererI18NHandler } from '@services/libs/i18n';
@@ -55,7 +56,7 @@ import type { IWorkspaceViewService } from './services/workspacesView/interface'
 
 logger.info('App booting', { pid: process.pid });
 // Label the Node.js main process so it stands out in the OS process list
-process.title = 'TidGi [Node-Main]';
+process.title = 'MemeLoop Desktop [Node-Main]';
 
 // Early fatal error handlers - must install BEFORE any async initialization
 process.on('uncaughtException', (error) => {
@@ -104,7 +105,7 @@ protocol.registerSchemesAsPrivileged([
     },
   },
   {
-    scheme: TIDGI_PROTOCOL_SCHEME,
+    scheme: MEMELOOP_PROTOCOL_SCHEME,
     privileges: {
       standard: true,
       bypassCSP: true,
@@ -290,7 +291,7 @@ const commonInit = async (): Promise<void> => {
   // if user want a tidgi mini window, we create a new window for that
   // handle workspace name + tiddler name in uri https://www.electronjs.org/docs/latest/tutorial/launch-app-from-url-in-another-app
   // Use different protocol for test mode to avoid conflicts with production
-  deepLinkService.initializeDeepLink(TIDGI_PROTOCOL_SCHEME);
+  deepLinkService.initializeDeepLink(MEMELOOP_PROTOCOL_SCHEME);
 
   await windowService.open(WindowNames.main);
 

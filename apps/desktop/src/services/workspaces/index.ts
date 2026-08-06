@@ -10,6 +10,7 @@ import { map } from 'rxjs/operators';
 
 import { WikiChannel } from '@/constants/channels';
 import { defaultCreatedPageTypes, PageType } from '@/constants/pageTypes';
+import { MEMELOOP_PROTOCOL_SCHEME } from '@/constants/protocol';
 import { getDefaultTidGiUrl } from '@/constants/urls';
 import type { IAnalyticsService } from '@services/analytics/interface';
 import type { IAuthenticationService } from '@services/auth/interface';
@@ -377,7 +378,7 @@ export class Workspace implements IWorkspaceService {
       });
     }
     // before 0.8.0, tidgi was loading http content, so lastUrl will be http protocol, but later we switch to tidgi:// protocol, so old value can't be used.
-    if (workspaceWithSyncedConfig.lastUrl && !workspaceWithSyncedConfig.lastUrl.startsWith('tidgi')) {
+    if (workspaceWithSyncedConfig.lastUrl && !workspaceWithSyncedConfig.lastUrl.startsWith(`${MEMELOOP_PROTOCOL_SCHEME}:`)) {
       fixingValues.lastUrl = null;
     }
     if (typeof workspaceWithSyncedConfig.id === 'string' && workspaceWithSyncedConfig.id.trim() !== '' && workspaceWithSyncedConfig.id !== workspaceToSanitize.id) {
@@ -385,7 +386,7 @@ export class Workspace implements IWorkspaceService {
       fixingValues.homeUrl = getDefaultTidGiUrl(workspaceWithSyncedConfig.id);
       fixingValues.lastUrl = null;
     }
-    if (workspaceWithSyncedConfig.homeUrl && !workspaceWithSyncedConfig.homeUrl.startsWith('tidgi')) {
+    if (workspaceWithSyncedConfig.homeUrl && !workspaceWithSyncedConfig.homeUrl.startsWith(`${MEMELOOP_PROTOCOL_SCHEME}:`)) {
       fixingValues.homeUrl = getDefaultTidGiUrl(workspaceWithSyncedConfig.id);
     }
     if (workspaceWithSyncedConfig.tokenAuth && !workspaceWithSyncedConfig.authToken) {

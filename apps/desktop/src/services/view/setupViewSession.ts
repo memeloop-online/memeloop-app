@@ -1,5 +1,6 @@
 import { session } from 'electron';
 
+import { MEMELOOP_PROTOCOL_SCHEME } from '@/constants/protocol';
 import { isMac } from '@/helpers/system';
 import type { IPreferences } from '@services/preferences/interface';
 import type { IWorkspace } from '@services/workspaces/interface';
@@ -38,7 +39,7 @@ function assignFakeUserAgent(details: Electron.OnBeforeSendHeadersListenerDetail
     return;
   }
   // When request is from wiki BrowserView, which is loading with tidgi:// protocol, and use ipc-syncadaptor to load content.
-  if (!(!details.frame?.url || details.frame.url.startsWith('tidgi://'))) {
+  if (!(!details.frame?.url || details.frame.url.startsWith(`${MEMELOOP_PROTOCOL_SCHEME}://`))) {
     return;
   }
   const url = new URL(details.url);

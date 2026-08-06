@@ -10,7 +10,7 @@ import { isWikiWorkspace } from '@services/workspaces/interface';
 import { isHtmlWikiWorkspace } from '@services/workspaces/workspacePaths';
 
 import { ViewChannel, WindowChannel } from '@/constants/channels';
-import { TIDGI_PROTOCOL_SCHEME } from '@/constants/protocol';
+import { MEMELOOP_PROTOCOL_SCHEME } from '@/constants/protocol';
 import { isWin } from '@/helpers/system';
 import { container } from '@services/container';
 import type { IDeepLinkService } from '@services/deepLink/interface';
@@ -105,7 +105,7 @@ export default function setupViewEventHandlers(
       return;
     }
     // Handle tidgi:// deep links internally (e.g. tidgi://preferences/externalAPI from within wiki pages)
-    if (newUrl.startsWith(`${TIDGI_PROTOCOL_SCHEME}://`)) {
+    if (newUrl.startsWith(`${MEMELOOP_PROTOCOL_SCHEME}://`)) {
       logger.info('will-navigate handling tidgi:// deep link internally', { newUrl, function: 'will-navigate' });
       event.preventDefault();
       await deepLinkService.openDeepLink(newUrl);
@@ -194,7 +194,7 @@ export default function setupViewEventHandlers(
     // the view is still loading tidgi://…, aborting the in-flight request.
     // The restart flow will re-load the URL, so we retry here as a safety net
     // to recover from cases where the second load doesn't happen automatically.
-    if (isMainFrame && errorCode === -3 && isWikiWorkspace(workspaceObject) && workspaceObject.homeUrl.startsWith('tidgi://')) {
+    if (isMainFrame && errorCode === -3 && isWikiWorkspace(workspaceObject) && workspaceObject.homeUrl.startsWith(`${MEMELOOP_PROTOCOL_SCHEME}://`)) {
       setTimeout(async () => {
         if (view.webContents == null || view.webContents.isDestroyed()) return;
         await loadInitialUrlWithCatch();
