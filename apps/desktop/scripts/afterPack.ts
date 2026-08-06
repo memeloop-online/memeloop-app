@@ -6,6 +6,10 @@
 import fs from 'fs-extra';
 import path from 'path';
 
+export const TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE = [
+  ['editions', 'tiddlywiki-surveys'],
+] as const;
+
 /**
  * Running afterPack hook
  * Forge 8 exposes packageAfterPrune as a promise-based Forge hook.
@@ -115,6 +119,15 @@ export default async (
         ...packagePathInNodeModules,
       );
       fs.copySync(source, destinationMain, { dereference: true });
+
+      // Survey source material is not used by MemeLoop at runtime and contains
+      // filenames whose relative paths exceed the limits of MSIX and NuGet.
+      // Keep all actual TiddlyWiki editions and exclude only this archive.
+      if (first === 'tiddlywiki') {
+        for (const editionPath of TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE) {
+          fs.removeSync(path.resolve(destinationMain, ...editionPath));
+        }
+      }
 
       // These packages may be required from inside app.asar bundles, so place
       // them both in Resources/node_modules and Resources/app/node_modules.

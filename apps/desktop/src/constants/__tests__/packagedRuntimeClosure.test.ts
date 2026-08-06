@@ -1,6 +1,7 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE } from '../../../scripts/afterPack';
 
 const staleNoisePackages = [
   'sodium-universal',
@@ -33,5 +34,11 @@ describe('packaged runtime dependency closure', () => {
     for (const packageName of Object.keys(noiseManifest.dependencies ?? {})) {
       expect(() => realpathSync(path.join(noiseDependencyDirectory, packageName))).not.toThrow();
     }
+  });
+
+  it('excludes only the non-runtime TiddlyWiki survey edition with overlong paths', () => {
+    expect(TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE).toEqual([
+      ['editions', 'tiddlywiki-surveys'],
+    ]);
   });
 });
