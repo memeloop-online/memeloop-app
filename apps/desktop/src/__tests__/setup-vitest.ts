@@ -126,6 +126,11 @@ vi.mock('electron', () => {
     },
     // Also provide named export `app` to satisfy `import { app } from 'electron'`
     app: mockApp,
+    safeStorage: {
+      isEncryptionAvailable: () => true,
+      encryptString: (value: string) => Buffer.from(`encrypted:${value}`, 'utf8'),
+      decryptString: (value: Buffer) => value.toString('utf8').replace(/^encrypted:/, ''),
+    },
   };
 });
 

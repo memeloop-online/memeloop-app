@@ -1,7 +1,7 @@
 import { DatabaseChannel } from '@/constants/channels';
 import type { IUserInfos } from '@services/auth/interface';
-import type { AIGlobalSettings } from '@services/externalAPI/interface';
 import type { IPreferences } from '@services/preferences/interface';
+import type { AIGlobalSettings } from '@services/providerRegistry/interface';
 import type { IToolPermissionEntry } from '@services/toolPermissions/interface';
 import type { ISyncableWikiConfig, IWorkspace, IWorkspaceGroup } from '@services/workspaces/interface';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';

@@ -9,7 +9,8 @@ import { createOllama } from 'ollama-ai-provider-v2';
 import { getFormattedContent } from '@/pages/ChatTabContent/components/types';
 import { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema';
 import { AuthenticationError, MissingAPIKeyError, MissingBaseURLError, parseProviderError } from './errors';
-import type { AIProviderConfig } from './interface';
+import type { AIProviderConfig, ModelInfo } from './interface';
+import { normalizeOpenAIBaseURL } from './openAIBaseURL';
 
 type AIStreamResult = ReturnType<typeof streamText>;
 
@@ -19,7 +20,7 @@ export function createProviderClient(providerConfig: { provider: string; provide
 
   switch (providerClass) {
     case 'openai':
-      return createOpenAI({ apiKey });
+      return createOpenAI({ apiKey, baseURL: providerConfig.baseURL && normalizeOpenAIBaseURL(providerConfig.baseURL) });
     case 'openAICompatible':
       if (!providerConfig.baseURL) {
         throw new MissingBaseURLError(providerConfig.provider);
@@ -27,7 +28,7 @@ export function createProviderClient(providerConfig: { provider: string; provide
       return createOpenAICompatible({
         name: providerConfig.provider,
         apiKey,
-        baseURL: providerConfig.baseURL,
+        baseURL: normalizeOpenAIBaseURL(providerConfig.baseURL),
       });
     case 'deepseek':
       return createDeepSeek({ apiKey });
@@ -43,6 +44,20 @@ export function createProviderClient(providerConfig: { provider: string; provide
     default:
       throw new Error(`Unsupported AI provider: ${providerConfig.provider}`);
   }
+}
+
+export function createProviderModel(providerConfig: AIProviderConfig, model: ModelInfo) {
+  const providerClass = providerConfig.providerClass || providerConfig.provider;
+  if ((providerClass === 'openAICompatible' || providerClass === 'openai') && model.apiMode === 'responses') {
+    if (!providerConfig.baseURL && providerClass === 'openAICompatible') {
+      throw new MissingBaseURLError(providerConfig.provider);
+    }
+    return createOpenAI({
+      apiKey: providerConfig.apiKey,
+      baseURL: providerConfig.baseURL && normalizeOpenAIBaseURL(providerConfig.baseURL),
+    }).responses(model.name);
+  }
+  return createProviderClient(providerConfig, providerConfig.apiKey)(model.name);
 }
 
 export function streamFromProvider(
@@ -76,10 +91,7 @@ export function streamFromProvider(
       throw new MissingAPIKeyError(provider);
     }
 
-    const client = createProviderClient(
-      providerConfig,
-      providerConfig.apiKey,
-    );
+    const selectedModel = providerConfig.models.find(candidate => candidate.name === model) ?? { name: model };
 
     // Extract system message from messages if present
     const systemMessage = messages.find(message => message.role === 'system');
@@ -91,7 +103,7 @@ export function streamFromProvider(
     // Ensure we have at least one message to avoid AI library errors
     const finalMessages: Array<ModelMessage> = nonSystemMessages.length > 0 ? nonSystemMessages : [{ role: 'user' as const, content: 'Hi' }];
 
-    const providerModel = client(model);
+    const providerModel = createProviderModel(providerConfig, selectedModel);
     return streamText({
       model: providerModel,
       system: systemPrompt,
@@ -101,13 +113,13 @@ export function streamFromProvider(
     });
   } catch (error) {
     if (!error) {
-      throw new Error(`${provider} error: Unknown error`);
+      throw new Error(`${provider} error: Unknown error`, { cause: error });
     } else if ((error as Error).message.includes('401')) {
       throw new AuthenticationError(provider);
     } else if ((error as Error).message.includes('404')) {
-      throw new Error(`${provider} error: Model "${model}" not found`);
+      throw new Error(`${provider} error: Model "${model}" not found`, { cause: error });
     } else if ((error as Error).message.includes('429')) {
-      throw new Error(`${provider} too many requests: Reduce request frequency or check API limits`);
+      throw new Error(`${provider} too many requests: Reduce request frequency or check API limits`, { cause: error });
     } else {
       logger.error(`${provider} streaming error:`, error);
       // Try to parse the error into a more specific type if possible

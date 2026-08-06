@@ -41,6 +41,7 @@ interface ProviderFormState {
     caption: string;
     features: ModelFeature[];
     parameters?: Record<string, unknown>;
+    apiMode?: ModelInfo['apiMode'];
   };
 }
 
@@ -96,7 +97,7 @@ export function ProviderConfig({
           apiKey: provider.apiKey || '',
           baseURL: provider.baseURL || '',
           models: [...provider.models],
-          newModel: { name: '', caption: '', features: ['language' as ModelFeature] },
+          newModel: { name: '', caption: '', features: ['language'], apiMode: 'chat-completions' },
         };
       }
     });
@@ -169,7 +170,7 @@ export function ProviderConfig({
         [providerName]: {
           ...currentForm,
           [field]: value,
-        } as ProviderFormState,
+        },
       };
     });
 
@@ -241,7 +242,7 @@ export function ProviderConfig({
             ...currentForm.newModel,
             [field]: value,
           },
-        } as ProviderFormState,
+        },
       };
     });
   };
@@ -273,7 +274,7 @@ export function ProviderConfig({
             caption: string;
             features: ModelFeature[];
           },
-        } as ProviderFormState,
+        },
       };
     });
   };
@@ -297,10 +298,11 @@ export function ProviderConfig({
           newModel: {
             name: model.name,
             caption: model.caption || '',
-            features: model.features || ['language' as ModelFeature],
+            features: model.features || ['language'],
             parameters: model.parameters || {},
+            apiMode: model.apiMode ?? 'chat-completions',
           },
-        } as ProviderFormState,
+        },
       };
     });
 
@@ -326,6 +328,7 @@ export function ProviderConfig({
         caption: form.newModel.caption || undefined,
         features: form.newModel.features,
         parameters: form.newModel.parameters,
+        apiMode: form.newModel.apiMode,
       } satisfies ModelInfo;
 
       if (!newModel.name) {
@@ -363,10 +366,11 @@ export function ProviderConfig({
             newModel: {
               name: '',
               caption: '',
-              features: ['language' as ModelFeature],
+              features: ['language'],
               parameters: {},
+              apiMode: 'chat-completions',
             },
-          } as ProviderFormState,
+          },
         };
       });
 
@@ -409,7 +413,7 @@ export function ProviderConfig({
           [providerName]: {
             ...currentForm,
             models: updatedModels,
-          } as ProviderFormState,
+          },
         };
       });
 
@@ -554,7 +558,8 @@ export function ProviderConfig({
           newModel: {
             name: '',
             caption: '',
-            features: ['language' as ModelFeature],
+            features: ['language'],
+            apiMode: 'chat-completions',
           },
         },
       }));
@@ -732,7 +737,7 @@ export function ProviderConfig({
         providerClass={currentProvider ? providers.find(p => p.provider === currentProvider)?.providerClass : undefined}
         newModelForm={currentProvider && providerForms[currentProvider]
           ? providerForms[currentProvider].newModel
-          : { name: '', caption: '', features: ['language' as ModelFeature], parameters: {} }}
+          : { name: '', caption: '', features: ['language'], parameters: {} }}
         availableDefaultModels={availableDefaultModels}
         selectedDefaultModel={selectedDefaultModel}
         onSelectDefaultModel={setSelectedDefaultModel}

@@ -153,6 +153,8 @@ export interface ModelInfo {
   maxOutputTokens?: number;
   /** Additional metadata */
   metadata?: Record<string, unknown>;
+  /** OpenAI-compatible wire API used by this model. */
+  apiMode?: 'chat-completions' | 'responses';
 }
 
 /**
@@ -161,6 +163,10 @@ export interface ModelInfo {
 export interface AIProviderConfig {
   provider: string;
   apiKey?: string;
+  /** OS-backed encrypted credential; main-process persistence only. */
+  encryptedApiKey?: string;
+  /** Renderer-safe indication that a credential is configured. */
+  hasApiKey?: boolean;
   baseURL?: string;
   models: ModelInfo[];
   /** Type of provider API interface */

@@ -32,6 +32,7 @@ interface ModelDialogProps {
     caption: string;
     features: ModelFeature[];
     parameters?: Record<string, unknown>;
+    apiMode?: ModelInfo['apiMode'];
   };
   availableDefaultModels: ModelInfo[];
   selectedDefaultModel: string;
@@ -80,7 +81,8 @@ export function NewModelDialog({
         if (selectedModel) {
           onModelFormChange('name', selectedModel.name);
           onModelFormChange('caption', selectedModel.caption || '');
-          onModelFormChange('features', selectedModel.features || ['language' as ModelFeature]);
+          onModelFormChange('features', selectedModel.features || ['language']);
+          onModelFormChange('apiMode', selectedModel.apiMode || 'chat-completions');
         }
       }
     }
@@ -149,6 +151,22 @@ export function NewModelDialog({
                 slotProps={{ htmlInput: { 'data-testid': 'new-model-name-input' } }}
               />
 
+              {(providerClass === 'openAICompatible' || providerClass === 'openai') && (
+                <FormControl fullWidth margin='normal'>
+                  <InputLabel>OpenAI API mode</InputLabel>
+                  <Select
+                    value={newModelForm.apiMode ?? 'chat-completions'}
+                    label='OpenAI API mode'
+                    onChange={(event) => {
+                      onModelFormChange('apiMode', event.target.value);
+                    }}
+                  >
+                    <MenuItem value='chat-completions'>Chat Completions</MenuItem>
+                    <MenuItem value='responses'>Responses</MenuItem>
+                  </Select>
+                </FormControl>
+              )}
+
               <TextField
                 label={t('Preference.ModelCaption', { ns: 'agent' })}
                 value={newModelForm.caption}
@@ -191,7 +209,7 @@ export function NewModelDialog({
                   <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                     <TextField
                       label={t('Preference.WorkflowFilePath', { ns: 'agent' })}
-                      value={(newModelForm.parameters?.workflowPath as string) || ''}
+                      value={(newModelForm.parameters?.workflowPath) || ''}
                       onChange={(event) => {
                         const parameters = { ...(newModelForm.parameters || {}), workflowPath: event.target.value };
                         onModelFormChange('parameters', parameters);

@@ -1,3 +1,4 @@
+import { safeStorage } from 'electron';
 import { inject, injectable } from 'inversify';
 import { cloneDeep, mergeWith } from 'lodash';
 import { nanoid } from 'nanoid';
@@ -30,6 +31,7 @@ import type {
   IProviderRegistryService,
   ModelInfo,
 } from './interface';
+import { normalizeOpenAIBaseURL } from './openAIBaseURL';
 import { DEFAULT_RETRY_CONFIG, withRetry } from './retryUtility';
 
 /**
@@ -142,6 +144,12 @@ export class ProviderRegistryService implements IProviderRegistryService {
   private loadSettingsFromDatabase(): void {
     const savedSettings = this.databaseService.getSetting('aiSettings');
     this.userSettings = savedSettings ?? this.userSettings;
+    let removedPlaintextCredential = false;
+    for (const provider of this.userSettings.providers) {
+      if (provider.apiKey !== undefined) removedPlaintextCredential = true;
+      delete provider.apiKey;
+    }
+    if (removedPlaintextCredential) this.databaseService.setSetting('aiSettings', this.userSettings);
     this.settingsLoaded = true;
 
     // Update Observables with loaded settings
@@ -383,6 +391,9 @@ export class ProviderRegistryService implements IProviderRegistryService {
   private getHydratedProviders(): AIProviderConfig[] {
     const providers = cloneDeep(this.userSettings.providers);
     for (const stored of providers) {
+      stored.hasApiKey = Boolean(stored.encryptedApiKey);
+      delete stored.apiKey;
+      delete stored.encryptedApiKey;
       const preset = defaultProvidersConfig.providers.find(
         (d) => d.provider === stored.provider,
       );
@@ -445,8 +456,16 @@ export class ProviderRegistryService implements IProviderRegistryService {
     providerName: string,
   ): Promise<AIProviderConfig | undefined> {
     this.ensureSettingsLoaded();
-    const providers = await this.getAIProviders();
-    return providers.find((p) => p.provider === providerName);
+    const stored = this.userSettings.providers.find((provider) => provider.provider === providerName);
+    if (!stored) return undefined;
+    const result = cloneDeep(stored);
+    if (stored.encryptedApiKey) {
+      if (!safeStorage.isEncryptionAvailable()) throw new Error('secure_storage_unavailable');
+      result.apiKey = safeStorage.decryptString(Buffer.from(stored.encryptedApiKey, 'base64'));
+    }
+    delete result.encryptedApiKey;
+    delete result.hasApiKey;
+    return result;
   }
 
   async updateProvider(
@@ -458,13 +477,35 @@ export class ProviderRegistryService implements IProviderRegistryService {
       (p) => p.provider === provider,
     );
 
+    const persistedConfig = cloneDeep(config);
+    if (Object.hasOwn(persistedConfig, 'apiKey')) {
+      const apiKey = persistedConfig.apiKey?.trim() ?? '';
+      delete persistedConfig.apiKey;
+      if (apiKey) {
+        if (!safeStorage.isEncryptionAvailable()) throw new Error('secure_storage_unavailable');
+        persistedConfig.encryptedApiKey = safeStorage.encryptString(apiKey).toString('base64');
+      } else {
+        persistedConfig.encryptedApiKey = undefined;
+      }
+    }
+    delete persistedConfig.hasApiKey;
+    if (typeof persistedConfig.baseURL === 'string') {
+      const providerClass = persistedConfig.providerClass ?? existingProvider?.providerClass ?? existingProvider?.provider;
+      persistedConfig.baseURL = providerClass === 'openAICompatible' || providerClass === 'openai'
+        ? normalizeOpenAIBaseURL(persistedConfig.baseURL)
+        : persistedConfig.baseURL.replace(/\/+$/, '');
+    }
+
     if (existingProvider) {
-      Object.assign(existingProvider, config);
+      Object.assign(existingProvider, persistedConfig);
+      if (persistedConfig.encryptedApiKey === undefined && Object.hasOwn(config, 'apiKey')) {
+        delete existingProvider.encryptedApiKey;
+      }
     } else {
       this.userSettings.providers.push({
         provider,
         models: [],
-        ...config,
+        ...persistedConfig,
       });
     }
 
@@ -503,7 +544,7 @@ export class ProviderRegistryService implements IProviderRegistryService {
         // For other values, let lodash handle the merge
         return undefined;
       },
-    ) as typeof this.userSettings.defaultConfig;
+    );
 
     this.saveSettingsToDatabase();
 
