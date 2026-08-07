@@ -16,12 +16,13 @@ if (!fs.existsSync(archivePath)) throw new Error(`Packaged app.asar does not exi
 const archiveEntries = new Set(
   listPackage(archivePath, { isPack: false }).map(entry => entry.replaceAll('\\', '/')),
 );
+const extractArchiveFile = (posixPath: string): Buffer => extractFile(archivePath, posixPath.split('/').join(path.sep));
 for (const protoFile of REQUIRED_ETCD3_PROTO_FILES) {
   const relativePath = path.posix.join(...BUNDLED_ETCD3_PROTO_DIRECTORY, protoFile);
   const archiveEntry = `/${relativePath}`;
   if (!archiveEntries.has(archiveEntry)) throw new Error(`Packaged runtime resource is missing: ${archiveEntry}`);
 
-  const content = extractFile(archivePath, relativePath);
+  const content = extractArchiveFile(relativePath);
   if (content.length === 0 || !content.toString('utf8').includes('syntax = "proto3"')) {
     throw new Error(`Packaged runtime resource is invalid: ${archiveEntry}`);
   }
@@ -29,14 +30,14 @@ for (const protoFile of REQUIRED_ETCD3_PROTO_FILES) {
 
 const mainBundlePath = '.vite/build/main.js';
 if (!archiveEntries.has(`/${mainBundlePath}`)) throw new Error(`Packaged main bundle is missing: /${mainBundlePath}`);
-const mainBundle = extractFile(archivePath, mainBundlePath).toString('utf8');
+const mainBundle = extractArchiveFile(mainBundlePath).toString('utf8');
 if (!mainBundle.includes('../proto/rpc.proto')) {
   throw new Error('Packaged etcd3 loader no longer resolves through the declared .vite/proto runtime contract');
 }
 const workerAndSharedBundles = [...archiveEntries]
   .filter(entry => entry.startsWith('/.vite/build/') && entry.endsWith('.js'))
   .filter(entry => entry !== `/${mainBundlePath}`)
-  .map(entry => extractFile(archivePath, entry.slice(1)).toString('utf8'))
+  .map(entry => extractArchiveFile(entry.slice(1)).toString('utf8'))
   .join('\n');
 const mainAndWorkerBundles = `${mainBundle}\n${workerAndSharedBundles}`;
 if (mainAndWorkerBundles.includes('node_modules/electron/index.js') || mainAndWorkerBundles.includes('ELECTRON_OVERRIDE_DIST_PATH')) {
@@ -54,7 +55,7 @@ for (const [scope, code] of [['main', mainBundle], ['worker', workerAndSharedBun
 
 const rendererJavaScript = [...archiveEntries]
   .filter(entry => entry.startsWith('/.vite/renderer/') && entry.endsWith('.js'))
-  .map(entry => extractFile(archivePath, entry.slice(1)).toString('utf8'))
+  .map(entry => extractArchiveFile(entry.slice(1)).toString('utf8'))
   .join('\n');
 const rendererNodeSignatures = ['__dirname', 'node_modules/electron/index.js', 'ELECTRON_OVERRIDE_DIST_PATH', 'path.txt'];
 for (const signature of rendererNodeSignatures) {
