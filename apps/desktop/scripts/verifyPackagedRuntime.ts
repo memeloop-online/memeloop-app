@@ -11,7 +11,11 @@ if (!archiveArgument) {
 const archivePath = path.resolve(archiveArgument);
 if (!fs.existsSync(archivePath)) throw new Error(`Packaged app.asar does not exist: ${archivePath}`);
 
-const archiveEntries = new Set(listPackage(archivePath, { isPack: false }));
+// @electron/asar follows the host separator when listing an archive. Normalize
+// Windows `\\` entries before comparing them with the archive's POSIX paths.
+const archiveEntries = new Set(
+  listPackage(archivePath, { isPack: false }).map(entry => entry.replaceAll('\\', '/')),
+);
 for (const protoFile of REQUIRED_ETCD3_PROTO_FILES) {
   const relativePath = path.posix.join(...BUNDLED_ETCD3_PROTO_DIRECTORY, protoFile);
   const archiveEntry = `/${relativePath}`;
