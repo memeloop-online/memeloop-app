@@ -68,8 +68,8 @@ jobs:
         run: |
           pnpm run build:plugin
           ./node_modules/.bin/cross-env NODE_ENV=production ./node_modules/.bin/electron-forge package --platform=linux --arch=x64
-          pnpm run test:package-runtime -- "out/MemeLoop Desktop-linux-x64/resources/app.asar"
-          xvfb-run --auto-servernum pnpm run test:package-startup -- "out/MemeLoop Desktop-linux-x64/memeloop-desktop"
+          pnpm run test:package-runtime "out/MemeLoop Desktop-linux-x64/resources/app.asar"
+          xvfb-run --auto-servernum pnpm run test:package-startup "out/MemeLoop Desktop-linux-x64/memeloop-desktop"
         env:
           PUPPETEER_SKIP_DOWNLOAD: "true"
 
