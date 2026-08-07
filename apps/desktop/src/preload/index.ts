@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 import type { IServicesWithOnlyObservables, IServicesWithoutObservables } from 'electron-ipc-cat/common';
 
 import './common/i18n';
@@ -19,11 +19,19 @@ import { fixAlertConfirm } from './fixer/fixAlertConfirm';
 
 declare global {
   interface Window {
+    memeloopRuntime: Readonly<{ hasTestScenarioArgument: boolean }>;
     meta: () => IPossibleWindowMeta;
     observables: IServicesWithOnlyObservables<typeof service>;
     service: IServicesWithoutObservables<typeof service>;
   }
 }
+
+contextBridge.exposeInMainWorld(
+  'memeloopRuntime',
+  Object.freeze({
+    hasTestScenarioArgument: process.argv.some(argument => argument.startsWith('--test-scenario=')),
+  }),
+);
 
 switch (browserViewMetaData.windowName) {
   case WindowNames.main: {

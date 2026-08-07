@@ -91,6 +91,9 @@ export const LOCAL_GIT_DIRECTORY = isPackaged
 // Logging and cache directories
 export const LOG_FOLDER = path.resolve(USER_DATA_FOLDER, 'logs');
 export const V8_CACHE_FOLDER = v8CompileCacheLibrary.getCacheDir();
+// Squirrel writes its setup log beside (not inside) the Windows temp folder.
+// Resolve this in the main process so the sandboxed renderer never reads env.
+export const INSTALLER_LOG_FOLDER = path.resolve(getElectronApp().getPath('temp'), '..', 'SquirrelTemp');
 export const DEFAULT_DOWNLOADS_PATH = path.join(getElectronApp().getPath('home'), 'Downloads');
 
 // Use Electron's app.getPath('desktop') which correctly resolves the Desktop folder even when it has

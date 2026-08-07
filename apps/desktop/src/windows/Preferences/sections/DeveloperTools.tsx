@@ -36,16 +36,17 @@ export function DeveloperTools(props: ICustomSectionProps): React.JSX.Element {
   const { t } = useTranslation();
   const preference = usePreferenceObservable();
 
-  const [LOG_FOLDER, SETTINGS_FOLDER, V8_CACHE_FOLDER] = usePromiseValue<
-    [string | undefined, string | undefined, string | undefined]
+  const [LOG_FOLDER, SETTINGS_FOLDER, V8_CACHE_FOLDER, INSTALLER_LOG_FOLDER] = usePromiseValue<
+    [string | undefined, string | undefined, string | undefined, string | undefined]
   >(
     async () =>
       await Promise.all([
         window.service.context.get('LOG_FOLDER'),
         window.service.context.get('SETTINGS_FOLDER'),
         window.service.context.get('V8_CACHE_FOLDER'),
+        window.service.context.get('INSTALLER_LOG_FOLDER'),
       ]),
-    [undefined, undefined, undefined],
+    [undefined, undefined, undefined, undefined],
   )!;
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -158,13 +159,10 @@ export function DeveloperTools(props: ICustomSectionProps): React.JSX.Element {
               {isWindows && (
                 <ListItemButton
                   onClick={async () => {
-                    const localAppData = process.env.LOCALAPPDATA;
-                    if (localAppData) {
-                      // %LOCALAPPDATA%\SquirrelTemp\SquirrelSetup.log
-                      const squirrelTemporaryPath = `${localAppData}\\SquirrelTemp`;
+                    if (INSTALLER_LOG_FOLDER !== undefined) {
                       try {
                         await window.service.native.openPath(
-                          squirrelTemporaryPath,
+                          INSTALLER_LOG_FOLDER,
                           false,
                         );
                       } catch (error: unknown) {
@@ -174,7 +172,7 @@ export function DeveloperTools(props: ICustomSectionProps): React.JSX.Element {
                           {
                             function: 'DeveloperTools.openSquirrelTempFolder',
                             error: error as Error,
-                            path: squirrelTemporaryPath,
+                            path: INSTALLER_LOG_FOLDER,
                           },
                         );
                       }
@@ -199,8 +197,8 @@ export function DeveloperTools(props: ICustomSectionProps): React.JSX.Element {
                     window.service.view.getViewsInfo(),
                   ]);
                   setDiagData({
-                    processInfo: processInfoResult as unknown as IProcessInfo,
-                    viewsInfo: viewsInfoResult as unknown as IViewInfo[],
+                    processInfo: processInfoResult,
+                    viewsInfo: viewsInfoResult,
                   });
                   setDiagOpen(true);
                 }}
@@ -376,8 +374,8 @@ export function DeveloperTools(props: ICustomSectionProps): React.JSX.Element {
                 window.service.view.getViewsInfo(),
               ]);
               setDiagData({
-                processInfo: processInfoResult as unknown as IProcessInfo,
-                viewsInfo: viewsInfoResult as unknown as IViewInfo[],
+                processInfo: processInfoResult,
+                viewsInfo: viewsInfoResult,
               });
             }}
           >

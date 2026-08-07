@@ -2,7 +2,13 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { BUNDLED_ETCD3_PROTO_DIRECTORY, REQUIRED_ETCD3_PROTO_FILES, TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE } from '../../../scripts/afterPack';
+import {
+  BUNDLED_ETCD3_PROTO_DIRECTORY,
+  PACKAGED_BETTER_SQLITE_RUNTIME_PATHS,
+  PACKAGED_ELECTRON_UNHANDLED_PACKAGE,
+  REQUIRED_ETCD3_PROTO_FILES,
+  TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE,
+} from '../../../scripts/afterPack';
 
 const staleNoisePackages = [
   'sodium-universal',
@@ -93,5 +99,39 @@ describe('packaged runtime dependency closure', () => {
 
     expect(BUNDLED_ETCD3_PROTO_DIRECTORY).toEqual(['.vite', 'proto']);
     expect(installedProtoFiles).toEqual([...REQUIRED_ETCD3_PROTO_FILES].sort());
+  });
+
+  it('declares the better-sqlite3 JavaScript entry closure beside its native binding', () => {
+    const betterSqliteDirectory = findPackageRoot(fileURLToPath(import.meta.resolve('better-sqlite3')), 'better-sqlite3');
+    const manifest = JSON.parse(readFileSync(path.join(betterSqliteDirectory, 'package.json'), 'utf8')) as { main?: string };
+    expect(manifest.main).toBe('lib/index.js');
+    if (!manifest.main) throw new Error('better-sqlite3 manifest has no main entry');
+    expect(PACKAGED_BETTER_SQLITE_RUNTIME_PATHS).toEqual([
+      ['better-sqlite3', 'package.json'],
+      ['better-sqlite3', 'lib'],
+    ]);
+    expect(existsSync(path.join(betterSqliteDirectory, manifest.main))).toBe(true);
+  });
+
+  it('pins electron-unhandled to its exact production dependency graph', () => {
+    const electronUnhandledDirectory = findPackageRoot(
+      fileURLToPath(import.meta.resolve(PACKAGED_ELECTRON_UNHANDLED_PACKAGE)),
+      PACKAGED_ELECTRON_UNHANDLED_PACKAGE,
+    );
+    const manifest = JSON.parse(readFileSync(path.join(electronUnhandledDirectory, 'package.json'), 'utf8')) as {
+      type?: string;
+      dependencies?: Record<string, string>;
+    };
+    expect(manifest.type).toBe('module');
+    expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual([
+      'clean-stack',
+      'electron-is-dev',
+      'ensure-error',
+      'lodash.debounce',
+      'serialize-error',
+    ]);
+    const serializeErrorDirectory = resolveDependencyFromOwner(electronUnhandledDirectory, 'serialize-error');
+    const serializeErrorManifest = JSON.parse(readFileSync(path.join(serializeErrorDirectory, 'package.json'), 'utf8')) as { version?: string };
+    expect(serializeErrorManifest.version).toBe('11.0.3');
   });
 });

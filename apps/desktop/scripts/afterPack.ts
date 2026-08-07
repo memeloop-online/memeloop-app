@@ -17,6 +17,86 @@ export const TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE = [
  */
 export const BUNDLED_ETCD3_PROTO_DIRECTORY = ['.vite', 'proto'] as const;
 export const REQUIRED_ETCD3_PROTO_FILES = ['auth.proto', 'kv.proto', 'rpc.proto'] as const;
+export const PACKAGED_ELECTRON_UNHANDLED_PACKAGE = 'electron-unhandled';
+export const PACKAGED_BETTER_SQLITE_RUNTIME_PATHS = [
+  ['better-sqlite3', 'package.json'],
+  ['better-sqlite3', 'lib'],
+] as const;
+
+interface RuntimePackageManifest {
+  name?: string;
+  version?: string;
+  dependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+}
+
+const dependencyPath = (baseDirectory: string, packageName: string): string => path.join(baseDirectory, 'node_modules', ...packageName.split('/'));
+
+const resolveInstalledDependency = (ownerDirectory: string, packageName: string): string => {
+  let currentDirectory = fs.realpathSync(ownerDirectory);
+  while (true) {
+    const candidate = dependencyPath(currentDirectory, packageName);
+    if (fs.existsSync(candidate)) return fs.realpathSync(candidate);
+    const parentDirectory = path.dirname(currentDirectory);
+    if (parentDirectory === currentDirectory) {
+      throw new Error(`Could not resolve production dependency ${packageName} from ${ownerDirectory}`);
+    }
+    currentDirectory = parentDirectory;
+  }
+};
+
+const assertNoSymbolicLinks = (directory: string): void => {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    if (fs.lstatSync(entryPath).isSymbolicLink()) {
+      throw new Error(`Packaged runtime closure contains a symbolic link: ${entryPath}`);
+    }
+    if (entry.isDirectory()) assertNoSymbolicLinks(entryPath);
+  }
+};
+
+/**
+ * Materialize one package and its production dependency graph as an ordinary
+ * nested node_modules tree. The source may use pnpm symlinks; the destination
+ * deliberately does not, so the packaged closure is portable by itself.
+ */
+const copyProductionDependencyClosure = (
+  sourceDirectory: string,
+  destinationDirectory: string,
+  ancestors: ReadonlyMap<string, string> = new Map(),
+): void => {
+  const realSourceDirectory = fs.realpathSync(sourceDirectory);
+  const manifestPath = path.join(realSourceDirectory, 'package.json');
+  const manifest = fs.readJsonSync(manifestPath) as RuntimePackageManifest;
+  if (!manifest.name || !manifest.version) {
+    throw new Error(`Invalid production package manifest: ${manifestPath}`);
+  }
+
+  fs.copySync(realSourceDirectory, destinationDirectory, {
+    dereference: true,
+    filter: sourcePath => path.basename(sourcePath) !== 'node_modules',
+  });
+
+  const nextAncestors = new Map(ancestors);
+  nextAncestors.set(manifest.name, manifest.version);
+  const dependencies = {
+    ...manifest.dependencies,
+    ...manifest.optionalDependencies,
+  };
+  for (const dependencyName of Object.keys(dependencies).sort()) {
+    const dependencySource = resolveInstalledDependency(realSourceDirectory, dependencyName);
+    const dependencyManifest = fs.readJsonSync(path.join(dependencySource, 'package.json')) as RuntimePackageManifest;
+    if (!dependencyManifest.name || !dependencyManifest.version) {
+      throw new Error(`Invalid dependency package manifest: ${dependencySource}`);
+    }
+    if (nextAncestors.get(dependencyManifest.name) === dependencyManifest.version) continue;
+    copyProductionDependencyClosure(
+      dependencySource,
+      dependencyPath(destinationDirectory, dependencyName),
+      nextAncestors,
+    );
+  }
+};
 
 /**
  * Running afterPack hook
@@ -99,6 +179,7 @@ export default async (
     );
 
     const packagePathsToCopyDereferenced: string[][] = [
+      ...PACKAGED_BETTER_SQLITE_RUNTIME_PATHS.map(packagePath => [...packagePath]),
       ...getBetterSqliteBinaryPaths(),
       // Wiki workers load boot/core/plugin files from process.resourcesPath.
       ['tiddlywiki'],
@@ -170,6 +251,26 @@ export default async (
         fs.copySync(source, destinationApp, { dereference: true });
       }
     }
+
+    const electronUnhandledSource = resolvePackageSource(PACKAGED_ELECTRON_UNHANDLED_PACKAGE);
+    const electronUnhandledDestination = path.join(cwd, 'node_modules', PACKAGED_ELECTRON_UNHANDLED_PACKAGE);
+    copyProductionDependencyClosure(electronUnhandledSource, electronUnhandledDestination);
+    const electronUnhandledManifest = fs.readJsonSync(path.join(electronUnhandledDestination, 'package.json')) as {
+      name?: string;
+      version?: string;
+      type?: string;
+      exports?: unknown;
+    };
+    if (
+      electronUnhandledManifest.name !== PACKAGED_ELECTRON_UNHANDLED_PACKAGE ||
+      electronUnhandledManifest.type !== 'module' ||
+      !electronUnhandledManifest.version ||
+      electronUnhandledManifest.exports === undefined
+    ) {
+      throw new Error(`Invalid packaged electron-unhandled entry contract at ${electronUnhandledDestination}`);
+    }
+    assertNoSymbolicLinks(electronUnhandledDestination);
+    console.log(`Copied ${PACKAGED_ELECTRON_UNHANDLED_PACKAGE}@${electronUnhandledManifest.version} production closure`);
 
     console.log('Copy dugite');
     // it has things like `git/bin/libexec/git-core/git-add` link to `git/bin/libexec/git-core/git`, to reduce size, so can't use `dereference: true, recursive: true` here.

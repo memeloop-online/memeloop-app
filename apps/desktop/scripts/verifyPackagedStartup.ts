@@ -9,7 +9,16 @@ if (!executableArgument) throw new Error('Usage: verifyPackagedStartup.ts <path-
 const executablePath = path.resolve(executableArgument);
 if (!fs.existsSync(executablePath)) throw new Error(`Packaged executable does not exist: ${executablePath}`);
 
-const READY_MARKER = '[test-id-ALL_WORKSPACE_VIEW_INITIALIZED]';
+const REQUIRED_READY_MARKERS = [
+  '[test-id-ELECTRON_UNHANDLED_INITIALIZED]',
+  'Database initialized for key: agent',
+  'Database initialized for key: wikiEmbedding',
+  'MemeLoop worker initialized',
+  'test-id-WorkerServicesReady',
+  '[test-id-ALL_WORKSPACE_VIEW_INITIALIZED]',
+] as const;
+const FATAL_STARTUP_PATTERN =
+  /FATAL (?:uncaughtException|unhandledRejection)|Unhandled Promise Rejection|ERR_MODULE_NOT_FOUND|SQLite package has not been found|Error initializing database|Failed to initialize wiki embedding|Peer process exited|React Error Boundary caught|process is not defined|ENOENT[^\n]*\.proto/i;
 const STARTUP_TIMEOUT_MS = 45_000;
 const STABILITY_WINDOW_MS = 5_000;
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
@@ -112,11 +121,22 @@ const main = async (): Promise<void> => {
     child.stderr?.on('data', appendOutput);
 
     const ready = await new Promise<boolean>((resolve, reject) => {
+      let settled = false;
       const deadline = setTimeout(() => {
+        settled = true;
         resolve(false);
       }, STARTUP_TIMEOUT_MS);
       const checkReady = (): void => {
-        if (output.includes(READY_MARKER)) {
+        if (settled) return;
+        const fatalMatch = output.match(FATAL_STARTUP_PATTERN);
+        if (fatalMatch) {
+          settled = true;
+          clearTimeout(deadline);
+          reject(new Error(`Packaged app emitted a fatal startup error: ${fatalMatch[0]}`));
+          return;
+        }
+        if (REQUIRED_READY_MARKERS.every(marker => output.includes(marker))) {
+          settled = true;
           clearTimeout(deadline);
           resolve(true);
         }
@@ -125,6 +145,8 @@ const main = async (): Promise<void> => {
       child?.stderr?.on('data', checkReady);
       child?.once('error', reject);
       child?.once('exit', (code, signal) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(deadline);
         reject(new Error(`Packaged app exited before readiness (code=${String(code)}, signal=${String(signal)})`));
       });
@@ -135,10 +157,12 @@ const main = async (): Promise<void> => {
     if (child.exitCode !== null || child.signalCode !== null) {
       throw new Error('Packaged app exited during the stability window');
     }
-    if (/FATAL (?:uncaughtException|unhandledRejection)|Unhandled Promise Rejection|ENOENT[^\n]*\.proto/i.test(output)) {
+    if (FATAL_STARTUP_PATTERN.test(output)) {
       throw new Error('Packaged app emitted a fatal main-process error');
     }
-    console.log(`Packaged app reached readiness and remained stable for ${STABILITY_WINDOW_MS}ms`);
+    console.log(
+      `Packaged app loaded external ESM/native SQLite closures, reached service readiness, and remained stable for ${STABILITY_WINDOW_MS}ms`,
+    );
   } catch (error) {
     console.error(output);
     throw error;

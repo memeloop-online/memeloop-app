@@ -247,6 +247,17 @@ app.on('activate', async () => {
 
 const commonInit = async (): Promise<void> => {
   await app.whenReady();
+  await setupUnhandled({
+    showDialog: !isDevelopmentOrTest,
+    logger: (error: Error): void => {
+      logger.error('unhandled', { error });
+      analyticsService.trackError(error, 'unhandled');
+    },
+    reportButton: (error: Error): void => {
+      reportErrorToGithubWithTemplates(error);
+    },
+  });
+  logger.info('[test-id-ELECTRON_UNHANDLED_INITIALIZED] electron-unhandled initialized');
   await initDevelopmentExtension();
 
   // Initialize context service - loads language maps after app is ready. This ensures LOCALIZATION_FOLDER path is correct (process.resourcesPath is stable)
@@ -425,19 +436,6 @@ app.on('before-quit', (event): void => {
         app.exit(0);
       });
   }
-});
-
-void setupUnhandled({
-  showDialog: !isDevelopmentOrTest,
-  logger: (error: Error): void => {
-    logger.error('unhandled', { error });
-    analyticsService.trackError(error, 'unhandled');
-  },
-  reportButton: (error: Error): void => {
-    reportErrorToGithubWithTemplates(error);
-  },
-}).catch((error: unknown) => {
-  logger.error('Failed to initialize unhandled-error reporting', { error });
 });
 
 // Handle Windows Squirrel events (install/update/uninstall)

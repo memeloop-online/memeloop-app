@@ -68,7 +68,9 @@ export default defineConfig({
         '@modelcontextprotocol/sdk',
         /^@modelcontextprotocol\/sdk\//,
         // default-gateway v7 / electron-unhandled v5 are pure ESM, used via dynamic import().
-        // External so the dynamic import() runs at Node.js runtime.
+        // External so the dynamic import() runs at Node.js runtime. electron-unhandled
+        // has top-level await, which cannot be emitted in this CommonJS main bundle;
+        // afterPack copies its exact production dependency closure instead.
         'default-gateway',
         'electron-unhandled',
         // rotating-file-stream@3 is pure ESM ("type":"module") but has a CJS dist.

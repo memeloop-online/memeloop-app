@@ -1,7 +1,7 @@
 import { extractFile, listPackage } from '@electron/asar';
 import fs from 'node:fs';
 import path from 'node:path';
-import { BUNDLED_ETCD3_PROTO_DIRECTORY, REQUIRED_ETCD3_PROTO_FILES } from './afterPack';
+import { BUNDLED_ETCD3_PROTO_DIRECTORY, PACKAGED_BETTER_SQLITE_RUNTIME_PATHS, PACKAGED_ELECTRON_UNHANDLED_PACKAGE, REQUIRED_ETCD3_PROTO_FILES } from './afterPack';
 
 const archiveArgument = process.argv[2];
 if (!archiveArgument) {
@@ -58,8 +58,78 @@ for (const signature of rendererNodeSignatures) {
     throw new Error(`Packaged renderer contains Node-only runtime signature: ${signature}`);
   }
 }
+if (rendererJavaScript.includes('process.env.LOCALAPPDATA')) {
+  throw new Error('Packaged renderer reads the main-process LOCALAPPDATA environment directly');
+}
 
 const resourcesDirectory = path.dirname(archivePath);
+const resourcesNodeModulesDirectory = path.join(resourcesDirectory, 'node_modules');
+for (const packagePath of PACKAGED_BETTER_SQLITE_RUNTIME_PATHS) {
+  const runtimePath = path.join(resourcesNodeModulesDirectory, ...packagePath);
+  if (!fs.existsSync(runtimePath)) throw new Error(`Packaged better-sqlite3 runtime is missing: ${runtimePath}`);
+}
+const betterSqliteDirectory = path.join(resourcesNodeModulesDirectory, 'better-sqlite3');
+const betterSqliteManifest = JSON.parse(fs.readFileSync(path.join(betterSqliteDirectory, 'package.json'), 'utf8')) as {
+  name?: string;
+  version?: string;
+  main?: string;
+};
+if (
+  betterSqliteManifest.name !== 'better-sqlite3' ||
+  !betterSqliteManifest.version ||
+  betterSqliteManifest.main !== 'lib/index.js'
+) {
+  throw new Error(`Invalid packaged better-sqlite3 manifest: ${JSON.stringify(betterSqliteManifest)}`);
+}
+const platformBinaryName = process.platform === 'win32' ? 'win32' : process.platform;
+const betterSqlitePrebuild = path.join(
+  betterSqliteDirectory,
+  'prebuilds',
+  `${platformBinaryName}-${process.arch}.node`,
+);
+const betterSqliteCompiledBinary = path.join(betterSqliteDirectory, 'build', 'Release', 'better_sqlite3.node');
+if (!fs.existsSync(betterSqlitePrebuild) && !fs.existsSync(betterSqliteCompiledBinary)) {
+  throw new Error(`Packaged better-sqlite3 native binding is missing for ${process.platform}-${process.arch}`);
+}
+
+interface RuntimeManifest {
+  name?: string;
+  version?: string;
+  dependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+}
+const verifyProductionClosure = (
+  packageDirectory: string,
+  expectedName: string,
+  ancestors: ReadonlyMap<string, string> = new Map(),
+): void => {
+  const manifestPath = path.join(packageDirectory, 'package.json');
+  if (!fs.existsSync(manifestPath)) throw new Error(`Packaged production manifest is missing: ${manifestPath}`);
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as RuntimeManifest;
+  if (manifest.name !== expectedName || !manifest.version) {
+    throw new Error(`Invalid packaged production manifest at ${manifestPath}`);
+  }
+  const nextAncestors = new Map(ancestors);
+  nextAncestors.set(manifest.name, manifest.version);
+  const dependencies = { ...manifest.dependencies, ...manifest.optionalDependencies };
+  for (const dependencyName of Object.keys(dependencies)) {
+    const dependencyDirectory = path.join(packageDirectory, 'node_modules', ...dependencyName.split('/'));
+    if (!fs.existsSync(dependencyDirectory)) {
+      throw new Error(`Packaged production dependency is missing: ${manifest.name}@${manifest.version} -> ${dependencyName}`);
+    }
+    const dependencyManifest = JSON.parse(fs.readFileSync(path.join(dependencyDirectory, 'package.json'), 'utf8')) as RuntimeManifest;
+    if (!dependencyManifest.name || !dependencyManifest.version) {
+      throw new Error(`Invalid packaged dependency manifest: ${dependencyDirectory}`);
+    }
+    if (nextAncestors.get(dependencyManifest.name) === dependencyManifest.version) continue;
+    verifyProductionClosure(dependencyDirectory, dependencyName, nextAncestors);
+  }
+};
+verifyProductionClosure(
+  path.join(resourcesNodeModulesDirectory, PACKAGED_ELECTRON_UNHANDLED_PACKAGE),
+  PACKAGED_ELECTRON_UNHANDLED_PACKAGE,
+);
+
 const syncAdaptorPath = path.join(
   resourcesDirectory,
   'node_modules',
