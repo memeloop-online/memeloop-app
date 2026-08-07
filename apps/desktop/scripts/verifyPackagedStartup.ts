@@ -18,11 +18,13 @@ const REQUIRED_READY_MARKERS = [
   '[test-id-ALL_WORKSPACE_VIEW_INITIALIZED]',
 ] as const;
 const FATAL_STARTUP_PATTERN =
-  /FATAL (?:uncaughtException|unhandledRejection)|Unhandled Promise Rejection|ERR_MODULE_NOT_FOUND|SQLite package has not been found|Error initializing database|Failed to initialize wiki embedding|Peer process exited|React Error Boundary caught|process is not defined|ENOENT[^\n]*\.proto/i;
+  /FATAL (?:uncaughtException|unhandledRejection)|Unhandled Promise Rejection|ERR_MODULE_NOT_FOUND|SQLite package has not been found|Error initializing database|Failed to initialize wiki embedding|Failed to create default wiki workspace|Peer process exited|React Error Boundary caught|process is not defined|ENOENT[^\n]*\.proto/i;
 const STARTUP_TIMEOUT_MS = 45_000;
 const STABILITY_WINDOW_MS = 5_000;
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
 const isolatedConfigDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'memeloop-packaged-startup-'));
+const packagedTestScenario = path.basename(isolatedConfigDirectory);
+const isolatedPackagedScenarioDirectory = path.join(os.tmpdir(), 'test-artifacts', packagedTestScenario);
 const isolatedUserDataDirectory = path.join(isolatedConfigDirectory, 'user-data');
 const isolatedDesktopDirectory = path.join(isolatedConfigDirectory, 'Desktop');
 const isolatedDownloadsDirectory = path.join(isolatedConfigDirectory, 'Downloads');
@@ -31,6 +33,10 @@ const isolatedCacheDirectory = path.join(isolatedConfigDirectory, 'cache');
 const isolatedDataDirectory = path.join(isolatedConfigDirectory, 'data');
 const isolatedStateDirectory = path.join(isolatedConfigDirectory, 'state');
 const isolatedRuntimeDirectory = path.join(isolatedConfigDirectory, 'runtime');
+const isolatedPackagedWikiParentDirectory = path.join(
+  isolatedPackagedScenarioDirectory,
+  'wiki-test',
+);
 
 for (
   const directory of [
@@ -42,6 +48,7 @@ for (
     isolatedDataDirectory,
     isolatedStateDirectory,
     isolatedRuntimeDirectory,
+    isolatedPackagedWikiParentDirectory,
   ]
 ) {
   fs.mkdirSync(directory, { recursive: true });
@@ -82,11 +89,30 @@ const waitForExit = (processToWaitFor: ChildProcess, timeoutMs: number): Promise
     processToWaitFor.once('exit', onExit);
   });
 
+const waitForPidToDisappear = async (pid: number, timeoutMs: number): Promise<boolean> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
+      throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  return false;
+};
+
 const stopProcessTree = async (processToStop: ChildProcess): Promise<void> => {
   if (processToStop.exitCode !== null || processToStop.signalCode !== null || processToStop.pid === undefined) return;
   if (process.platform === 'win32') {
     const taskkill = spawn('taskkill.exe', ['/pid', String(processToStop.pid), '/t', '/f'], { stdio: 'ignore' });
-    await waitForExit(taskkill, 10_000);
+    if (!(await waitForExit(taskkill, 10_000)) || taskkill.exitCode !== 0) {
+      throw new Error(`Failed to terminate packaged Windows process tree (taskkill exit=${String(taskkill.exitCode)})`);
+    }
+    if (!(await waitForPidToDisappear(processToStop.pid, 30_000))) {
+      throw new Error('Packaged Windows process tree did not exit after taskkill completed');
+    }
     return;
   }
   try {
@@ -103,9 +129,48 @@ const stopProcessTree = async (processToStop: ChildProcess): Promise<void> => {
   }
 };
 
+const removeIsolatedDirectory = async (directory: string): Promise<void> => {
+  const relativeToSystemTemporary = path.relative(os.tmpdir(), directory);
+  if (relativeToSystemTemporary === '' || relativeToSystemTemporary.startsWith('..') || path.isAbsolute(relativeToSystemTemporary)) {
+    throw new Error(`Refusing to remove non-isolated packaged startup path: ${directory}`);
+  }
+  if (process.platform === 'win32') {
+    // Node's recursive rm can return EPERM on ReFS after every process is gone.
+    // PowerShell removes the same exact tree and still fails closed on error.
+    const removeProcess = spawn(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        '& { param([string]$Target) Remove-Item -LiteralPath $Target -Recurse -Force -ErrorAction Stop }',
+        directory,
+      ],
+      { stdio: 'ignore' },
+    );
+    if (!(await waitForExit(removeProcess, 30_000)) || removeProcess.exitCode !== 0) {
+      throw new Error(`Failed to remove isolated Windows startup directory: ${directory}`);
+    }
+    return;
+  }
+  fs.rmSync(directory, {
+    recursive: true,
+    force: true,
+    maxRetries: 20,
+    retryDelay: 500,
+  });
+};
+
 const main = async (): Promise<void> => {
   try {
-    child = spawn(executablePath, [`--user-data-dir=${isolatedUserDataDirectory}`], {
+    child = spawn(executablePath, [
+      `--user-data-dir=${isolatedUserDataDirectory}`,
+      `--test-scenario=${packagedTestScenario}`,
+    ], {
+      // Packaged E2E paths resolve below cwd/test-artifacts. Use a unique
+      // scenario under the system temp directory, but never make the child cwd
+      // a directory that this process must remove (Windows holds cwd handles).
+      cwd: os.tmpdir(),
       detached: process.platform !== 'win32',
       env: {
         ...process.env,
@@ -167,8 +232,15 @@ const main = async (): Promise<void> => {
     console.error(output);
     throw error;
   } finally {
-    if (child) await stopProcessTree(child);
-    fs.rmSync(isolatedConfigDirectory, { recursive: true, force: true });
+    if (child) {
+      await stopProcessTree(child);
+      // Close inherited Windows pipe handles before removing the child's cwd.
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      child.unref();
+    }
+    await removeIsolatedDirectory(isolatedPackagedScenarioDirectory);
+    await removeIsolatedDirectory(isolatedConfigDirectory);
   }
 };
 
