@@ -13,6 +13,7 @@ import { handleWorkerMessages } from '@services/libs/workerAdapter';
 import { type AgentDefinition, type AttachmentReference, type ChatMessage, type ConversationMeta, onApprovalRequest, resolveApproval, resolveQuestionAnswer } from 'memeloop';
 import type { IWikiManager, TiddlerFields } from 'memeloop-cli/runtime';
 import { TerminalSessionManager } from './terminal/sessionManager';
+import { ensureMemeLoopWorkerDataDirectory } from './workerDataDirectory';
 
 const { parentPort } = require('worker_threads') as typeof import('worker_threads');
 
@@ -854,6 +855,7 @@ const memeloopWorker = {
     if (!config.localPeerId.startsWith('12D3Koo')) {
       throw new Error('MemeLoop worker requires the host DeviceNetwork PeerId');
     }
+    await ensureMemeLoopWorkerDataDirectory(config.dataDir);
     hostConfig = { ...config };
     return { ok: true };
   },

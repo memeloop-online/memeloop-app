@@ -1,8 +1,8 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE } from '../../../scripts/afterPack';
+import { BUNDLED_ETCD3_PROTO_DIRECTORY, REQUIRED_ETCD3_PROTO_FILES, TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE } from '../../../scripts/afterPack';
 
 const staleNoisePackages = [
   'sodium-universal',
@@ -82,5 +82,16 @@ describe('packaged runtime dependency closure', () => {
     expect(TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE).toEqual([
       ['editions', 'tiddlywiki-surveys'],
     ]);
+  });
+
+  it('declares the complete etcd3 proto closure beside the bundled main process', () => {
+    const etcd3PackageDirectory = findPackageRoot(fileURLToPath(import.meta.resolve('etcd3')), 'etcd3');
+    const protoDirectory = path.join(etcd3PackageDirectory, 'proto');
+    const installedProtoFiles = readdirSync(protoDirectory)
+      .filter(fileName => fileName.endsWith('.proto'))
+      .sort();
+
+    expect(BUNDLED_ETCD3_PROTO_DIRECTORY).toEqual(['.vite', 'proto']);
+    expect(installedProtoFiles).toEqual([...REQUIRED_ETCD3_PROTO_FILES].sort());
   });
 });

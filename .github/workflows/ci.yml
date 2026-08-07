@@ -41,7 +41,7 @@ jobs:
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential
+          sudo apt-get install -y build-essential xvfb
 
       - name: Use HTTPS for GitHub dependencies
         run: git config --global url."https://github.com/".insteadOf "git@github.com:"
@@ -68,6 +68,8 @@ jobs:
         run: |
           pnpm run build:plugin
           ./node_modules/.bin/cross-env NODE_ENV=production ./node_modules/.bin/electron-forge package --platform=linux --arch=x64
+          pnpm run test:package-runtime -- "out/MemeLoop Desktop-linux-x64/resources/app.asar"
+          xvfb-run --auto-servernum pnpm run test:package-startup -- "out/MemeLoop Desktop-linux-x64/memeloop-desktop"
         env:
           PUPPETEER_SKIP_DOWNLOAD: "true"
 

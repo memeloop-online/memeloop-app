@@ -11,6 +11,14 @@ export const TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE = [
 ] as const;
 
 /**
+ * etcd3 reads these files synchronously relative to its CommonJS __dirname.
+ * Vite bundles etcd3 into `.vite/build`, so the preserved `../proto` lookup
+ * resolves to this directory in the Electron virtual app.asar filesystem.
+ */
+export const BUNDLED_ETCD3_PROTO_DIRECTORY = ['.vite', 'proto'] as const;
+export const REQUIRED_ETCD3_PROTO_FILES = ['auth.proto', 'kv.proto', 'rpc.proto'] as const;
+
+/**
  * Running afterPack hook
  * Forge 8 exposes packageAfterPrune as a promise-based Forge hook.
  * The first argument is the resolved Forge configuration.
@@ -63,6 +71,26 @@ export default async (
 
   if (['production', 'test'].includes(process.env.NODE_ENV ?? '')) {
     console.log('Copying runtime dependencies to dist');
+
+    const etcd3PackageDirectory = resolvePackageSource('etcd3');
+    const etcd3Manifest = fs.readJsonSync(path.join(etcd3PackageDirectory, 'package.json')) as {
+      name?: string;
+      version?: string;
+    };
+    const etcd3ProtoSource = path.join(etcd3PackageDirectory, 'proto');
+    if (etcd3Manifest.name !== 'etcd3' || !etcd3Manifest.version) {
+      throw new Error(`Invalid etcd3 runtime package at ${etcd3PackageDirectory}`);
+    }
+    for (const protoFile of REQUIRED_ETCD3_PROTO_FILES) {
+      if (!fs.existsSync(path.join(etcd3ProtoSource, protoFile))) {
+        throw new Error(`Required etcd3 proto is missing from ${etcd3Manifest.version}: ${protoFile}`);
+      }
+    }
+    const etcd3ProtoDestination = path.join(buildPath, ...BUNDLED_ETCD3_PROTO_DIRECTORY);
+    fs.copySync(etcd3ProtoSource, etcd3ProtoDestination, { dereference: true });
+    console.log(
+      `Copied etcd3@${etcd3Manifest.version} proto runtime to ${etcd3ProtoDestination}`,
+    );
 
     fs.cpSync(
       path.join(sourceNodeModulesFolder, 'zx'),

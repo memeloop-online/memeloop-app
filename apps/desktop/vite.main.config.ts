@@ -4,6 +4,7 @@ import swc from 'unplugin-swc';
 import { defineConfig } from 'vite';
 import { analyzer } from 'vite-bundle-analyzer';
 import { utilityProcessPlugin } from 'vite-plugin-electron-utility-process';
+import { memeloopCliCreateRequirePlugin } from './scripts/viteMemeloopCliCreateRequirePlugin';
 import { memeLoopNodeWorkerPlugin } from './scripts/viteNodeWorkerPlugin';
 
 // Dynamically read TypeORM's optional peer dependencies to avoid hardcoding
@@ -22,6 +23,10 @@ export default defineConfig({
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'production'),
   },
   plugins: [
+    // memeloop-cli's ESM distribution bundles typescript-language-server,
+    // whose loader calls createRequire(import.meta.url). This plugin anchors
+    // that one exact source occurrence to the CommonJS main bundle filename.
+    memeloopCliCreateRequirePlugin(__dirname),
     ...(process.env.ANALYZE === 'true'
       ? [analyzer({ analyzerMode: 'static', openAnalyzer: false, fileName: 'bundle-analyzer-main' })]
       : []),
@@ -51,6 +56,9 @@ export default defineConfig({
     },
     rollupOptions: {
       external: [
+        // Electron is a runtime builtin in main and UtilityProcess chunks.
+        // Never bundle the npm launcher package (it contains host __dirname).
+        'electron',
         'sqlite-vec',
         'registry-js',
         'dugite',

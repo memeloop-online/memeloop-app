@@ -58,9 +58,24 @@ export class WorkspaceView implements IWorkspaceViewService {
       .sort(workspaceSorter)
       .sort((a, b) => (a.active && !b.active ? -1 : 0)) // put active wiki first
       .sort((a, b) => (isWikiWorkspace(a) && a.isSubWiki && (!isWikiWorkspace(b) || !b.isSubWiki) ? -1 : 0)); // put subwiki on top, they can't restart wiki, so need to sync them first, then let main wiki restart the wiki // revert this after tw can reload tid from fs
-    await mapSeries(sortedList, async (workspace) => {
-      await this.initializeWorkspaceView(workspace);
-    });
+    try {
+      await mapSeries(sortedList, async (workspace) => {
+        try {
+          await this.initializeWorkspaceView(workspace);
+        } catch (error) {
+          // A broken Wiki UtilityProcess must not reject the top-level Electron
+          // startup promise. Keep the app available so the workspace can be
+          // inspected, repaired, or removed from settings.
+          logger.error('Workspace initialization failed without blocking app startup', {
+            error,
+            function: 'initializeAllWorkspaceView',
+            workspaceId: workspace.id,
+          });
+        }
+      });
+    } finally {
+      wikiService.setAllWikiStartLockOff();
+    }
 
     // After all main workspaces have resolved their hibernated state,
     // sync sub-workspaces to match their main workspace.
@@ -74,8 +89,6 @@ export class WorkspaceView implements IWorkspaceViewService {
         await workspaceService.update(workspace.id, { hibernated: mainWorkspace.hibernated });
       }
     }
-
-    wikiService.setAllWikiStartLockOff();
   }
 
   public async initializeWorkspaceView(workspace: IWorkspace, options: IInitializeWorkspaceOptions = {}): Promise<void> {

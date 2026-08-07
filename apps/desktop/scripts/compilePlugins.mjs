@@ -93,6 +93,9 @@ const ESBUILD_CONFIG = {
   minify: process.env.NODE_ENV === 'production',
   tsconfig: tsconfigPath,
   target: 'ESNEXT',
+  // UtilityProcess runs inside Electron, so `electron` is a runtime builtin.
+  // Bundling the npm launcher package inlines a Node-only __dirname lookup.
+  external: ['electron'],
   plugins: [nativeNodeModulesPlugin],
 };
 
