@@ -40,9 +40,6 @@ export interface IPreferences {
   rememberLastPageVisited: boolean;
   runOnBackground: boolean;
   shareWorkspaceBrowsingData: boolean;
-  showSideBarIcon: boolean;
-  showSideBarText: boolean;
-  sidebar: boolean;
   spellcheck: boolean;
   spellcheckLanguages: HunspellLanguages[];
   swipeToNavigate: boolean;
@@ -53,7 +50,6 @@ export interface IPreferences {
   tidgiMiniWindow: boolean;
   tidgiMiniWindowAlwaysOnTop: boolean;
   tidgiMiniWindowFixedWorkspaceId?: string;
-  tidgiMiniWindowShowSidebar: boolean;
   tidgiMiniWindowShowTitleBar: boolean;
   tidgiMiniWindowSyncWorkspaceWithMainWindow: boolean;
   titleBar: boolean;

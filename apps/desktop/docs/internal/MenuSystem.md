@@ -12,11 +12,9 @@ This document describes the menu registration and context menu system in memeloo
 - Menus are built from a template and can be extended by calling `insertMenu` from various service modules (e.g., `workspaces/registerMenu.ts`, `windows/registerMenu.ts`).
 - The menubar is rebuilt whenever new items are inserted.
 
-### Context Menus (Webview & Workspace Icon)
+### Context Menus (Webview)
 
 - Webview right-click: Registered by `MenuService.initContextMenuForWindowWebContents`, which listens to the Electron `context-menu` event on each window's webContents.
-- Workspace icon right-click: Handled in the renderer by `SortableWorkspaceSelectorButton.tsx`, which calls `getSimplifiedWorkspaceMenuTemplate` and triggers `window.remote.buildContextMenuAndPopup`.
-- Both use the same menu template logic for workspace-related actions, ensuring consistency.
 
 ## Menu Template Structure
 
@@ -51,4 +49,3 @@ This design ensures that both the application menubar and all context menus rema
 
 - `src/services/menu/index.ts`
 - `src/services/workspaces/getWorkspaceMenuTemplate.ts`
-- `src/pages/Main/WorkspaceIconAndSelector/SortableWorkspaceSelectorButton.tsx`

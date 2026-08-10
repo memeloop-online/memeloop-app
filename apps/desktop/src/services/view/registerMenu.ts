@@ -19,23 +19,11 @@ export async function registerViewMenu(): Promise<void> {
   const menuService = container.get<IMenuService>(serviceIdentifier.MenuService);
 
   const hasWorkspaces = async () => (await workspaceService.countWorkspaces()) > 0;
-  const sidebar = await preferenceService.get('sidebar');
   const titleBar = await preferenceService.get('titleBar');
   const keyboardShortcuts = await preferenceService.get('keyboardShortcuts');
   const tidgiMiniWindowShortcut = keyboardShortcuts?.['Window.toggleTidgiMiniWindow'] || '';
 
   await menuService.insertMenu('View', [
-    {
-      label: () => (sidebar ? i18n.t('Preference.HideSideBar') : i18n.t('Preference.ShowSideBar')),
-      accelerator: 'CmdOrCtrl+Alt+S',
-      click: async () => {
-        const prefService = container.get<IPreferenceService>(serviceIdentifier.Preference);
-        const workspaceViewService = container.get<IWorkspaceViewService>(serviceIdentifier.WorkspaceView);
-        const sidebarLatest = await prefService.get('sidebar');
-        void prefService.set('sidebar', !sidebarLatest);
-        void workspaceViewService.realignActiveWorkspace();
-      },
-    },
     {
       label: () => (titleBar ? i18n.t('Preference.HideTitleBar') : i18n.t('Preference.ShowTitleBar')),
       accelerator: 'CmdOrCtrl+Alt+T',

@@ -467,7 +467,7 @@ export class View implements IViewService {
 
   /**
    * Adjust the bounds of a view that is already visible (e.g. after resize, fullscreen toggle
-   * or sidebar toggle).  This is bounds-only: it does NOT remove/re-add the view to the
+   * or window resize).  This is bounds-only: it does NOT remove/re-add the view to the
    * compositor.  The force-repaint / re-attach path lives exclusively in `showView()`, which
    * is called whenever a view transitions from offscreen → onscreen.
    */

@@ -807,11 +807,6 @@ export class Window implements IWindowService {
       case 'tidgiMiniWindowFixedWorkspaceId': {
         logger.info('Preference changed', { function: 'reactWhenPreferencesChanged', key, value: JSON.stringify(value) });
 
-        // When switching to sync with main window, hide the sidebar
-        if (key === 'tidgiMiniWindowSyncWorkspaceWithMainWindow' && value === true) {
-          await this.preferenceService.set('tidgiMiniWindowShowSidebar', false);
-        }
-
         // When tidgi mini window workspace settings change, update the displayed workspace
         const tidgiMiniWindow = this.get(WindowNames.tidgiMiniWindow);
         if (tidgiMiniWindow) {

@@ -22,7 +22,6 @@ export const customPreferenceFieldSchemas = {
   tidgiMiniWindow: z.boolean(),
   tidgiMiniWindowAlwaysOnTop: z.boolean(),
   tidgiMiniWindowFixedWorkspaceId: z.string().optional(),
-  tidgiMiniWindowShowSidebar: z.boolean(),
   tidgiMiniWindowShowTitleBar: z.boolean(),
   tidgiMiniWindowSyncWorkspaceWithMainWindow: z.boolean(),
 } satisfies Partial<Record<keyof IPreferences, z.ZodType>>;

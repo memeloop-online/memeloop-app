@@ -191,7 +191,7 @@ describe('Preferences - All Sections Rendering', () => {
     await renderAllSections();
     expect(screen.getByText('Preference.General')).toBeInTheDocument();
     expect(screen.getByText('Preference.Theme')).toBeInTheDocument();
-    expect(screen.getByText('Preference.ShowSideBar')).toBeInTheDocument();
+    expect(screen.getByText('Preference.ShowTitleBar')).toBeInTheDocument();
     expect(screen.getByText('Preference.AlwaysOnTop')).toBeInTheDocument();
   });
 

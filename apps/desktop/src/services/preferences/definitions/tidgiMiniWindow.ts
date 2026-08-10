@@ -37,13 +37,6 @@ export const tidgiMiniWindowSection: ISectionDefinition = {
       zod: z.boolean(),
     },
     {
-      type: 'preference-boolean',
-      key: 'tidgiMiniWindowShowSidebar',
-      titleKey: 'Preference.TidgiMiniWindowShowSidebar',
-      descriptionKey: 'Preference.TidgiMiniWindowShowSidebarTip',
-      zod: z.boolean(),
-    },
-    {
       type: 'preference-string',
       key: 'tidgiMiniWindowFixedWorkspaceId',
       titleKey: 'Preference.TidgiMiniWindowFixedWorkspace',

@@ -197,7 +197,7 @@ describe('TidGiMiniWindow Component', () => {
       preferenceSubject.next(createMockPreference({ tidgiMiniWindow: false }));
       await renderComponent();
 
-      expect(screen.queryByText('Preference.AttachToTaskbarShowSidebar')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('sidebar-on-tidgi-mini-window-switch')).not.toBeInTheDocument();
       expect(screen.queryByText('Preference.TidgiMiniWindowAlwaysOnTop')).not.toBeInTheDocument();
     });
 
@@ -205,51 +205,13 @@ describe('TidGiMiniWindow Component', () => {
       preferenceSubject.next(
         createMockPreference({
           tidgiMiniWindow: true,
-          tidgiMiniWindowShowSidebar: false,
           tidgiMiniWindowAlwaysOnTop: false,
         }),
       );
       await renderComponent();
 
-      expect(screen.getByText('Preference.AttachToTaskbarShowSidebar')).toBeInTheDocument();
+      expect(screen.queryByTestId('sidebar-on-tidgi-mini-window-switch')).not.toBeInTheDocument();
       expect(screen.getByText('Preference.TidgiMiniWindowAlwaysOnTop')).toBeInTheDocument();
-    });
-  });
-
-  describe('Sidebar on tidgi mini window toggle', () => {
-    it('should display sidebar toggle with correct initial state', async () => {
-      preferenceSubject.next(
-        createMockPreference({
-          tidgiMiniWindow: true,
-          tidgiMiniWindowShowSidebar: false,
-        }),
-      );
-      await renderComponent();
-
-      const sidebarSwitchContainer = screen.getByTestId('sidebar-on-tidgi-mini-window-switch');
-      const sidebarSwitch = sidebarSwitchContainer.querySelector('input[type="checkbox"]');
-      expect(sidebarSwitch).not.toBeChecked();
-    });
-
-    it('should call backend API when sidebar toggle is changed', async () => {
-      const user = userEvent.setup();
-      preferenceSubject.next(
-        createMockPreference({
-          tidgiMiniWindow: true,
-          tidgiMiniWindowShowSidebar: false,
-        }),
-      );
-      await renderComponent();
-
-      const sidebarSwitchContainer = screen.getByTestId('sidebar-on-tidgi-mini-window-switch');
-      const sidebarSwitch = sidebarSwitchContainer.querySelector('input[type="checkbox"]');
-
-      if (!sidebarSwitch) throw new Error('Switch input not found');
-      await user.click(sidebarSwitch);
-
-      await waitFor(() => {
-        expect(window.service.preference.set).toHaveBeenCalledWith('tidgiMiniWindowShowSidebar', true);
-      });
     });
   });
 
@@ -459,20 +421,11 @@ describe('TidGiMiniWindow Component', () => {
       preferenceSubject.next(
         createMockPreference({
           tidgiMiniWindow: true,
-          tidgiMiniWindowShowSidebar: false,
           tidgiMiniWindowShowTitleBar: true,
           tidgiMiniWindowAlwaysOnTop: false,
         }),
       );
       await renderComponent();
-
-      const sidebarSwitchContainer = screen.getByTestId('sidebar-on-tidgi-mini-window-switch');
-      const sidebarSwitch = sidebarSwitchContainer.querySelector('input[type="checkbox"]');
-      if (!sidebarSwitch) throw new Error('Sidebar switch not found');
-      await user.click(sidebarSwitch);
-      await waitFor(() => {
-        expect(window.service.preference.set).toHaveBeenCalledWith('tidgiMiniWindowShowSidebar', true);
-      });
 
       const alwaysOnTopSwitchContainer = screen.getByTestId('tidgi-mini-window-always-on-top-switch');
       const alwaysOnTopSwitch = alwaysOnTopSwitchContainer.querySelector('input[type="checkbox"]');
@@ -482,7 +435,7 @@ describe('TidGiMiniWindow Component', () => {
         expect(window.service.preference.set).toHaveBeenCalledWith('tidgiMiniWindowAlwaysOnTop', true);
       });
 
-      expect(window.service.preference.set).toHaveBeenCalledTimes(2);
+      expect(window.service.preference.set).toHaveBeenCalledTimes(1);
     });
   });
 });

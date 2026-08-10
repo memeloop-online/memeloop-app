@@ -1,7 +1,7 @@
 import { KeyboardShortcutRegister } from '@/components/KeyboardShortcutRegister';
 import { ListItem } from '@/components/ListItem';
 import { usePromiseValue } from '@/helpers/useServiceValue';
-import { Box, Divider, List, ListItemText, Switch, Typography } from '@mui/material';
+import { Box, List, ListItemText, Switch, Typography } from '@mui/material';
 import type { ICustomSectionProps } from '@services/preferences/definitions/types';
 import { usePreferenceObservable } from '@services/preferences/hooks';
 import type { IWindowService } from '@services/windows/interface';
@@ -101,28 +101,6 @@ export function TidGiMiniWindow(props: ICustomSectionProps): React.JSX.Element {
                 }
               >
                 <ListItemText primary={t('Preference.TidgiMiniWindowAlwaysOnTop')} secondary={t('Preference.TidgiMiniWindowAlwaysOnTopDetail')} />
-              </ListItem>
-
-              <Divider />
-
-              {/* Sidebar display settings */}
-              <ListItem
-                secondaryAction={
-                  <Switch
-                    edge='end'
-                    color='primary'
-                    checked={preference.tidgiMiniWindowShowSidebar}
-                    onChange={async (event) => {
-                      await window.service.preference.set('tidgiMiniWindowShowSidebar', event.target.checked);
-                    }}
-                    data-testid='sidebar-on-tidgi-mini-window-switch'
-                  />
-                }
-              >
-                <ListItemText
-                  primary={platform === 'win32' ? t('Preference.AttachToTaskbarShowSidebar') : t('Preference.TidgiMiniWindowShowSidebar')}
-                  secondary={platform === 'linux' ? undefined : t('Preference.TidgiMiniWindowShowSidebarTip')}
-                />
               </ListItem>
             </>
           )}

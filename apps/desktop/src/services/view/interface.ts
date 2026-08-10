@@ -64,7 +64,7 @@ export interface IViewService {
 
   // ── Visibility (offscreen-bounds only) ────────────────────
   /**
-   * Show a view at default layout bounds (respecting sidebar/findInPage prefs).
+   * Show a view at default layout bounds (respecting findInPage prefs).
    * Ensures the view is a child of the window, sets proper bounds, and focuses it.
    */
   showView(workspaceID: string, windowName: WindowNames): Promise<void>;
@@ -78,7 +78,7 @@ export interface IViewService {
    */
   setViewBounds(workspaceID: string, windowName: WindowNames, bounds?: { x: number; y: number; width: number; height: number }): Promise<void>;
   /**
-   * Recalculate and apply default bounds for a view (e.g. after sidebar toggle or window resize).
+   * Recalculate and apply default bounds for a view (e.g. after window resize).
    */
   realignView(workspaceID: string, windowName: WindowNames): Promise<void>;
 

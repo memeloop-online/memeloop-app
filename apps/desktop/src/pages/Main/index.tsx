@@ -6,11 +6,9 @@ import { Route, Switch } from 'wouter';
 
 import { ToolApprovalDialog } from '@/components/ToolApprovalDialog';
 import { PageType } from '@/constants/pageTypes';
-import { usePreferenceObservable } from '@services/preferences/hooks';
 import { WindowNames } from '@services/windows/WindowProperties';
 import { ContentLoading } from './ContentLoading';
 import FindInPage from './FindInPage';
-import { SideBar } from './Sidebar';
 import { useAskAIWithSelection } from './useAskAIWithSelection';
 import { useInitialPage } from './useInitialPage';
 
@@ -44,34 +42,20 @@ const Root = styled('div')`
   }
 `;
 
-const ContentRoot = styled('div')<{ $sidebar: boolean }>(
-  ({ theme, $sidebar }) => `
+const ContentRoot = styled('div')`
   flex: 1;
   display: flex;
   flex-direction: column;
   height: 100%;
-  
-  ${
-    $sidebar
-      ? `
-    width: calc(100% - ${theme.sidebar.width}px);
-    max-width: calc(100% - ${theme.sidebar.width}px);
-  `
-      : `
-    width: 100%;
-  `
-  }
-`,
-);
+  width: 100%;
+`;
 
 export default function Main(): React.JSX.Element {
   const { t } = useTranslation();
   useInitialPage();
   useAskAIWithSelection();
   const windowName = window.meta().windowName;
-  const preferences = usePreferenceObservable();
   const isTidgiMiniWindow = windowName === WindowNames.tidgiMiniWindow;
-  const showSidebar = (isTidgiMiniWindow ? preferences?.tidgiMiniWindowShowSidebar : preferences?.sidebar) ?? true;
   return (
     <OuterRoot>
       <Helmet>
@@ -81,9 +65,8 @@ export default function Main(): React.JSX.Element {
         </title>
       </Helmet>
       <ToolApprovalDialog />
-      <Root data-windowname={windowName} data-showsidebar={showSidebar}>
-        {showSidebar && <SideBar />}
-        <ContentRoot $sidebar={showSidebar}>
+      <Root data-windowname={windowName}>
+        <ContentRoot>
           <FindInPage />
           <Suspense fallback={<ContentLoading />}>
             <Switch>

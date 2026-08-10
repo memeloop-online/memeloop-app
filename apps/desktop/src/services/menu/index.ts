@@ -297,8 +297,6 @@ export class MenuService implements IMenuService {
   ): Promise<void> {
     let webContents: WebContents;
     const windowService = container.get<IWindowService>(serviceIdentifier.Window);
-    const preferenceService = container.get<IPreferenceService>(serviceIdentifier.Preference);
-
     if (typeof webContentsOrWindowName === 'string') {
       const windowToPopMenu = windowService.get(webContentsOrWindowName);
       const webContentsOfWindowToPopMenu = windowToPopMenu?.webContents;
@@ -309,20 +307,9 @@ export class MenuService implements IMenuService {
     } else {
       webContents = webContentsOrWindowName;
     }
-    const sidebar = await preferenceService.get('sidebar');
     const contextMenuBuilder = new ContextMenuBuilder(webContents);
     const menu = contextMenuBuilder.buildMenuForElement(info);
 
-    menu.append(new MenuItem({ type: 'separator' }));
-    menu.append(
-      new MenuItem({
-        label: sidebar ? i18n.t('Preference.HideSideBar') : i18n.t('Preference.ShowSideBar'),
-        click: async () => {
-          await this.preferenceService.set('sidebar', !sidebar);
-          await container.get<IWorkspaceViewService>(serviceIdentifier.WorkspaceView).realignActiveWorkspace();
-        },
-      }),
-    );
     menu.append(new MenuItem({ type: 'separator' }));
     menu.append(
       new MenuItem({

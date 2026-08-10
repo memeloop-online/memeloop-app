@@ -19,12 +19,7 @@ Given('I configure tidgi mini window with shortcut', async function(this: Applic
   // Convert CommandOrControl to platform-specific format
   const isWindows = process.platform === 'win32';
   const isLinux = process.platform === 'linux';
-  let shortcut = 'CommandOrControl+Shift+M';
-  if (isWindows || isLinux) {
-    shortcut = 'Ctrl+Shift+M';
-  } else {
-    shortcut = 'Cmd+Shift+M';
-  }
+  const shortcut = isWindows || isLinux ? 'Ctrl+Shift+M' : 'Cmd+Shift+M';
 
   const updatedPreferences = {
     ...existing.preferences,
@@ -52,7 +47,7 @@ Given('I configure tidgi mini window and disable runOnBackground', async functio
     tidgiMiniWindow: true,
     runOnBackground: false,
   };
-  const finalSettings = { ...existing, preferences: updatedPreferences } as ISettingFile;
+  const finalSettings = { ...existing, preferences: updatedPreferences };
   await fs.writeJson(settingsPath, finalSettings, { spaces: 2 });
 });
 
@@ -75,7 +70,6 @@ async function clearTidgiMiniWindowSettings(scenarioRoot?: string) {
     'tidgiMiniWindowSyncWorkspaceWithMainWindow',
     'tidgiMiniWindowFixedWorkspaceId',
     'tidgiMiniWindowAlwaysOnTop',
-    'tidgiMiniWindowShowSidebar',
     'tidgiMiniWindowShowTitleBar',
   ]);
   // Also clean up the tidgi mini window shortcut from keyboardShortcuts
