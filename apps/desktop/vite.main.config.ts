@@ -4,6 +4,7 @@ import swc from 'unplugin-swc';
 import { defineConfig } from 'vite';
 import { analyzer } from 'vite-bundle-analyzer';
 import { utilityProcessPlugin } from 'vite-plugin-electron-utility-process';
+import { viteEtcd3ProtoPlugin } from './scripts/viteEtcd3ProtoPlugin';
 import { memeloopCliCreateRequirePlugin } from './scripts/viteMemeloopCliCreateRequirePlugin';
 import { memeLoopNodeWorkerPlugin } from './scripts/viteNodeWorkerPlugin';
 
@@ -27,6 +28,7 @@ export default defineConfig({
     // whose loader calls createRequire(import.meta.url). This plugin anchors
     // that one exact source occurrence to the CommonJS main bundle filename.
     memeloopCliCreateRequirePlugin(__dirname),
+    viteEtcd3ProtoPlugin(__dirname),
     ...(process.env.ANALYZE === 'true'
       ? [analyzer({ analyzerMode: 'static', openAnalyzer: false, fileName: 'bundle-analyzer-main' })]
       : []),

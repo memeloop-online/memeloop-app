@@ -5,6 +5,9 @@
  */
 import fs from 'fs-extra';
 import path from 'path';
+import { BUNDLED_ETCD3_PROTO_DIRECTORY, copyEtcd3Proto } from './etcd3Proto';
+
+export { BUNDLED_ETCD3_PROTO_DIRECTORY, REQUIRED_ETCD3_PROTO_FILES } from './etcd3Proto';
 
 export const TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE = [
   ['editions', 'tiddlywiki-surveys'],
@@ -15,8 +18,6 @@ export const TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE = [
  * Vite bundles etcd3 into `.vite/build`, so the preserved `../proto` lookup
  * resolves to this directory in the Electron virtual app.asar filesystem.
  */
-export const BUNDLED_ETCD3_PROTO_DIRECTORY = ['.vite', 'proto'] as const;
-export const REQUIRED_ETCD3_PROTO_FILES = ['auth.proto', 'kv.proto', 'rpc.proto'] as const;
 export const PACKAGED_ELECTRON_UNHANDLED_PACKAGE = 'electron-unhandled';
 export const PACKAGED_BETTER_SQLITE_RUNTIME_PATHS = [
   ['better-sqlite3', 'package.json'],
@@ -161,13 +162,10 @@ export default async (
     if (etcd3Manifest.name !== 'etcd3' || !etcd3Manifest.version) {
       throw new Error(`Invalid etcd3 runtime package at ${etcd3PackageDirectory}`);
     }
-    for (const protoFile of REQUIRED_ETCD3_PROTO_FILES) {
-      if (!fs.existsSync(path.join(etcd3ProtoSource, protoFile))) {
-        throw new Error(`Required etcd3 proto is missing from ${etcd3Manifest.version}: ${protoFile}`);
-      }
-    }
-    const etcd3ProtoDestination = path.join(buildPath, ...BUNDLED_ETCD3_PROTO_DIRECTORY);
-    fs.copySync(etcd3ProtoSource, etcd3ProtoDestination, { dereference: true });
+    const etcd3ProtoDestination = copyEtcd3Proto(
+      etcd3ProtoSource,
+      path.join(buildPath, ...BUNDLED_ETCD3_PROTO_DIRECTORY),
+    );
     console.log(
       `Copied etcd3@${etcd3Manifest.version} proto runtime to ${etcd3ProtoDestination}`,
     );
