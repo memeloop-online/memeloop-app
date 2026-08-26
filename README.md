@@ -7,7 +7,7 @@ MemeLoop App — AI agent desktop (Electron) and mobile (Expo) applications.
 ```
 memeloop-app/
 ├── apps/
-│   ├── desktop/    # Electron desktop app (AI agent interface, node management)
+│   ├── desktop/    # Electron app; independent nested pnpm workspace + lockfile
 │   └── mobile/     # Expo React Native mobile app (companion)
 ├── pnpm-workspace.yaml
 └── package.json
@@ -25,6 +25,10 @@ Desktop and mobile consume the published MemeLoop packages from npm:
 | `@memeloop/react-ui` | `0.1.5` (desktop) |
 
 ## Quick Start
+
+The root pnpm workspace manages Mobile. Desktop remains an independent nested
+workspace because it also owns `packages/tidgi-shared`; always install Desktop
+from `apps/desktop` so each lockfile has a single, non-overlapping scope.
 
 ```bash
 # Desktop

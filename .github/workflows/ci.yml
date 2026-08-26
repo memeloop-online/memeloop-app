@@ -37,6 +37,14 @@ jobs:
         with:
           node-version: 24.15.0
           cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            apps/desktop/pnpm-lock.yaml
+
+      - name: Verify repository toolchain contracts
+        run: |
+          node scripts/verifyPackageManagerContract.mjs
+          node scripts/verifyViteQueryImports.mjs
 
       - name: Install native build dependencies
         run: |
@@ -77,10 +85,12 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: "true"
 
       - name: Check Desktop types
-        run: pnpm --filter memeloop-desktop run check
+        working-directory: apps/desktop
+        run: pnpm run check
 
       - name: Test Desktop
-        run: pnpm --filter memeloop-desktop run test:unit
+        working-directory: apps/desktop
+        run: pnpm run test:unit
         env:
           CI: "true"
           LOCAL_GIT_DIRECTORY: /usr
@@ -103,7 +113,10 @@ jobs:
 
       - name: Reject local MemeLoop dependency overrides
         run: |
-          if git grep -n -E '(\.\./){2,}memeloop|@memeloop/protocol|(file|link|workspace):[^[:space:]"]*memeloop' -- ':!.github/workflows/ci.yml'; then
+          if git grep -n -E '(\.\./){2,}memeloop|@memeloop/protocol|(file|link|workspace):[^[:space:]"]*memeloop' -- \
+            ':(glob)**/package.json' \
+            ':(glob)**/pnpm-lock.yaml' \
+            ':(glob)**/pnpm-workspace.yaml'; then
             echo "Local or obsolete MemeLoop dependency reference found"
             exit 1
           fi

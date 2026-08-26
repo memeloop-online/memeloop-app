@@ -1,5 +1,7 @@
 packages:
-  - 'apps/*'
+  # Desktop is an independent nested pnpm workspace with its own lockfile and
+  # packages/tidgi-shared. Do not install it through the Mobile/root lockfile.
+  - apps/mobile
 
 overrides:
   '@electron/rebuild': 4.2.0
@@ -12,16 +14,16 @@ peerDependencyRules:
   allowedVersions:
     memeloop: '>=0.1.0 <0.3.0'
 
-onlyBuiltDependencies:
-  - '@swc/core'
-  - better-sqlite3
-  - bufferutil
-  - dprint
-  - dugite
-  - electron
-  - electron-winstaller
-  - esbuild
-  - nsfw
-  - registry-js
-  - unrs-resolver
-  - utf-8-validate
+allowBuilds:
+  bufferutil: true
+  protobufjs: false
+  puppeteer: false
+
+# These exact first-party releases were manually reviewed and published as part
+# of the coordinated MemeLoop release. Keep pnpm 11's release-age policy for
+# every other package and for all future MemeLoop versions.
+minimumReleaseAgeExclude:
+  - '@memeloop/libp2p@0.2.4'
+  - '@memeloop/react-ui@0.1.5'
+  - memeloop-cli@0.2.6
+  - memeloop@0.2.7
