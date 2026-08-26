@@ -19,7 +19,6 @@ export const TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE = [
  * resolves to this directory in the Electron virtual app.asar filesystem.
  */
 export const PACKAGED_ELECTRON_UNHANDLED_PACKAGE = 'electron-unhandled';
-export const PACKAGED_MOMENT_PACKAGE = 'moment';
 export const PACKAGED_BETTER_SQLITE_RUNTIME_PATHS = [
   ['better-sqlite3', 'package.json'],
   ['better-sqlite3', 'lib'],
@@ -270,30 +269,6 @@ export default async (
     }
     assertNoSymbolicLinks(electronUnhandledDestination);
     console.log(`Copied ${PACKAGED_ELECTRON_UNHANDLED_PACKAGE}@${electronUnhandledManifest.version} production closure`);
-
-    // moment is a transitive dependency of winston-daily-rotate-file's pinned
-    // file-stream-rotator@0.6 runtime, so pnpm does not expose it at the App's
-    // top-level node_modules. Resolve it through its actual owner and
-    // materialize a self-contained external runtime package next to app.asar.
-    const dailyRotateSource = resolvePackageSource('winston-daily-rotate-file');
-    const fileStreamRotatorSource = resolveInstalledDependency(dailyRotateSource, 'file-stream-rotator');
-    const momentSource = resolveInstalledDependency(fileStreamRotatorSource, PACKAGED_MOMENT_PACKAGE);
-    const momentDestination = path.join(cwd, 'node_modules', PACKAGED_MOMENT_PACKAGE);
-    copyProductionDependencyClosure(momentSource, momentDestination);
-    assertNoSymbolicLinks(momentDestination);
-    const momentManifest = fs.readJsonSync(path.join(momentDestination, 'package.json')) as {
-      name?: string;
-      version?: string;
-      main?: string;
-    };
-    if (
-      momentManifest.name !== PACKAGED_MOMENT_PACKAGE ||
-      !momentManifest.version ||
-      momentManifest.main !== './moment.js'
-    ) {
-      throw new Error(`Invalid packaged moment entry contract at ${momentDestination}`);
-    }
-    console.log(`Copied ${PACKAGED_MOMENT_PACKAGE}@${momentManifest.version} production closure`);
 
     console.log('Copy dugite');
     // it has things like `git/bin/libexec/git-core/git-add` link to `git/bin/libexec/git-core/git`, to reduce size, so can't use `dereference: true, recursive: true` here.

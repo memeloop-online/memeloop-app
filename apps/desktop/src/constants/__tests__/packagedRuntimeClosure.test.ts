@@ -134,4 +134,22 @@ describe('packaged runtime dependency closure', () => {
     const serializeErrorManifest = JSON.parse(readFileSync(path.join(serializeErrorDirectory, 'package.json'), 'utf8')) as { version?: string };
     expect(serializeErrorManifest.version).toBe('11.0.3');
   });
+
+  it('does not retain the removed moment runtime closure', () => {
+    const fileStreamRotatorDirectory = findPackageRoot(
+      fileURLToPath(import.meta.resolve('file-stream-rotator')),
+      'file-stream-rotator',
+    );
+    const manifest = JSON.parse(readFileSync(path.join(fileStreamRotatorDirectory, 'package.json'), 'utf8')) as {
+      version?: string;
+      dependencies?: Record<string, string>;
+    };
+    const afterPackSource = readFileSync(path.resolve(process.cwd(), 'scripts/afterPack.ts'), 'utf8');
+    const mainViteSource = readFileSync(path.resolve(process.cwd(), 'vite.main.config.ts'), 'utf8');
+
+    expect(manifest.version).toBe('1.0.0');
+    expect(manifest.dependencies).not.toHaveProperty('moment');
+    expect(afterPackSource).not.toContain('PACKAGED_MOMENT_PACKAGE');
+    expect(mainViteSource).not.toMatch(/\n\s*['"]moment['"],/);
+  });
 });

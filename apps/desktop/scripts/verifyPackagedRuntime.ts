@@ -1,13 +1,7 @@
 import { extractFile, listPackage } from '@electron/asar';
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  BUNDLED_ETCD3_PROTO_DIRECTORY,
-  PACKAGED_BETTER_SQLITE_RUNTIME_PATHS,
-  PACKAGED_ELECTRON_UNHANDLED_PACKAGE,
-  PACKAGED_MOMENT_PACKAGE,
-  REQUIRED_ETCD3_PROTO_FILES,
-} from './afterPack';
+import { BUNDLED_ETCD3_PROTO_DIRECTORY, PACKAGED_BETTER_SQLITE_RUNTIME_PATHS, PACKAGED_ELECTRON_UNHANDLED_PACKAGE, REQUIRED_ETCD3_PROTO_FILES } from './afterPack';
 
 const archiveArgument = process.argv[2];
 if (!archiveArgument) {
@@ -139,10 +133,6 @@ const verifyProductionClosure = (
 verifyProductionClosure(
   path.join(resourcesNodeModulesDirectory, PACKAGED_ELECTRON_UNHANDLED_PACKAGE),
   PACKAGED_ELECTRON_UNHANDLED_PACKAGE,
-);
-verifyProductionClosure(
-  path.join(resourcesNodeModulesDirectory, PACKAGED_MOMENT_PACKAGE),
-  PACKAGED_MOMENT_PACKAGE,
 );
 
 const syncAdaptorPath = path.join(

@@ -2,9 +2,8 @@ packages:
   - 'apps/*'
 
 overrides:
-  '@memeloop/libp2p': 0.2.2
   '@electron/rebuild': 4.2.0
-  memeloop: 0.2.4
+  'git-sync-js>fs-extra': 11.4.0
   node-abi: 4.33.0
   prebuild-install: latest
   node-addon-api: ^7.1.1

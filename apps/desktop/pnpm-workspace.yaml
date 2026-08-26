@@ -4,6 +4,9 @@ packages:
 overrides:
   prebuild-install: latest
   node-addon-api: "^7.1.1"
+  # git-sync-js permits fs-extra ^11.3.5. Pin the same version as Desktop's
+  # direct dependency so pnpm's hoisted linker keeps jsonfile beside it.
+  "git-sync-js>fs-extra": 11.4.0
   # file-stream-rotator 1.0.0 removes the moment dependency.
   # winston-daily-rotate-file hasn't updated its range yet, so override it here.
   file-stream-rotator: 1.0.0
@@ -86,7 +89,7 @@ minimumReleaseAgeExclude:
   - ai@7.0.37
   - fs-extra@11.4.0
   - inversify@8.2.3
-  - '@memeloop/libp2p@0.2.2'
-  - '@memeloop/react-ui@0.1.2'
-  - memeloop-cli@0.2.3 || 0.2.4
-  - memeloop@0.2.2 || 0.2.4
+  - '@memeloop/libp2p@0.2.2 || 0.2.4'
+  - '@memeloop/react-ui@0.1.2 || 0.1.4'
+  - memeloop-cli@0.2.3 || 0.2.4 || 0.2.6
+  - memeloop@0.2.2 || 0.2.4 || 0.2.6

@@ -80,11 +80,6 @@ export default defineConfig({
         // rotating-file-stream@3 is pure ESM ("type":"module") but has a CJS dist.
         // External it so Node.js native require() uses its "exports.require" CJS entry.
         'rotating-file-stream',
-        // winston-daily-rotate-file@5 uses file-stream-rotator@0.6, whose
-        // CommonJS moment callable is mis-interoped when Rolldown inlines it
-        // into the main chunk. Keep only moment external; afterPack
-        // materializes its exact production closure.
-        'moment',
         ...typeormOptionalDepsRegex,
         'expo-sqlite',
         // Optional native accelerators used by ws. afterPack copies them when
