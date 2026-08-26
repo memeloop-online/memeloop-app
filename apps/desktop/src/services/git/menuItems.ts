@@ -55,9 +55,9 @@ export function createBackupMenuItems(
     click: async () => {
       if (aiEnabled) {
         // Omit commitMessage to let commitAndSync trigger AI generation
-        await gitService.commitAndSync(workspace, { dir: workspace.wikiFolderLocation!, commitOnly: true });
+        await gitService.commitAndSync(workspace, { dir: workspace.wikiFolderLocation, commitOnly: true });
       } else {
-        await gitService.commitAndSync(workspace, { dir: workspace.wikiFolderLocation!, commitOnly: true, commitMessage: t('LOG.CommitBackupMessage') });
+        await gitService.commitAndSync(workspace, { dir: workspace.wikiFolderLocation, commitOnly: true, commitMessage: t('LOG.CommitBackupMessage') });
       }
     },
   };

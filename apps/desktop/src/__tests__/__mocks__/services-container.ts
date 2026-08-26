@@ -62,10 +62,10 @@ export const serviceInstances: {
   externalAPI: {
     getAIConfig: vi.fn(async () => ({ default: { model: 'test-model', provider: 'test-provider' }, modelParameters: {} })),
     getAIProviders: vi.fn(async () => []),
-    generateFromAI: vi.fn(async function*() {
+    generateFromAI: vi.fn(async function*(): AsyncGenerator<AIStreamResponse, void, unknown> {
       // harmless await for linter
       await Promise.resolve();
-      yield { requestId: 'r0', content: '', status: 'start' } as AIStreamResponse;
+      yield { requestId: 'r0', content: '', status: 'start' };
       return;
     }),
     streamFromAI: vi.fn((_messages, _config) =>
@@ -103,7 +103,7 @@ export const serviceInstances: {
     pendingApprovals$: new BehaviorSubject<IToolApprovalRequest[]>([]),
     getSessionApprovals: vi.fn(async () => []),
     clearSessionApprovals: vi.fn(async () => undefined),
-  } as Partial<IToolPermissionsService>,
+  },
   memeloopNode: {
     cloudLogin: vi.fn(async () => ({ ok: true })),
     cloudLogout: vi.fn(async () => undefined),
@@ -122,7 +122,7 @@ export const serviceInstances: {
       billingHistory: [],
     })),
     openBillingPage: vi.fn(async () => undefined),
-  } as Partial<IMemeloopNodeService>,
+  },
 };
 
 // Bind the shared mocks into container so real services resolved from container.get()

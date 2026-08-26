@@ -19,7 +19,8 @@ import * as fs from 'fs-extra';
 import { cloneDeep } from 'lodash';
 import { AgentFrameworkContext } from '../agentFrameworks/utilities/type';
 import { AgentInstanceMessage } from '../interface';
-import { createAgentFrameworkHooks, pluginRegistry, PromptConcatHookContext } from '../tools';
+import { createAgentFrameworkHooks, type PromptConcatHookContext } from '../tools';
+import type { AppAgentToolRuntime } from '../tools/runtime';
 import type { AgentPromptDescription, IPrompt } from './promptConcatSchema';
 import type { IPromptConcatTool } from './promptConcatSchema/tools';
 import type { PromptConcatStreamState } from './promptConcatTypes';
@@ -190,6 +191,7 @@ export async function* promptConcatStream(
   agentConfig: Pick<AgentPromptDescription, 'agentFrameworkConfig'>,
   messages: AgentInstanceMessage[],
   agentFrameworkContext: AgentFrameworkContext,
+  runtime: AppAgentToolRuntime,
 ): AsyncGenerator<PromptConcatStreamState, PromptConcatStreamState, unknown> {
   const agentFrameworkConfig = agentConfig.agentFrameworkConfig;
   const promptConfigs = Array.isArray(agentFrameworkConfig?.prompts) ? agentFrameworkConfig.prompts : [];
@@ -201,9 +203,9 @@ export async function* promptConcatStream(
   const hooks = createAgentFrameworkHooks();
   // Register tools that match the configuration
   for (const tool of enabledToolConfigs) {
-    const builtInTool = pluginRegistry.get(tool.toolId);
+    const builtInTool = runtime.promptPlugins.get(tool.toolId);
     if (builtInTool) {
-      builtInTool(hooks);
+      builtInTool(hooks as never);
       logger.debug('Registered tool', {
         toolId: tool.toolId,
         toolInstanceId: tool.id,
@@ -366,12 +368,13 @@ export async function promptConcat(
   agentConfig: Pick<AgentPromptDescription, 'agentFrameworkConfig'>,
   messages: AgentInstanceMessage[],
   agentFrameworkContext: AgentFrameworkContext,
+  runtime: AppAgentToolRuntime,
 ): Promise<{
   flatPrompts: ModelMessage[];
   processedPrompts: IPrompt[];
 }> {
   // Use the streaming version and just return the final result
-  const stream = promptConcatStream(agentConfig, messages, agentFrameworkContext);
+  const stream = promptConcatStream(agentConfig, messages, agentFrameworkContext, runtime);
   let finalResult: PromptConcatStreamState;
 
   // Consume all intermediate states to get the final result

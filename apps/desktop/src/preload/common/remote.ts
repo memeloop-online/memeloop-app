@@ -1,20 +1,13 @@
 import { IAskAIWithSelectionData, NativeChannel, ViewChannel, WindowChannel } from '@/constants/channels';
-import { rendererMenuItemProxy } from '@services/menu/contextMenu/rendererMenuItemProxy';
-import type { IOnContextMenuInfo } from '@services/menu/interface';
-import { contextBridge, ipcRenderer, MenuItemConstructorOptions, webFrame, webUtils } from 'electron';
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron';
 
 import { WindowNames } from '@services/windows/WindowProperties';
 import { windowName } from './browserViewMetaData';
-import * as service from './services';
+import { window as windowService } from './services';
 
 export const remoteMethods = {
-  buildContextMenuAndPopup: async (menus: MenuItemConstructorOptions[], parameters: IOnContextMenuInfo): Promise<() => void> => {
-    const [ipcSafeMenus, unregister] = rendererMenuItemProxy(menus);
-    await service.menu.buildContextMenuAndPopup(ipcSafeMenus, parameters, windowName);
-    return unregister;
-  },
   closeCurrentWindow: async (): Promise<void> => {
-    await service.window.close(windowName);
+    await windowService.close(windowName);
   },
   /**
    * an wrapper around setVisualZoomLevelLimits
@@ -32,7 +25,7 @@ export const remoteMethods = {
     void ipcRenderer.removeListener(WindowChannel.askAIWithSelection, handleAskAI),
   /** Trigger askAIWithSelection locally in renderer, bypassing main-process round-trip. Used by workspace-icon right-click menu. */
   triggerAskAIWithSelection: (data: IAskAIWithSelectionData): void => {
-    ipcRenderer.emit(WindowChannel.askAIWithSelection, {} as Electron.IpcRendererEvent, data);
+    ipcRenderer.emit(WindowChannel.askAIWithSelection, {}, data);
   },
   registerUpdateFindInPageMatches: (updateFindInPageMatches: (event: Electron.IpcRendererEvent, activeMatchOrdinal: number, matches: number) => void): void =>
     void ipcRenderer.on(ViewChannel.updateFindInPageMatches, updateFindInPageMatches),

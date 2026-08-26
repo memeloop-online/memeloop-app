@@ -8,14 +8,12 @@ export interface IDeepLinkService {
   initializeDeepLink(protocol: string): void;
   /**
    * Open a deep link URL programmatically from within the app.
-   * Supports:
-   * - `tidgi://<workspaceId>/#:TiddlerName` — open a tiddler
-   * - `tidgi://preferences/<sectionId>` — open preferences window at a specific section
+   * Supports `memeloop://preferences/<sectionId>`.
    */
   openDeepLink(url: string): Promise<void>;
   /**
-   * Process any pending deep link after workspaces are initialized.
-   * Should be called after all workspaces are ready.
+   * Kept as a lifecycle-compatible no-op. Protocol arguments are dispatched
+   * once Electron is ready and MemeLoop App has no workspace boot queue.
    */
   processPendingDeepLink(): Promise<void>;
 }

@@ -70,9 +70,9 @@ export default function Subscription(): React.JSX.Element {
 
       const data = await window.service.memeloopNode.getSubscriptionStatus();
       setSubscription(data);
-    } catch (err) {
+    } catch (error_) {
       setError(
-        err instanceof Error ? err.message : 'Failed to load subscription data',
+        error_ instanceof Error ? error_.message : 'Failed to load subscription data',
       );
     } finally {
       setLoading(false);
@@ -86,9 +86,9 @@ export default function Subscription(): React.JSX.Element {
   const handleOpenBilling = useCallback(async () => {
     try {
       await window.service.memeloopNode.openBillingPage();
-    } catch (err) {
+    } catch (error_) {
       setError(
-        err instanceof Error ? err.message : 'Failed to open billing page',
+        error_ instanceof Error ? error_.message : 'Failed to open billing page',
       );
     }
   }, []);

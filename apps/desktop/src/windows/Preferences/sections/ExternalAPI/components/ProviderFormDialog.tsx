@@ -60,7 +60,7 @@ export function ProviderFormDialog({
     field: keyof typeof formData,
     value: string | boolean,
   ) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+    setFormData((previous) => ({ ...previous, [field]: value }));
   };
 
   const handleSubmit = async () => {
@@ -100,7 +100,9 @@ export function ProviderFormDialog({
         <TextField
           label={t('Preference.ProviderName')}
           value={formData.provider}
-          onChange={(e) => handleChange('provider', e.target.value)}
+          onChange={(event) => {
+            handleChange('provider', event.target.value);
+          }}
           fullWidth
           margin='normal'
           disabled={isEditing}
@@ -115,7 +117,9 @@ export function ProviderFormDialog({
           <InputLabel>{t('Preference.ProviderClass')}</InputLabel>
           <Select
             value={formData.providerClass}
-            onChange={(e) => handleChange('providerClass', e.target.value)}
+            onChange={(event) => {
+              handleChange('providerClass', event.target.value);
+            }}
             label={t('Preference.ProviderClass')}
           >
             {PROVIDER_CLASSES.map((cls) => (
@@ -130,7 +134,9 @@ export function ProviderFormDialog({
           <TextField
             label={t('Preference.BaseURL')}
             value={formData.baseURL}
-            onChange={(e) => handleChange('baseURL', e.target.value)}
+            onChange={(event) => {
+              handleChange('baseURL', event.target.value);
+            }}
             fullWidth
             margin='normal'
             placeholder={formData.providerClass === 'ollama'
@@ -145,7 +151,9 @@ export function ProviderFormDialog({
         <TextField
           label={t('Preference.APIKey')}
           value={formData.apiKey}
-          onChange={(e) => handleChange('apiKey', e.target.value)}
+          onChange={(event) => {
+            handleChange('apiKey', event.target.value);
+          }}
           fullWidth
           margin='normal'
           type='password'
@@ -157,7 +165,9 @@ export function ProviderFormDialog({
           control={
             <Switch
               checked={formData.enabled}
-              onChange={(e) => handleChange('enabled', e.target.checked)}
+              onChange={(event) => {
+                handleChange('enabled', event.target.checked);
+              }}
             />
           }
           label={t('Preference.EnableProvider')}

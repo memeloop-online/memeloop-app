@@ -39,7 +39,7 @@ export const useAIConfigManagement = ({ agentDefId, agentId }: UseAIConfigManage
 
         if (agentId) {
           // Get instance config first
-          const agentInstance = await window.service.agentInstance.getAgent(agentId);
+          const agentInstance = await window.service.agentInstance.getAgentMetadata(agentId);
           if (agentInstance?.aiApiConfig && Object.keys(agentInstance.aiApiConfig).length > 0) {
             finalConfig = agentInstance.aiApiConfig as AiAPIConfig;
           } else if (agentInstance?.agentDefId) {

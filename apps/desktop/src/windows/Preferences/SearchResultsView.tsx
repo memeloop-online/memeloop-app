@@ -138,7 +138,7 @@ function BooleanField({ item, preferences, query, onNeedsRestart }: {
   const description = item.descriptionKey ? tx(t, item.descriptionKey, item.ns) : undefined;
 
   const handleChange = useCallback(async (checked: boolean) => {
-    await window.service.preference.set(item.key, checked as IPreferences[typeof item.key]);
+    await window.service.preference.set(item.key, checked);
     if (item.sideEffectId) {
       const sideEffect = getSideEffect(item.sideEffectId);
       if (sideEffect) {
@@ -201,7 +201,7 @@ function EnumField({ item, preferences, query, onNeedsRestart }: {
         <Select
           value={value}
           onChange={async (event) => {
-            await window.service.preference.set(item.key, event.target.value as IPreferences[typeof item.key]);
+            await window.service.preference.set(item.key, event.target.value);
             if (item.needsRestart) onNeedsRestart();
           }}
           size='small'
@@ -245,7 +245,7 @@ function NumberField({ item, preferences, query, onNeedsRestart }: {
           onChange={async (event) => {
             const newValue = Number(event.target.value);
             if (!Number.isNaN(newValue)) {
-              await window.service.preference.set(item.key, newValue as IPreferences[typeof item.key]);
+              await window.service.preference.set(item.key, newValue);
               if (item.needsRestart) onNeedsRestart();
             }
           }}

@@ -143,7 +143,7 @@ export function defineModifier<TConfigSchema extends z.ZodType>(
           }
 
           // Parse and validate config
-          const config = configSchema.parse(rawConfig) as z.infer<TConfigSchema>;
+          const config = configSchema.parse(rawConfig);
 
           // Build handler context with utilities
           const handlerContext: ModifierHandlerContext<TConfigSchema> = {
@@ -229,7 +229,7 @@ export function defineModifier<TConfigSchema extends z.ZodType>(
             return;
           }
 
-          const config = configSchema.parse(rawConfig) as z.infer<TConfigSchema>;
+          const config = configSchema.parse(rawConfig);
 
           const handlerContext: PostProcessModifierContext<TConfigSchema> = {
             config,
@@ -268,34 +268,4 @@ export function defineModifier<TConfigSchema extends z.ZodType>(
     displayName: definition.displayName,
     description: definition.description,
   };
-}
-
-/**
- * Registry for modifiers
- */
-const modifierRegistry = new Map<string, ReturnType<typeof defineModifier>>();
-
-/**
- * Register a modifier definition
- */
-export function registerModifier<TConfigSchema extends z.ZodType>(
-  definition: ModifierDefinition<TConfigSchema>,
-): ReturnType<typeof defineModifier<TConfigSchema>> {
-  const modifierDefinition = defineModifier(definition);
-  modifierRegistry.set(modifierDefinition.modifierId, modifierDefinition as ReturnType<typeof defineModifier>);
-  return modifierDefinition;
-}
-
-/**
- * Get all registered modifiers
- */
-export function getAllModifiers(): Map<string, ReturnType<typeof defineModifier>> {
-  return modifierRegistry;
-}
-
-/**
- * Get a modifier by ID
- */
-export function getModifier(modifierId: string): ReturnType<typeof defineModifier> | undefined {
-  return modifierRegistry.get(modifierId);
 }

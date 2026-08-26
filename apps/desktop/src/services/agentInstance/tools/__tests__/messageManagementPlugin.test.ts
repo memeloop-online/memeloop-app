@@ -8,19 +8,23 @@ import { AgentDefinitionEntity, AgentInstanceEntity, AgentInstanceMessageEntity 
 import serviceIdentifier from '@services/serviceIdentifier';
 import { DataSource } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import defaultAgents from '../../agentFrameworks/taskAgents.json';
-import type { AgentInstanceMessage, IAgentInstanceService } from '../../interface';
+import type { AgentInstanceMessage } from '../../interface';
 import { registerCoreInfrastructure } from '../../promptConcat/infrastructure';
 import { createAgentFrameworkHooks } from '../index';
 import type { ToolExecutionContext, UserMessageContext } from '../types';
+import { promptConcatTestAgent } from './promptConcatTestAgent';
 
-// Use the real agent config from taskAgents.json
-const exampleAgent = defaultAgents[0];
+const exampleAgent = promptConcatTestAgent;
+
+interface LegacyAgentInstanceService {
+  initialize(): Promise<void>;
+  saveUserMessage(userMessage: AgentInstanceMessage): Promise<void>;
+}
 
 describe('Message Management Plugin - Real Database Integration', () => {
   let testAgentId: string;
   // agentInstanceServiceImpl available to test blocks
-  let agentInstanceServiceImpl: IAgentInstanceService;
+  let agentInstanceServiceImpl: LegacyAgentInstanceService;
   let hooks: ReturnType<typeof createAgentFrameworkHooks>;
   let realDataSource: DataSource;
 
@@ -64,7 +68,7 @@ describe('Message Management Plugin - Real Database Integration', () => {
     // Make sure Database.getDatabase returns our real dataSource
     databaseService.getDatabase = vi.fn().mockResolvedValue(realDataSource);
 
-    agentInstanceServiceImpl = container.get<IAgentInstanceService>(serviceIdentifier.AgentInstance);
+    agentInstanceServiceImpl = container.get<LegacyAgentInstanceService>(serviceIdentifier.AgentInstance);
     // Initialize AgentInstanceService so repositories are set
     await agentInstanceServiceImpl.initialize();
 

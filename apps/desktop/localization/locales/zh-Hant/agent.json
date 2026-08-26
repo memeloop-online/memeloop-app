@@ -30,6 +30,7 @@
     "ThinkingProcess": "思考中",
     "Untitled": "未命名"
   },
+  "AgentSwitcher": { "Search": "搜尋智慧代理..." },
   "Browser": {
     "Back": "後退",
     "Bookmark": "收藏",
@@ -54,12 +55,43 @@
       "ProviderNotFound": "未找到提供商 {{provider}}。請在設置中進行配置。",
       "Title": "配置問題"
     },
+    "RunError": {
+      "ContextCompactionPending": "MemeLoop 正在壓縮這段對話，讓智慧代理保留上下文並繼續工作。對話歷史不會遺失，請稍候再重試。",
+      "ContextCompactionPendingTitle": "正在整理長對話",
+      "UserMessageTooLarge": "這則訊息為 {{requested}} 位元組，超過 {{limit}} 位元組的上限。請縮短內容、拆分成多則訊息，或改以附件傳送。",
+      "UserMessageTooLargeTitle": "訊息過長"
+    },
     "FileValidation": {
       "NotAnImage": "所選檔案不是圖片格式（{{fileType}}）。請選擇圖片檔案。",
       "TooLarge": "檔案大小 {{size}}MB 超過了限制（{{maxSize}}MB）。請選擇較小的檔案。"
     },
     "InputPlaceholder": "輸入消息，Ctrl+Enter 發送",
-    "Send": "發送"
+    "Message": {
+      "ExportFullMessage": "匯出完整訊息"
+    },
+    "Send": "發送",
+    "Actions": { "Retry": "重試", "DeleteTurn": "刪除此輪", "Copy": "複製", "CopyAll": "複製全部", "User": "使用者", "Agent": "智慧代理" },
+    "Timeline": {
+      "Navigation": "對話時間軸",
+      "Turn": "第 {{index}} 輪，共 {{total}} 輪",
+      "MoreResponses": "另有 {{count}} 則回覆",
+      "Compacted": "已壓縮前面的 {{count}} 條消息",
+      "LoadEarlier": "載入更早消息",
+      "LoadLater": "載入更新消息",
+      "Seek": "定位對話時間軸",
+      "Close": "關閉",
+      "NewMessages": "{{count}} 則新訊息"
+    },
+    "ExecutionTarget": {
+      "NoActiveAgent": "目前沒有可用的智慧代理。",
+      "Platform": { "cli": "命令列", "desktop": "桌面端", "mobile": "行動端" },
+      "Reachability": { "connecting": "連線中", "nearby": "附近", "offline": "離線", "online": "上線" },
+      "RemoteDeviceDescription": "{{platform}} · {{reachability}}",
+      "RemoteAttachmentsUnsupported": "遠端執行暫不支援附件。請切換到此裝置，或只傳送文字。",
+      "RunOnThisDesktop": "在此桌面端執行",
+      "RunOnThisDesktopWithPeerId": "在此桌面端執行（{{peerId}}）",
+      "ThisDevice": "此裝置"
+    }
   },
   "Common": {
     "None": "未選擇"
@@ -107,6 +139,52 @@
     "Loading": "正在載入 Wiki..."
   },
   "EditAgent": {
+    "SchedulePersistentTitle": "排程只會在持久對話中執行",
+    "SchedulePersistentDescription": "此編輯器使用的預覽對話會自動刪除。請先建立真實對話，再到「AI 智慧體」設定中配置排程。",
+    "ScheduleCreateConversation": "建立對話",
+    "ScheduleCreatingConversation": "正在建立…",
+    "ActiveHoursEnd": "活躍時段結束（可選）",
+    "ActiveHoursStart": "活躍時段開始（可選）",
+    "Hours": "小時",
+    "Minutes": "分鐘",
+    "ScheduleCron": "進階 Cron 表達式",
+    "ScheduleCronExpr": "Cron 表達式",
+    "ScheduleCronHelp": "5 段 Cron：分鐘 小時 日期 月份 星期",
+    "ScheduleCronPreview": "接下來執行：",
+    "ScheduleExecutionTarget": "執行裝置",
+    "ScheduleExecutionTargetUnavailable": "所選裝置目前無法使用。請先選擇可用裝置再修改此排程。",
+    "ScheduleIdentityLoading": "正在載入本機安全身分…",
+    "ScheduleIdentityError": "本機安全身分無法使用。裝置網路就緒前已停用排程。",
+    "ScheduleDefaultTaskName": "{{agentName}} 的排程",
+    "ScheduleInvalidCron": "請輸入有效的 Cron 排程。",
+    "ScheduleInvalidTimezone": "請選擇支援的時區。",
+    "ScheduleNoPreview": "找不到即將執行的時間。",
+    "SchedulePreviewLoading": "正在檢查排程...",
+    "ScheduleDaily": "每天（指定時間）",
+    "ScheduleDailyTime": "喚醒時間",
+    "ScheduledWakeup": "定時喚醒",
+    "ScheduledWakeupDescription": "設定重複排程，自動喚醒此智慧代理並傳送提醒訊息。",
+    "ScheduleInterval": "固定間隔（每 N 秒/分鐘/小時）",
+    "ScheduleIntervalUnit": "單位",
+    "ScheduleIntervalValue": "每隔",
+    "ScheduleMessage": "喚醒訊息",
+    "ScheduleMessagePlaceholder": "[定時] 週期檢查。請檢查任務並處理所有待辦事項。",
+    "ScheduleMode": "模式",
+    "ScheduleNone": "無（不定時喚醒）",
+    "ScheduleSave": "儲存排程",
+    "ScheduleSaveWait": "正在載入預覽智慧代理...",
+    "ScheduleSaving": "儲存中...",
+    "ScheduleTaskSelection": "排程任務",
+    "ScheduleNewTask": "新增排程任務",
+    "ScheduleOperationFailed": "排程任務操作失敗。",
+    "ScheduleSourceIncomplete": "部分裝置未能提供完整的即時排程。所有來源恢復可用前已停用修改。",
+    "ScheduleSourceOnline": "{{executionTarget}} 在線上。",
+    "ScheduleSourceOffline": "{{executionTarget}} 離線。",
+    "ScheduleSourceDegraded": "{{executionTarget}} 狀態異常。",
+    "ScheduleSourceCached": "{{executionTarget}} 目前顯示快取的排程資料。",
+    "ScheduleTimezone": "時區",
+    "ScheduleUpdate": "更新排程",
+    "Seconds": "秒",
     "AgentDescription": "智能體描述",
     "AgentDescriptionHelper": "描述您的智慧體的功能和用途",
     "AgentDescriptionPlaceholder": "輸入智慧體描述...",
@@ -154,6 +232,8 @@
     "SearchPlaceholder": "搜索標籤頁或智慧體..."
   },
   "Preference": {
+    "NoScheduledTaskAgents": "請先建立或開啟一個智慧體對話，再設定排程。",
+    "ScheduledTaskAgent": "智慧體",
     "AIAgent": "智慧體",
     "AIAgentDescription": "管理智慧體對話記錄資料庫",
     "AIAgentDescriptionDetail": "這裡可以查看和刪除智慧體對話記錄資料庫的大小和位置資訊",

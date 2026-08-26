@@ -4,6 +4,7 @@ import path from 'path';
 import { defineConfig, type PluginOption } from 'vite';
 import { analyzer } from 'vite-bundle-analyzer';
 import monacoEditorPlugin from 'vite-plugin-monaco-editor';
+import { viteMemeLoopSourceAliases } from './scripts/viteMemeLoopSourceAliases';
 
 const desktopDependency = (packageName: string): string => realpathSync(path.resolve(__dirname, 'node_modules', packageName));
 
@@ -21,19 +22,38 @@ export default defineConfig({
     localPlugin(monacoEditorPlugin({})),
   ],
   resolve: {
-    dedupe: ['react', 'react-dom', '@mui/material', '@mui/icons-material', '@mui/system', '@emotion/react', '@emotion/styled'],
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-      '@services': path.resolve(__dirname, './src/services'),
-      react: desktopDependency('react'),
-      'react-dom': desktopDependency('react-dom'),
-      'simplebar-react': desktopDependency('simplebar-react'),
-      '@rjsf/core': desktopDependency('@rjsf/core'),
-      '@rjsf/mui': desktopDependency('@rjsf/mui'),
-      '@rjsf/utils': desktopDependency('@rjsf/utils'),
-      '@rjsf/validator-ajv8': desktopDependency('@rjsf/validator-ajv8'),
-      '@assistant-ui/react': desktopDependency('@assistant-ui/react'),
-    },
+    dedupe: [
+      'react',
+      'react-dom',
+      '@mui/material',
+      '@mui/icons-material',
+      '@mui/system',
+      '@emotion/react',
+      '@emotion/styled',
+      'ai',
+      'ajv',
+      'material-ui-cron',
+      '@radix-ui/react-primitive',
+      '@radix-ui/react-slot',
+    ],
+    alias: [
+      ...viteMemeLoopSourceAliases(__dirname),
+      { find: '@', replacement: path.resolve(__dirname, './src') },
+      { find: '@services', replacement: path.resolve(__dirname, './src/services') },
+      { find: 'react', replacement: desktopDependency('react') },
+      { find: 'react-dom', replacement: desktopDependency('react-dom') },
+      { find: 'simplebar-react', replacement: desktopDependency('simplebar-react') },
+      { find: '@rjsf/core', replacement: desktopDependency('@rjsf/core') },
+      { find: '@rjsf/mui', replacement: desktopDependency('@rjsf/mui') },
+      { find: '@rjsf/utils', replacement: desktopDependency('@rjsf/utils') },
+      { find: '@rjsf/validator-ajv8', replacement: desktopDependency('@rjsf/validator-ajv8') },
+      { find: '@assistant-ui/react', replacement: desktopDependency('@assistant-ui/react') },
+      { find: /^ai$/u, replacement: desktopDependency('ai') },
+      { find: /^ajv$/u, replacement: desktopDependency('ajv') },
+      { find: /^material-ui-cron$/u, replacement: desktopDependency('material-ui-cron') },
+      { find: /^@radix-ui\/react-primitive$/u, replacement: desktopDependency('@radix-ui/react-primitive') },
+      { find: /^@radix-ui\/react-slot$/u, replacement: desktopDependency('@radix-ui/react-slot') },
+    ],
   },
   optimizeDeps: {
     include: ['monaco-editor'],

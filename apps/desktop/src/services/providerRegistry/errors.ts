@@ -99,23 +99,8 @@ export function isProviderConfigError(error: unknown): error is ProviderConfigEr
       (error as (ProviderConfigError | undefined))?.name === 'AuthenticationError');
 }
 
-/**
- * Try to parse a generic error into a ProviderConfigError if possible
- */
+/** @deprecated Callers must classify structured provider errors, not messages. */
 export function parseProviderError(error: Error, provider: string): Error {
-  const message = error.message.toLowerCase();
-
-  if (message.includes('api key') && message.includes('not found')) {
-    return new MissingAPIKeyError(provider);
-  }
-
-  if (message.includes('requires baseurl')) {
-    return new MissingBaseURLError(provider);
-  }
-
-  if (message.includes('authentication failed') || message.includes('401')) {
-    return new AuthenticationError(provider);
-  }
-
+  void provider;
   return error;
 }

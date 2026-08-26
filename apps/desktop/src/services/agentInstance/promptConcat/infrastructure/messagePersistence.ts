@@ -7,14 +7,16 @@
 import { container } from '@services/container';
 import { logger } from '@services/libs/log';
 import serviceIdentifier from '@services/serviceIdentifier';
-import type { IWikiService } from '@services/wiki/interface';
-import type { IWorkspaceService } from '@services/workspaces/interface';
 import { app } from 'electron';
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import type { IAgentInstanceService } from '../../interface';
+import type { AgentInstanceMessage } from '../../interface';
 import type { AIResponseContext, PromptConcatHooks, ToolExecutionContext, UserMessageContext } from '../../tools/types';
 import { createAgentMessage } from '../../utilities';
+
+interface LegacyMessagePersistence {
+  saveUserMessage(userMessage: AgentInstanceMessage): Promise<void>;
+}
 
 /**
  * Register message persistence handlers to hooks
@@ -28,7 +30,6 @@ export function registerMessagePersistence(hooks: PromptConcatHooks): void {
       logger.debug('userMessageReceived hook called', {
         messageId,
         hasFile: !!content.file,
-        hasWikiTiddlers: !!(content.wikiTiddlers && content.wikiTiddlers.length > 0),
         fileInfo: content.file
           ? {
             hasPath: !!(content.file as unknown as { path?: string }).path,
@@ -39,22 +40,6 @@ export function registerMessagePersistence(hooks: PromptConcatHooks): void {
       });
 
       let persistedFileMetadata: Record<string, unknown> | undefined;
-      let wikiTiddlersMetadata: Array<{ workspaceId: string; workspaceName: string; tiddlerTitle: string; renderedContent: string }> | undefined;
-
-      // Check if wikiTiddlers are already in the message (from a previous hook call)
-      const existingMessage = agentFrameworkContext.agent.messages.find(m => m.id === messageId);
-      const existingWikiTiddlers = existingMessage?.metadata?.wikiTiddlers as
-        | Array<{ workspaceId: string; workspaceName: string; tiddlerTitle: string; renderedContent: string }>
-        | undefined;
-
-      if (existingWikiTiddlers && existingWikiTiddlers.length > 0) {
-        // Reuse existing wiki tiddlers metadata
-        wikiTiddlersMetadata = existingWikiTiddlers;
-        logger.debug('Reusing existing wiki tiddlers metadata from previous hook call', {
-          messageId,
-          tiddlerCount: existingWikiTiddlers.length,
-        });
-      }
 
       // Handle file attachment persistence
       if (content.file) {
@@ -103,117 +88,10 @@ export function registerMessagePersistence(hooks: PromptConcatHooks): void {
         }
       }
 
-      // Handle wiki tiddler attachments (only if not already processed)
-      if (content.wikiTiddlers && content.wikiTiddlers.length > 0 && !wikiTiddlersMetadata) {
-        try {
-          const wikiService = container.get<IWikiService>(serviceIdentifier.Wiki);
-          const workspaceService = container.get<IWorkspaceService>(serviceIdentifier.Workspace);
-
-          wikiTiddlersMetadata = [];
-
-          for (const tiddler of content.wikiTiddlers) {
-            try {
-              // Find workspace by name
-              const workspacesList = await workspaceService.getWorkspacesAsList();
-              const workspace = workspacesList.find(w => w.name === tiddler.workspaceName);
-
-              if (!workspace) {
-                logger.warn('Workspace not found for wiki tiddler attachment', {
-                  workspaceName: tiddler.workspaceName,
-                  messageId,
-                });
-                continue;
-              }
-
-              // Get rendered HTML content of the tiddler
-              // First try getTiddlerHtml for rendered content
-              let response = await wikiService.callWikiIpcServerRoute(workspace.id, 'getTiddlerHtml', tiddler.tiddlerTitle);
-
-              logger.debug('getTiddlerHtml response received', {
-                workspaceName: tiddler.workspaceName,
-                tiddlerTitle: tiddler.tiddlerTitle,
-                statusCode: response?.statusCode,
-                dataType: typeof response?.data,
-                dataLength: typeof response?.data === 'string' ? response.data.length : 'N/A',
-                messageId,
-              });
-
-              // If getTiddlerHtml returns empty or fails, fallback to getTiddler for raw text
-              if (response?.statusCode === 200 && typeof response?.data === 'string' && response.data.length > 0) {
-                wikiTiddlersMetadata.push({
-                  workspaceId: workspace.id,
-                  workspaceName: tiddler.workspaceName,
-                  tiddlerTitle: tiddler.tiddlerTitle,
-                  renderedContent: response.data,
-                });
-
-                logger.debug('Wiki tiddler rendered HTML content fetched', {
-                  workspaceId: workspace.id,
-                  workspaceName: tiddler.workspaceName,
-                  tiddlerTitle: tiddler.tiddlerTitle,
-                  contentLength: response.data.length,
-                  messageId,
-                });
-              } else {
-                // Fallback to getTiddler for raw text
-                logger.debug('getTiddlerHtml returned empty, falling back to getTiddler', {
-                  workspaceId: workspace.id,
-                  workspaceName: tiddler.workspaceName,
-                  tiddlerTitle: tiddler.tiddlerTitle,
-                  messageId,
-                });
-
-                response = await wikiService.callWikiIpcServerRoute(workspace.id, 'getTiddler', tiddler.tiddlerTitle);
-
-                if (response?.statusCode === 200 && response?.data !== undefined && typeof response.data === 'object') {
-                  const tiddlerFields = response.data as { text?: string; [key: string]: unknown };
-                  const tiddlerText = tiddlerFields.text || '';
-
-                  wikiTiddlersMetadata.push({
-                    workspaceId: workspace.id,
-                    workspaceName: tiddler.workspaceName,
-                    tiddlerTitle: tiddler.tiddlerTitle,
-                    renderedContent: tiddlerText,
-                  });
-
-                  logger.debug('Wiki tiddler raw text content fetched (fallback)', {
-                    workspaceId: workspace.id,
-                    workspaceName: tiddler.workspaceName,
-                    tiddlerTitle: tiddler.tiddlerTitle,
-                    contentLength: tiddlerText.length,
-                    messageId,
-                  });
-                } else {
-                  logger.warn('Failed to get wiki tiddler content (both HTML and raw text)', {
-                    workspaceId: workspace.id,
-                    workspaceName: tiddler.workspaceName,
-                    tiddlerTitle: tiddler.tiddlerTitle,
-                    statusCode: response?.statusCode,
-                    messageId,
-                  });
-                }
-              }
-            } catch (error) {
-              logger.error('Error fetching wiki tiddler content', {
-                error,
-                workspaceName: tiddler.workspaceName,
-                tiddlerTitle: tiddler.tiddlerTitle,
-                messageId,
-              });
-            }
-          }
-        } catch (error) {
-          logger.error('Failed to process wiki tiddler attachments', { error, messageId });
-        }
-      }
-
       // Create user message using the helper function
       const metadata: Record<string, unknown> = {};
       if (persistedFileMetadata) {
         metadata.file = persistedFileMetadata;
-      }
-      if (wikiTiddlersMetadata && wikiTiddlersMetadata.length > 0) {
-        metadata.wikiTiddlers = wikiTiddlersMetadata;
       }
 
       const userMessage = createAgentMessage(messageId, agentFrameworkContext.agent.id, {
@@ -239,7 +117,7 @@ export function registerMessagePersistence(hooks: PromptConcatHooks): void {
       agentFrameworkContext.agent.messages.push(userMessage);
 
       // Get the agent instance service to access repositories
-      const agentInstanceService = container.get<IAgentInstanceService>(serviceIdentifier.AgentInstance);
+      const agentInstanceService = container.get<LegacyMessagePersistence>(serviceIdentifier.AgentInstance);
 
       // Save user message to database
       await agentInstanceService.saveUserMessage(userMessage);
@@ -273,7 +151,7 @@ export function registerMessagePersistence(hooks: PromptConcatHooks): void {
         );
 
         if (aiMessage) {
-          const agentInstanceService = container.get<IAgentInstanceService>(serviceIdentifier.AgentInstance);
+          const agentInstanceService = container.get<LegacyMessagePersistence>(serviceIdentifier.AgentInstance);
           await agentInstanceService.saveUserMessage(aiMessage);
           aiMessage.metadata = { ...aiMessage.metadata, isPersisted: true };
 
@@ -306,7 +184,7 @@ export function registerMessagePersistence(hooks: PromptConcatHooks): void {
         return;
       }
 
-      const agentInstanceService = container.get<IAgentInstanceService>(serviceIdentifier.AgentInstance);
+      const agentInstanceService = container.get<LegacyMessagePersistence>(serviceIdentifier.AgentInstance);
 
       for (const message of newToolResultMessages) {
         try {

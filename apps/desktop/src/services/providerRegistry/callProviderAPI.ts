@@ -8,7 +8,7 @@ import { createOllama } from 'ollama-ai-provider-v2';
 
 import { getFormattedContent } from '@/pages/ChatTabContent/components/types';
 import { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema';
-import { AuthenticationError, MissingAPIKeyError, MissingBaseURLError, parseProviderError } from './errors';
+import { MissingAPIKeyError, MissingBaseURLError } from './errors';
 import type { AIProviderConfig, ModelInfo } from './interface';
 import { normalizeOpenAIBaseURL } from './openAIBaseURL';
 
@@ -129,16 +129,8 @@ export function streamFromProvider(
   } catch (error) {
     if (!error) {
       throw new Error(`${provider} error: Unknown error`, { cause: error });
-    } else if ((error as Error).message.includes('401')) {
-      throw new AuthenticationError(provider);
-    } else if ((error as Error).message.includes('404')) {
-      throw new Error(`${provider} error: Model "${model}" not found`, { cause: error });
-    } else if ((error as Error).message.includes('429')) {
-      throw new Error(`${provider} too many requests: Reduce request frequency or check API limits`, { cause: error });
-    } else {
-      logger.error(`${provider} streaming error:`, error);
-      // Try to parse the error into a more specific type if possible
-      throw parseProviderError(error as Error, provider);
     }
+    logger.error(`${provider} streaming error:`, error);
+    throw error;
   }
 }

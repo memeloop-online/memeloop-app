@@ -8,14 +8,6 @@ export const generalSection: ISectionDefinition = {
   Icon: WidgetsIcon,
   items: [
     {
-      type: 'preference-boolean',
-      key: 'rememberLastPageVisited',
-      titleKey: 'Preference.RememberLastVisitState',
-      needsRestart: true,
-      zod: z.boolean(),
-    },
-    { type: 'divider' },
-    {
       type: 'preference-enum',
       key: 'themeSource',
       titleKey: 'Preference.Theme',
@@ -35,16 +27,6 @@ export const generalSection: ISectionDefinition = {
     },
     {
       type: 'preference-boolean',
-      key: 'hideMenuBar',
-      titleKey: 'Preference.HideMenuBar',
-      descriptionKey: 'Preference.HideMenuBarDetail',
-      needsRestart: true,
-      platform: '!darwin',
-      zod: z.boolean(),
-    },
-    { type: 'divider' },
-    {
-      type: 'preference-boolean',
       key: 'alwaysOnTop',
       titleKey: 'Preference.AlwaysOnTop',
       descriptionKey: 'Preference.AlwaysOnTopDetail',
@@ -57,15 +39,6 @@ export const generalSection: ISectionDefinition = {
       key: 'runOnBackground',
       titleKey: 'Preference.RunOnBackground',
       descriptionKey: 'Preference.RunOnBackgroundDetail',
-      zod: z.boolean(),
-    },
-    {
-      type: 'preference-boolean',
-      key: 'swipeToNavigate',
-      titleKey: 'Preference.SwipeWithThreeFingersToNavigate',
-      descriptionKey: 'Preference.SwipeWithThreeFingersToNavigateDescription',
-      needsRestart: true,
-      platform: 'darwin',
       zod: z.boolean(),
     },
   ],

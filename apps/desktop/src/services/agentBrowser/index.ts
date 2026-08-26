@@ -5,7 +5,7 @@ import { DataSource, Equal, Not, Repository } from 'typeorm';
 
 import { TEMP_TAB_ID_PREFIX } from '@/pages/Agent/constants/tab';
 import { TabCloseDirection } from '@/pages/Agent/store/tabStore/types';
-import type { IChatTab, ISplitViewTab } from '@/pages/Agent/types/tab';
+import type { IChatTab } from '@/pages/Agent/types/tab';
 import type { IAgentInstanceService } from '@services/agentInstance/interface';
 import { container } from '@services/container';
 import { logger } from '@services/libs/log';

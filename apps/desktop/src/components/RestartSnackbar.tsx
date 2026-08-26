@@ -1,7 +1,6 @@
 import CloseIcon from '@mui/icons-material/Close';
 import { Button, IconButton, Snackbar, Tooltip } from '@mui/material';
 import { keyframes, styled } from '@mui/material/styles';
-import { IWorkspace } from '@services/workspaces/interface';
 import useDebouncedCallback from 'beautiful-react-hooks/useDebouncedCallback';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -33,7 +32,7 @@ export enum RestartSnackbarType {
 }
 
 export function useRestartSnackbar(
-  configs?: { restartType?: RestartSnackbarType; waitBeforeCountDown?: number; waitBeforeRestart?: number; workspace?: IWorkspace },
+  configs?: { restartType?: RestartSnackbarType; waitBeforeCountDown?: number; waitBeforeRestart?: number; workspace?: { id: string } },
 ): [() => void, React.JSX.Element] {
   const { waitBeforeCountDown = 1000, waitBeforeRestart = 10_000, restartType = RestartSnackbarType.App, workspace } = configs ?? {};
   const { t } = useTranslation();
@@ -50,10 +49,7 @@ export function useRestartSnackbar(
         break;
       }
       case RestartSnackbarType.Wiki: {
-        if (workspace !== undefined) {
-          await window.service.workspaceView.restartWorkspaceViewService(workspace.id);
-          await window.service.workspaceView.realignActiveWorkspace(workspace.id);
-        }
+        throw new Error('Wiki restart is only available from the TidGi host adapter');
         break;
       }
     }

@@ -29,16 +29,19 @@ The `promptConcat` function uses a tapable hooks-based tool system. Built-in too
      - `modelContextProtocol`: Integrates with external MCP servers
 
 3. **Tool Registration**:
-   - Tools created with `registerToolDefinition` are auto-registered
-   - Each tool instance has its own configuration parameters
+   - Tool modules export pure `ToolDefinition` values and never register at import time
+   - The host creates one `AppAgentToolRuntime` for each runtime lifetime
+   - Preview schemas and execution hooks are resolved from that explicit runtime
+   - Disposing one runtime cannot remove definitions or plugins from another
 
 ### Adding New Tools (New API)
 
-Use the `registerToolDefinition` function for a declarative, low-boilerplate approach:
+Export a declarative definition, then let the host bootstrap it into its owned
+runtime. Do not create a module singleton or mutate a shared registry:
 
 ```typescript
 import { z } from 'zod/v4';
-import { registerToolDefinition } from './defineTool';
+import type { ToolDefinition } from 'memeloop/tools';
 
 // 1. Define config schema (user-configurable in UI)
 const MyToolConfigSchema = z.object({
@@ -56,8 +59,8 @@ const MyLLMToolSchema = z.object({
   examples: [{ query: 'example', limit: 5 }],
 });
 
-// 3. Register the tool
-const myToolDef = registerToolDefinition({
+// 3. Export a pure definition
+export const myToolDefinition = {
   toolId: 'myTool',
   displayName: 'My Tool',
   description: 'Does something useful',
@@ -77,7 +80,7 @@ const myToolDef = registerToolDefinition({
 
   // Called when AI response is complete
   async onResponseComplete({ toolCall, executeToolCall }) {
-    if (toolCall?.toolId !== 'my-tool') return;
+    if (!toolCall?.found || toolCall.toolId !== 'my-tool') return;
 
     await executeToolCall('my-tool', async (params) => {
       // Execute the tool and return result
@@ -85,9 +88,20 @@ const myToolDef = registerToolDefinition({
       return { success: true, data: result };
     });
   },
-});
+} satisfies ToolDefinition<typeof MyToolConfigSchema, {
+  'my-tool': typeof MyLLMToolSchema;
+}>;
+```
 
-export const myTool = myToolDef.tool;
+The application runtime owns the registration and disposal:
+
+```typescript
+const runtime = new AppAgentToolRuntime([myToolDefinition]);
+try {
+  await promptConcat(config, messages, context, runtime);
+} finally {
+  runtime.dispose();
+}
 ```
 
 ### Handler Context Utilities

@@ -1,5 +1,4 @@
-import type { AgentDefinition } from '@services/agentDefinition/interface';
-import defaultAgents from '@services/agentInstance/agentFrameworks/taskAgents.json';
+import { DEFAULT_AGENT_DEFINITION_ID } from '@services/agentDefinition/builtinAgentDefinitions';
 import { container } from '@services/container';
 import type { IDatabaseService } from '@services/database/interface';
 import { AgentDefinitionEntity } from '@services/database/schema/agent';
@@ -25,8 +24,7 @@ describe('ExternalAPIService logging', () => {
 
     // Clear existing data and add test data
     await agentDefRepo.clear();
-    const example = (defaultAgents as unknown as AgentDefinition[])[0];
-    await agentDefRepo.save({ id: example.id });
+    await agentDefRepo.save({ id: DEFAULT_AGENT_DEFINITION_ID });
   });
 
   it.skip('records streaming logs when provider has apiKey (API success)', async () => {

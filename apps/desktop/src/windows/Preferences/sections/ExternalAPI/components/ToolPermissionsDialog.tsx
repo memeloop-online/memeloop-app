@@ -21,7 +21,6 @@ import {
   Typography,
 } from '@mui/material';
 import React, { useCallback, useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 
 import type { IToolPermissionEntry } from '@/services/toolPermissions/interface';
 
@@ -53,7 +52,6 @@ export function ToolPermissionsDialog({
   open,
   onClose,
 }: ToolPermissionsDialogProps): React.JSX.Element {
-  const { t } = useTranslation('agent');
   const [permissions, setPermissions] = useState<IToolPermissionEntry[]>([]);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [newEntry, setNewEntry] = useState<{
@@ -176,7 +174,7 @@ export function ToolPermissionsDialog({
                 size='small'
                 startIcon={<AddIcon />}
                 onClick={() => {
-                  setNewEntry((prev) => ({ ...prev, listType: 'blacklist' }));
+                  setNewEntry((previous) => ({ ...previous, listType: 'blacklist' }));
                   setAddDialogOpen(true);
                 }}
               >
@@ -279,7 +277,7 @@ export function ToolPermissionsDialog({
                 size='small'
                 startIcon={<AddIcon />}
                 onClick={() => {
-                  setNewEntry((prev) => ({ ...prev, listType: 'whitelist' }));
+                  setNewEntry((previous) => ({ ...previous, listType: 'whitelist' }));
                   setAddDialogOpen(true);
                 }}
               >
@@ -388,8 +386,8 @@ export function ToolPermissionsDialog({
             margin='dense'
             value={newEntry.toolName}
             onChange={(event) => {
-              setNewEntry((prev) => ({
-                ...prev,
+              setNewEntry((previous) => ({
+                ...previous,
                 toolName: event.target.value,
               }));
             }}
@@ -407,7 +405,7 @@ export function ToolPermissionsDialog({
             margin='dense'
             value={newEntry.pattern}
             onChange={(event) => {
-              setNewEntry((prev) => ({ ...prev, pattern: event.target.value }));
+              setNewEntry((previous) => ({ ...previous, pattern: event.target.value }));
             }}
             helperText='Leave empty to match all parameters, or provide a regex pattern'
           />
@@ -420,7 +418,7 @@ export function ToolPermissionsDialog({
             minRows={2}
             value={newEntry.note}
             onChange={(event) => {
-              setNewEntry((prev) => ({ ...prev, note: event.target.value }));
+              setNewEntry((previous) => ({ ...previous, note: event.target.value }));
             }}
           />
         </DialogContent>

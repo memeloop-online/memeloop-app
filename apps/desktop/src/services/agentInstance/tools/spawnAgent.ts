@@ -6,9 +6,10 @@ import { container } from '@services/container';
 import { t } from '@services/libs/i18n/placeholder';
 import { logger } from '@services/libs/log';
 import serviceIdentifier from '@services/serviceIdentifier';
+import type { ToolDefinition } from 'memeloop/tools';
 import { z } from 'zod/v4';
-import type { IAgentInstanceService } from '../interface';
-import { registerToolDefinition, type ToolExecutionResult } from './defineTool';
+import type { AgentInstanceMessage, IAgentInstanceService } from '../interface';
+import type { ToolExecutionResult } from './defineToolTypes';
 
 export const SpawnAgentParameterSchema = z.object({
   toolListPosition: z.object({
@@ -73,24 +74,32 @@ async function executeSpawnAgent(
     // Send message and wait for completion with timeout
     const resultPromise = new Promise<ToolExecutionResult>((resolve) => {
       let resolved = false;
+      let latestAssistantMessage: AgentInstanceMessage | undefined;
       const subscription = agentInstanceService.subscribeToAgentUpdates(childAgent.id).subscribe({
-        next: (agent) => {
-          if (resolved || !agent) return;
-          const state = agent.status?.state;
+        next: (update) => {
+          if (resolved || !update) return;
+          if (update.message?.role === 'assistant') latestAssistantMessage = update.message;
+          const state = update.agent.status?.state;
           if (state === 'completed' || state === 'failed' || state === 'canceled') {
             resolved = true;
             subscription.unsubscribe();
-
-            // Get the last assistant message as the result
-            const lastAssistant = [...(agent.messages || [])].reverse().find(m => m.role === 'assistant');
-            const resultText = lastAssistant?.content || agent.status?.message?.content || '(sub-agent completed with no output)';
-
-            resolve({
-              success: state === 'completed',
-              data: state === 'completed' ? resultText : undefined,
-              error: state !== 'completed' ? `Sub-agent ${state}: ${resultText}` : undefined,
-              metadata: { childAgentId: childAgent.id, state },
-            });
+            void (async () => {
+              // The live update is incremental. If the terminal notification
+              // did not carry the assistant row, fetch a one-row bounded tail.
+              const page = latestAssistantMessage
+                ? undefined
+                : await agentInstanceService.getAgentMessagePage(childAgent.id, { limit: 1 });
+              const resultText = latestAssistantMessage?.content ||
+                page?.items.find(message => message.role === 'assistant')?.content ||
+                update.agent.status?.message?.content ||
+                '(sub-agent completed with no output)';
+              resolve({
+                success: state === 'completed',
+                data: state === 'completed' ? resultText : undefined,
+                error: state !== 'completed' ? `Sub-agent ${state}: ${resultText}` : undefined,
+                metadata: { childAgentId: childAgent.id, state },
+              });
+            })();
           }
         },
         error: (error) => {
@@ -126,7 +135,7 @@ async function executeSpawnAgent(
   }
 }
 
-const spawnAgentDefinition = registerToolDefinition({
+export const spawnAgentToolDefinition = {
   toolId: 'spawnAgent',
   displayName: 'Spawn Sub-Agent',
   description: 'Delegate a sub-task to a new agent instance',
@@ -140,12 +149,10 @@ const spawnAgentDefinition = registerToolDefinition({
   },
 
   async onResponseComplete({ toolCall, executeToolCall, agentFrameworkContext, config }) {
-    if (!toolCall || toolCall.toolId !== 'spawn-agent') return;
-    if (agentFrameworkContext.isCancelled()) return;
+    if (!toolCall?.found || toolCall.toolId !== 'spawn-agent') return;
+    if (agentFrameworkContext.operationSignal?.aborted) return;
 
     const timeoutMs = config?.defaultTimeoutMs ?? 120000;
-    await executeToolCall('spawn-agent', (parameters) => executeSpawnAgent(parameters, agentFrameworkContext.agent.id, agentFrameworkContext.agentDef.id, timeoutMs));
+    await executeToolCall('spawn-agent', (parameters) => executeSpawnAgent(parameters, agentFrameworkContext.agent.id, agentFrameworkContext.agent.agentDefId, timeoutMs));
   },
-});
-
-export const spawnAgentTool = spawnAgentDefinition.tool;
+} satisfies ToolDefinition<typeof SpawnAgentParameterSchema, { 'spawn-agent': typeof SpawnAgentToolSchema }>;

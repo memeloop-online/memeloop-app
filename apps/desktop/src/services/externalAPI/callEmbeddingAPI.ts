@@ -1,6 +1,6 @@
 import { logger } from '@services/libs/log';
 
-import type { AiAPIConfig } from 'memeloop';
+import type { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema/types';
 import { AuthenticationError, MissingAPIKeyError, MissingBaseURLError } from './errors';
 import type { AIEmbeddingResponse, AIProviderConfig } from './interface';
 

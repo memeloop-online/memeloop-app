@@ -5,6 +5,7 @@
  * This acts as a safety net during schema-ification of complex sections.
  */
 import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
@@ -60,13 +61,14 @@ describe('Preferences - All Sections Rendering', () => {
 
     Object.defineProperty(window.service.context, 'get', {
       value: vi.fn().mockImplementation(async (key: string) => {
-        const contextValues: Record<string, string> = {
+        const contextValues: Record<string, unknown> = {
           platform: 'win32',
           isTest: 'true',
           LOG_FOLDER: 'C:\\logs',
           SETTINGS_FOLDER: 'C:\\settings',
           V8_CACHE_FOLDER: 'C:\\v8cache',
           INSTALLER_LOG_FOLDER: 'C:\\installerlogs',
+          supportedLanguagesMap: { 'zh-Hans': '简体中文' },
         };
         return contextValues[key] ?? '';
       }),
@@ -176,10 +178,9 @@ describe('Preferences - All Sections Rendering', () => {
       </TestWrapper>,
     );
 
-    // Wait for progressive rendering to complete — all sections are batched via setTimeout(0).
-    // The last section in allSections is 'misc', so wait until its title appears.
+    // Tests render every active App section synchronously. Wait for the last one.
     await waitFor(() => {
-      expect(screen.queryByText('Preference.Miscellaneous')).toBeInTheDocument();
+      expect(screen.queryByText('Preference.Updates')).toBeInTheDocument();
     }, { timeout: 5000 });
 
     return result;
@@ -200,7 +201,6 @@ describe('Preferences - All Sections Rendering', () => {
   it('should render Performance section', async () => {
     await renderAllSections();
     expect(screen.getByText('Preference.Performance')).toBeInTheDocument();
-    expect(screen.getByText('Preference.HibernateAllUnusedWorkspaces')).toBeInTheDocument();
     expect(screen.getByText('Preference.hardwareAcceleration')).toBeInTheDocument();
   });
 
@@ -214,20 +214,7 @@ describe('Preferences - All Sections Rendering', () => {
 
   // ─── Network section ────────────────────────────────────────────
 
-  it('should render Network section', async () => {
-    await renderAllSections();
-    expect(screen.getByText('Preference.Network')).toBeInTheDocument();
-    expect(screen.getByText('Preference.IgnoreCertificateErrors')).toBeInTheDocument();
-  });
-
   // ─── Privacy section ────────────────────────────────────────────
-
-  it('should render Privacy section', async () => {
-    await renderAllSections();
-    expect(screen.getByText('Preference.PrivacyAndSecurity')).toBeInTheDocument();
-    expect(screen.getByText('Preference.ShareBrowsingData')).toBeInTheDocument();
-    expect(screen.getByText('Preference.IgnoreCertificateErrors')).toBeInTheDocument();
-  });
 
   // ─── Updates section ────────────────────────────────────────────
 
@@ -239,12 +226,6 @@ describe('Preferences - All Sections Rendering', () => {
 
   // ─── Miscellaneous section ──────────────────────────────────────
 
-  it('should render Miscellaneous section', async () => {
-    await renderAllSections();
-    expect(screen.getByText('Preference.Miscellaneous')).toBeInTheDocument();
-    expect(screen.getByText('Preference.RunOnBackground')).toBeInTheDocument();
-  });
-
   // ─── Notifications section ──────────────────────────────────────
 
   it('should render Notifications section', async () => {
@@ -255,21 +236,7 @@ describe('Preferences - All Sections Rendering', () => {
   });
 
   // ─── TidGiMiniWindow section ────────────────────────────────────
-  it('should render TidGiMiniWindow section', async () => {
-    await renderAllSections();
-    await waitFor(() => {
-      expect(screen.getByText('Menu.TidGiMiniWindow')).toBeInTheDocument();
-    }, { timeout: 5000 });
-  });
-
   // ─── Developers section ─────────────────────────────────────────
-
-  it('should render DeveloperTools section', async () => {
-    await renderAllSections();
-    await waitFor(() => {
-      expect(screen.getByText('Preference.DeveloperTools')).toBeInTheDocument();
-    }, { timeout: 5000 });
-  });
 
   // ─── Boolean toggle interaction ─────────────────────────────────
   it('should toggle a boolean preference (alwaysOnTop)', async () => {
@@ -281,8 +248,7 @@ describe('Preferences - All Sections Rendering', () => {
 
     expect(switchElement).not.toBeChecked();
 
-    // Click
-    switchElement.click();
+    await userEvent.click(switchElement);
 
     await waitFor(() => {
       expect(window.service.preference.set).toHaveBeenCalledWith('alwaysOnTop', true);

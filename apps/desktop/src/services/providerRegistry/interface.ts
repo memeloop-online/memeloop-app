@@ -316,6 +316,13 @@ export interface IProviderRegistryService {
   getAIProviders(): Promise<AIProviderConfig[]>;
 
   /**
+   * Get the portable Core model catalog converted for the provider editor.
+   * The embedded build snapshot is returned immediately when a bounded
+   * runtime refresh is unavailable.
+   */
+  getOfficialAIProviders(refresh?: boolean): Promise<AIProviderConfig[]>;
+
+  /**
    * Get readonly AI configuration default values
    */
   getAIConfig(): Promise<AiAPIConfig>;
@@ -377,6 +384,7 @@ export const ProviderRegistryServiceIPCDescriptor = {
     generateImage: ProxyPropertyType.Function,
     cancelAIRequest: ProxyPropertyType.Function,
     getAIProviders: ProxyPropertyType.Function,
+    getOfficialAIProviders: ProxyPropertyType.Function,
     getAIConfig: ProxyPropertyType.Function,
     isAIAvailable: ProxyPropertyType.Function,
     defaultConfig$: ProxyPropertyType.Value$,

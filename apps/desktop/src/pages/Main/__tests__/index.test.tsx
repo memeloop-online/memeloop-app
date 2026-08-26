@@ -11,7 +11,7 @@ import { PageType } from '@/constants/pageTypes';
 import { lightTheme } from '@services/theme/defaultTheme';
 import Main from '../index';
 
-const pageTypes = [PageType.agent, PageType.help, PageType.guide, PageType.add];
+const pageTypes = [PageType.agent, PageType.guide];
 
 function createWorkspaces() {
   return pageTypes.map((pageType, index) => ({
@@ -32,7 +32,6 @@ Object.defineProperty(window.observables.workspace, 'workspaces$', {
 
 vi.mock('../subPages', () => ({
   subPages: {
-    Help: () => <div data-testid='help-page'>Help Page Content</div>,
     Guide: () => <div data-testid='guide-page'>Guide Page Content</div>,
     Agent: () => <div data-testid='agent-page'>Agent Page Content</div>,
   },
@@ -64,10 +63,10 @@ describe('Main Page', () => {
     expect(screen.queryByTestId('main-sidebar')).not.toBeInTheDocument();
   });
 
-  it('keeps the built-in routes available without workspace selector UI', async () => {
+  it('falls back to the agent page for removed TidGi routes', async () => {
     renderMain(`/${PageType.help}`);
 
-    expect(await screen.findByTestId('help-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('agent-page')).toBeInTheDocument();
     expect(screen.queryByTestId('main-sidebar')).not.toBeInTheDocument();
   });
 });

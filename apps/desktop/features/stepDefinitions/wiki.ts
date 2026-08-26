@@ -695,7 +695,7 @@ Then('I wait for SSE and watch-fs to be ready', async function(this: Application
         diagnostics = `diagnostics failed: ${String(diagError)}`;
       }
     }
-    throw new Error(`${(error as Error).message}. SSE diagnostics: ${diagnostics}`);
+    throw new Error(`${(error as Error).message}. SSE diagnostics: ${diagnostics}`, { cause: error });
   }
 });
 

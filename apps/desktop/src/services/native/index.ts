@@ -3,37 +3,25 @@ import fs from 'fs-extra';
 import { inject, injectable } from 'inversify';
 import { randomBytes } from 'node:crypto';
 import path from 'path';
-import { Observable } from 'rxjs';
+import type { Observable } from 'rxjs';
 
 import { NativeChannel } from '@/constants/channels';
-import { ZX_FOLDER } from '@/constants/paths';
-import { githubDesktopUrl } from '@/constants/urls';
 import { getLoggerForLabel, logger } from '@services/libs/log';
-import { getAllLocalHostUrlsWithActualIP, getLocalHostUrlWithActualIP, getUrlWithCorrectProtocol, replaceUrlPortWithSettingPort } from '@services/libs/url';
+import { getAllLocalHostUrlsWithActualIP, getLocalHostUrlWithActualIP } from '@services/libs/url';
 import type { IPreferenceService } from '@services/preferences/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
-import type { IWikiService } from '@services/wiki/interface';
-import { ZxWorkerControlActions } from '@services/wiki/interface';
 import type { IZxFileInput } from '@services/wiki/wikiWorker';
 import type { IWindowService } from '@services/windows/interface';
 import { WindowNames } from '@services/windows/WindowProperties';
-import type { IWorkspaceService } from '@services/workspaces/interface';
-import { isWikiWorkspace } from '@services/workspaces/interface';
-import i18next from 'i18next';
-import { ZxNotInitializedError } from './error';
-import { findEditorOrDefault, findGitGUIAppOrDefault, launchExternalEditor } from './externalApp';
 import type { INativeService, IPickDirectoryOptions } from './interface';
 import { getShortcutCallback, registerShortcutByKey } from './keyboardShortcutHelpers';
 import type { IProcessInfo } from './processInfo';
-import { reportErrorToGithubWithTemplates } from './reportError';
 
 @injectable()
 export class NativeService implements INativeService {
   constructor(
     @inject(serviceIdentifier.Window) private readonly windowService: IWindowService,
     @inject(serviceIdentifier.Preference) private readonly preferenceService: IPreferenceService,
-    @inject(serviceIdentifier.Wiki) private readonly wikiService: IWikiService,
-    @inject(serviceIdentifier.Workspace) private readonly workspaceService: IWorkspaceService,
   ) {
     this.setupIpcHandlers();
   }
@@ -130,26 +118,15 @@ export class NativeService implements INativeService {
   }
 
   public async openInEditor(filePath: string, editorName?: string): Promise<boolean> {
-    // TODO: open vscode by default to speed up, support choose favorite editor later
-    let defaultEditor = await findEditorOrDefault('Visual Studio Code').catch(() => {});
-    if (defaultEditor === undefined) {
-      defaultEditor = await findEditorOrDefault(editorName);
-    }
-    if (defaultEditor !== undefined) {
-      await launchExternalEditor(filePath, defaultEditor);
-      return true;
-    }
-    return false;
+    void filePath;
+    void editorName;
+    throw new Error('External editor integration is not available in MemeLoop App');
   }
 
   public async openInGitGuiApp(filePath: string, editorName?: string): Promise<boolean> {
-    const defaultGitGui = await findGitGUIAppOrDefault(editorName);
-    if (defaultGitGui !== undefined) {
-      await launchExternalEditor(filePath, defaultGitGui);
-      return true;
-    }
-    await shell.openExternal(githubDesktopUrl);
-    return false;
+    void filePath;
+    void editorName;
+    throw new Error('Git GUI integration is not available in MemeLoop App');
   }
 
   public async openURI(uri: string, showItemInFolder = false): Promise<void> {
@@ -184,18 +161,7 @@ export class NativeService implements INativeService {
         }
       }
     } else {
-      const activeWorkspace = this.workspaceService.getActiveWorkspaceSync();
-      if (activeWorkspace && isWikiWorkspace(activeWorkspace) && activeWorkspace.wikiFolderLocation !== undefined) {
-        const absolutePath = path.resolve(path.join(activeWorkspace.wikiFolderLocation, filePath));
-        if (showItemInFolder) {
-          shell.showItemInFolder(absolutePath);
-        } else {
-          const error = await shell.openPath(absolutePath);
-          if (error) {
-            throw new Error(error);
-          }
-        }
-      }
+      throw new Error('MemeLoop App only opens absolute filesystem paths');
     }
   }
 
@@ -254,64 +220,9 @@ export class NativeService implements INativeService {
   }
 
   public executeZxScript$(zxWorkerArguments: IZxFileInput, workspaceID?: string): Observable<string> {
-    const zxWorker = this.wikiService.getWorker(workspaceID ?? this.workspaceService.getActiveWorkspaceSync()?.id ?? '');
-    if (zxWorker === undefined) {
-      const error = new ZxNotInitializedError();
-      return new Observable<string>((observer) => {
-        logger.error(error.message, zxWorkerArguments);
-        observer.next(`${error.message}\n`);
-      });
-    }
-    logger.info('zxWorker execute', { zxWorkerArguments, ZX_FOLDER });
-    const observable = zxWorker.executeZxScript(zxWorkerArguments, ZX_FOLDER);
-    return new Observable((observer) => {
-      observable.subscribe((message) => {
-        switch (message.type) {
-          case 'control': {
-            switch (message.actions) {
-              case ZxWorkerControlActions.start: {
-                if (message.message !== undefined) {
-                  observer.next(message.message);
-                  logger.debug(`zxWorker execute start with message`, { message: message.message });
-                }
-                break;
-              }
-              case ZxWorkerControlActions.error: {
-                const errorMessage = message.message ?? 'get ZxWorkerControlActions.error without message';
-                logger.error(`zxWorker execute failed with error ${errorMessage}`, { message });
-                observer.next(errorMessage);
-                break;
-              }
-              case ZxWorkerControlActions.ended: {
-                const endedMessage = message.message ?? 'get ZxWorkerControlActions.ended without message';
-                logger.info(`zxWorker execute ended with message`, { message: endedMessage });
-                break;
-              }
-            }
-
-            break;
-          }
-          case 'stderr':
-          case 'stdout': {
-            observer.next(message.message);
-            logger.debug(`zxWorker execute has stdout/stderr`, { message: message.message });
-            break;
-          }
-          case 'execution': {
-            observer.next(`${i18next.t('Scripting.ExecutingScript')}
-
-\`\`\`js
-${message.message}
-\`\`\`
-
-`);
-
-            break;
-          }
-            // No default
-        }
-      });
-    });
+    void zxWorkerArguments;
+    void workspaceID;
+    throw new Error('Wiki scripting is not available in MemeLoop App');
   }
 
   public async showElectronMessageBox(options: Electron.MessageBoxOptions, windowName: WindowNames = WindowNames.main): Promise<Electron.MessageBoxReturnValue | undefined> {
@@ -383,30 +294,18 @@ ${message.message}
   }
 
   public async openNewGitHubIssue(error: Error): Promise<void> {
-    reportErrorToGithubWithTemplates(error);
+    void error;
+    throw new Error('TidGi issue reporting is not available in MemeLoop App');
   }
 
   public async getLocalHostUrlWithActualInfo(urlToReplace: string, workspaceID: string): Promise<string> {
-    let replacedUrl = await getLocalHostUrlWithActualIP(urlToReplace);
-    const workspace = await this.workspaceService.get(workspaceID);
-    if (workspace !== undefined && isWikiWorkspace(workspace)) {
-      replacedUrl = replaceUrlPortWithSettingPort(replacedUrl, workspace.port);
-      replacedUrl = getUrlWithCorrectProtocol(workspace, replacedUrl);
-    }
-    return replacedUrl;
+    void workspaceID;
+    return await getLocalHostUrlWithActualIP(urlToReplace);
   }
 
   public async getAllLocalHostUrlsWithActualInfo(urlToReplace: string, workspaceID: string): Promise<string[]> {
-    let replacedUrls = getAllLocalHostUrlsWithActualIP(urlToReplace);
-    const workspace = await this.workspaceService.get(workspaceID);
-    if (workspace !== undefined && isWikiWorkspace(workspace)) {
-      replacedUrls = replacedUrls.map(url => {
-        let processed = replaceUrlPortWithSettingPort(url, workspace.port);
-        processed = getUrlWithCorrectProtocol(workspace, processed);
-        return processed;
-      });
-    }
-    return replacedUrls;
+    void workspaceID;
+    return getAllLocalHostUrlsWithActualIP(urlToReplace);
   }
 
   public async path(method: 'basename' | 'dirname' | 'join', pathString: string | undefined, ...paths: string[]): Promise<string | undefined> {
@@ -484,21 +383,12 @@ ${message.message}
       return filePath;
     }
 
-    // Strategy 2: Try relative to workspace folder
-    const workspace = this.workspaceService.getActiveWorkspaceSync();
-    if (workspace !== undefined && isWikiWorkspace(workspace)) {
-      const filePathInWorkspaceFolder = path.resolve(workspace.wikiFolderLocation, filePath);
-      if (fs.existsSync(filePathInWorkspaceFolder)) {
-        logger.debug('file found (workspace relative)', { filePathInWorkspaceFolder, function: 'formatFileUrlToAbsolutePath' });
-        return filePathInWorkspaceFolder;
-      }
-    }
-
-    // Strategy 3: Try relative to TidGi App folder (for bundled assets)
-    const inTidGiAppAbsoluteFilePath = path.join(app.getAppPath(), '.webpack', 'renderer', filePath);
-    if (fs.existsSync(inTidGiAppAbsoluteFilePath)) {
-      logger.debug('file found (app relative)', { inTidGiAppAbsoluteFilePath, function: 'formatFileUrlToAbsolutePath' });
-      return inTidGiAppAbsoluteFilePath;
+    // Resolve bundled assets relative to this application only. Host-relative
+    // wiki/workspace traversal is intentionally unavailable.
+    const inAppAbsoluteFilePath = path.resolve(app.getAppPath(), filePath);
+    if (fs.existsSync(inAppAbsoluteFilePath)) {
+      logger.debug('file found (app relative)', { inAppAbsoluteFilePath, function: 'formatFileUrlToAbsolutePath' });
+      return inAppAbsoluteFilePath;
     }
 
     // File not found - return original URL as fallback

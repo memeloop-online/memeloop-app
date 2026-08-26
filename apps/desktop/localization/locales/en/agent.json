@@ -30,6 +30,7 @@
     "ThinkingProcess": "thinking",
     "Untitled": "Untitled"
   },
+  "AgentSwitcher": { "Search": "Search agents..." },
   "Browser": {
     "Back": "Step back",
     "Bookmark": "Bookmark",
@@ -55,12 +56,43 @@
       "ProviderNotFound": "Provider {{provider}} not found. Please configure it in Settings.",
       "Title": "Configuration Issue"
     },
+    "RunError": {
+      "ContextCompactionPending": "MemeLoop is compacting this conversation so the agent can continue with its context. Your conversation history is preserved; wait a moment, then retry.",
+      "ContextCompactionPendingTitle": "Preparing the long conversation",
+      "UserMessageTooLarge": "This message is {{requested}} bytes, above the {{limit}}-byte limit. Shorten it, split it into several messages, or send the content as an attachment.",
+      "UserMessageTooLargeTitle": "Message is too large"
+    },
     "FileValidation": {
       "NotAnImage": "Selected file is not an image ({{fileType}}). Please select an image file.",
       "TooLarge": "File size {{size}}MB exceeds the limit ({{maxSize}}MB). Please select a smaller file."
     },
     "InputPlaceholder": "Type a message, Ctrl+Enter to send",
-    "Send": "Send"
+    "Message": {
+      "ExportFullMessage": "Export full message"
+    },
+    "Send": "Send",
+    "Actions": { "Retry": "Retry", "DeleteTurn": "Delete turn", "Copy": "Copy", "CopyAll": "Copy all", "User": "User", "Agent": "Agent" },
+    "Timeline": {
+      "Navigation": "Conversation timeline",
+      "Turn": "Turn {{index}} of {{total}}",
+      "MoreResponses": "{{count}} more responses",
+      "Compacted": "{{count}} earlier messages compacted",
+      "LoadEarlier": "Load earlier messages",
+      "LoadLater": "Load later messages",
+      "Seek": "Seek conversation timeline",
+      "Close": "Close",
+      "NewMessages": "{{count}} new messages"
+    },
+    "ExecutionTarget": {
+      "NoActiveAgent": "No active agent is available.",
+      "Platform": { "cli": "CLI", "desktop": "Desktop", "mobile": "Mobile" },
+      "Reachability": { "connecting": "connecting", "nearby": "nearby", "offline": "offline", "online": "online" },
+      "RemoteDeviceDescription": "{{platform}} · {{reachability}}",
+      "RemoteAttachmentsUnsupported": "Attachments are not yet supported for remote execution. Switch to this device or send text only.",
+      "RunOnThisDesktop": "Run on this Desktop",
+      "RunOnThisDesktopWithPeerId": "Run on this Desktop ({{peerId}})",
+      "ThisDevice": "This device"
+    }
   },
   "Common": {
     "None": "Not selected"
@@ -104,6 +136,52 @@
     "Title": "Create New Agent"
   },
   "EditAgent": {
+    "SchedulePersistentTitle": "Schedules run on persistent conversations",
+    "SchedulePersistentDescription": "This editor uses a temporary preview that is deleted automatically. Create a real conversation, then configure its schedule in AI Agent settings.",
+    "ScheduleCreateConversation": "Create conversation",
+    "ScheduleCreatingConversation": "Creating…",
+    "ActiveHoursEnd": "Active hours end (optional)",
+    "ActiveHoursStart": "Active hours start (optional)",
+    "Hours": "Hours",
+    "Minutes": "Minutes",
+    "ScheduleCron": "Advanced cron expression",
+    "ScheduleCronExpr": "Cron expression",
+    "ScheduleCronHelp": "5-field cron: minute hour day month weekday",
+    "ScheduleCronPreview": "Next runs:",
+    "ScheduleExecutionTarget": "Runs on device",
+    "ScheduleExecutionTargetUnavailable": "The selected device is unavailable. Choose an available device before changing this schedule.",
+    "ScheduleIdentityLoading": "Loading this device’s secure identity…",
+    "ScheduleIdentityError": "This device’s secure identity is unavailable. Scheduling is disabled until the device network is ready.",
+    "ScheduleDefaultTaskName": "{{agentName}} schedule",
+    "ScheduleInvalidCron": "Enter a valid Cron schedule.",
+    "ScheduleInvalidTimezone": "Choose a supported timezone.",
+    "ScheduleNoPreview": "No upcoming run times were found.",
+    "SchedulePreviewLoading": "Checking schedule...",
+    "ScheduleDaily": "Daily (at a specific time)",
+    "ScheduleDailyTime": "Wake time",
+    "ScheduledWakeup": "Scheduled Wake-up",
+    "ScheduledWakeupDescription": "Configure a recurring schedule to automatically wake this agent and send a reminder message.",
+    "ScheduleInterval": "Interval (every N seconds/minutes/hours)",
+    "ScheduleIntervalUnit": "Unit",
+    "ScheduleIntervalValue": "Every",
+    "ScheduleMessage": "Wake-up message",
+    "ScheduleMessagePlaceholder": "[Scheduled] Periodic check-in. Review your tasks and take any pending actions.",
+    "ScheduleMode": "Mode",
+    "ScheduleNone": "None (no scheduled wake-up)",
+    "ScheduleSave": "Save schedule",
+    "ScheduleSaveWait": "Preview agent loading...",
+    "ScheduleSaving": "Saving...",
+    "ScheduleTaskSelection": "Scheduled task",
+    "ScheduleNewTask": "New scheduled task",
+    "ScheduleOperationFailed": "The scheduled task operation failed.",
+    "ScheduleSourceIncomplete": "Some devices could not provide a complete live schedule. Changes are disabled until every source is available.",
+    "ScheduleSourceOnline": "{{executionTarget}} is online.",
+    "ScheduleSourceOffline": "{{executionTarget}} is offline.",
+    "ScheduleSourceDegraded": "{{executionTarget}} is degraded.",
+    "ScheduleSourceCached": "{{executionTarget}} is showing cached schedule data.",
+    "ScheduleTimezone": "Timezone",
+    "ScheduleUpdate": "Update schedule",
+    "Seconds": "Seconds",
     "AgentDescription": "Agent Description",
     "AgentDescriptionHelper": "Describe the functionality and purpose of your intelligent agent.",
     "AgentDescriptionPlaceholder": "Enter agent description...",
@@ -151,6 +229,7 @@
     "SearchPlaceholder": "Search for tabs or agents..."
   },
   "Preference": {
+    "NoScheduledTaskAgents": "Create or open an agent conversation before configuring a schedule.",
     "AIAgent": "AI Agent",
     "AIModels": "Default Models",
     "AIAgentDescription": "Manage AI Agent conversation records database",

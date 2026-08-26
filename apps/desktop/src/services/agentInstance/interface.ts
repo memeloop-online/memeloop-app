@@ -1,12 +1,60 @@
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
-import type { RemoteOrchestrationRequest, RemoteOrchestrationResponse } from 'memeloop';
+import type {
+  AgentConversationMessagePage,
+  AgentConversationMessagePageOptions,
+  AgentConversationMessagePageSuccess,
+  AgentConversationMessageWindowRequest,
+  AgentConversationMessageWindowResult,
+  AgentDeviceRpcDeleteTurnRequest,
+  AgentDeviceRpcDeleteTurnResponse,
+  AgentDeviceRpcGetConversationTimelinePageRequest,
+  AgentDeviceRpcGetMessageDetailRequest,
+  AgentDeviceRpcGetMessageDetailResponse,
+  AgentDeviceRpcGetTurnDetailRequest,
+  AgentDeviceRpcGetTurnDetailResponse,
+  AgentDeviceRpcRetryTurnRequest,
+  AgentDeviceRpcRetryTurnResponse,
+  AgentDeviceRpcRunTurnRequest,
+  AgentDeviceRpcTurnAcceptedResponse,
+  AttachmentReference,
+  BeginAttachmentUploadRequest,
+  BeginAttachmentUploadResponse,
+  CommitAttachmentUploadRequest,
+  CommitAttachmentUploadResponse,
+  ConversationTimelinePage,
+  DeviceCapabilities,
+  DeviceRpcHandler,
+  GetMessagePageOptions,
+  IAgentStorage,
+  PromptPreviewAuditDetailChunk,
+  PromptPreviewAuditDetailRequest,
+  PromptPreviewAuditPage,
+  PromptPreviewAuditPageRequest,
+  PromptPreviewAuditReleaseRequest,
+  PromptPreviewPreparedExecution,
+  RemoteOrchestrationRequest,
+  RemoteOrchestrationResponse,
+  UploadAttachmentChunkRequest,
+  UploadAttachmentChunkResponse,
+} from 'memeloop';
 import type { Observable } from 'rxjs';
 
 import { AgentChannel } from '@/constants/channels';
 import { AgentDefinition } from '@services/agentDefinition/interface';
-import type { AgentPromptDescription } from '@services/agentInstance/promptConcat/promptConcatSchema/types';
-import type { PromptConcatStreamState } from '@services/agentInstance/promptConcat/promptConcatTypes';
-import type { CreateScheduledTaskInput, ScheduledTask, UpdateScheduledTaskInput } from './scheduledTaskTypes';
+import type { ConversationMutationWake } from './conversationMutationObserver';
+export type { ConversationMutationHint, ConversationMutationWake } from './conversationMutationObserver';
+import type {
+  CreateScheduledTaskInput,
+  ListRemoteScheduledTaskProjectionPageInput,
+  ListScheduledTasksOptions,
+  ListScheduledTasksPageForAgentInput,
+  RemoteScheduledTaskProjectionPage,
+  ScheduledTask,
+  ScheduledTaskCallOptions,
+  ScheduledTaskPage,
+  ScheduledTaskScope,
+  UpdateScheduledTaskInput,
+} from './scheduledTaskTypes';
 
 /**
  * Content of a session instance that user chat with an agent.
@@ -90,6 +138,12 @@ export interface AgentInstanceMessage {
   /** Message nano ID */
   id: string;
   agentId: string;
+  /** Stable user-rooted turn identity. A user root has `id === turnId`. */
+  turnId?: string;
+  /** Canonical sync identity retained by the disposable UI projection. */
+  originNodeId?: string;
+  lamportClock?: number;
+  originSequence?: number;
   /** Message role */
   role: 'user' | 'assistant' | 'agent' | 'tool' | 'error';
   /** Message content */
@@ -117,6 +171,22 @@ export interface AgentInstanceMessage {
   duration?: number | null;
 }
 
+/**
+ * Incremental renderer notification. Conversation history is deliberately not
+ * part of this contract: the renderer obtains a bounded window through
+ * `getAgentMessagePage`, while a live notification carries at most one changed
+ * message plus the lightweight agent metadata/run status.
+ */
+export interface AgentInstanceUpdate {
+  agent: Omit<AgentInstance, 'messages'>;
+  message?: AgentInstanceMessage;
+}
+
+/** Compatibility-only bounded reader used by one background tool. */
+export type LegacyAgentMessagePageOptions = Omit<GetMessagePageOptions, 'maxBytes'> & {
+  maxBytes?: number;
+};
+
 export interface AgentBackgroundTask {
   agentId: string;
   agentName?: string;
@@ -131,6 +201,24 @@ export interface AgentBackgroundTask {
   createdBy?: string;
   lastRunAtISO?: string;
   runCount?: number;
+}
+
+export interface PreparePromptPreviewExecutionRequest {
+  conversationId: string;
+  requestId: string;
+  inputText?: string;
+}
+
+export interface ExportAgentMessageRequest {
+  conversationId: string;
+  messageId: string;
+  /** Renderer-minted cancellation identity; no message bytes cross IPC. */
+  requestId: string;
+}
+
+export interface ExportAgentMessageResult {
+  saved: boolean;
+  bytesWritten?: number;
 }
 
 export interface SetBackgroundAlarmInput {
@@ -160,6 +248,11 @@ export interface IAgentInstanceService {
    */
   initializeFrameworks(): Promise<void>;
 
+  /** Main-process-only adapters backed by the UtilityProcess CLI SQLite store. */
+  getMemeLoopSyncStorage(): IAgentStorage;
+  getMemeLoopDeviceRpcHandler(): DeviceRpcHandler;
+  getMemeLoopDeviceCapabilities(): Promise<DeviceCapabilities>;
+
   /** Policy-scoped declarative resource request; renderer never receives the bearer token. */
   requestOrchestration(
     request: RemoteOrchestrationRequest,
@@ -184,7 +277,7 @@ export interface IAgentInstanceService {
    */
   sendMsgToAgent(agentId: string, content: {
     text: string;
-    file?: File;
+    attachment?: AttachmentReference;
     /**
      * Wiki tiddlers to attach. Each entry contains workspace name and tiddler title.
      * The rendered HTML content of these tiddlers will be fetched and included in the prompt.
@@ -192,23 +285,88 @@ export interface IAgentInstanceService {
     wikiTiddlers?: Array<{ workspaceName: string; tiddlerTitle: string }>;
   }): Promise<void>;
 
+  /** Execute one provenance-bound local turn and resolve at terminal success. */
+  executeAgentTurn(request: AgentDeviceRpcRunTurnRequest): Promise<AgentDeviceRpcTurnAcceptedResponse>;
+
+  /**
+   * Main-process scheduling port. Resolves only after the durable Core run is
+   * terminal-successful; the occurrence/attempt pair is its replay fence.
+   * This method is deliberately not exposed through renderer IPC.
+   */
+  runScheduledTaskAgent(agentId: string, message: string, options: {
+    occurrenceId: string;
+    scheduledFor: string;
+    attempt: number;
+    signal: AbortSignal;
+  }): Promise<void>;
+
+  /** Conversation-scoped durable upload; Core RPC validation runs in the UtilityProcess. */
+  beginAgentAttachmentUpload(request: BeginAttachmentUploadRequest): Promise<BeginAttachmentUploadResponse>;
+  uploadAgentAttachmentChunk(request: UploadAttachmentChunkRequest): Promise<UploadAttachmentChunkResponse>;
+  commitAgentAttachmentUpload(request: CommitAttachmentUploadRequest): Promise<CommitAttachmentUploadResponse>;
+
+  /** Retain the exact worker-side model request and return only its bounded audit handle. */
+  preparePromptPreviewExecution(request: PreparePromptPreviewExecutionRequest): Promise<PromptPreviewPreparedExecution>;
+  getPromptPreviewAuditPage(request: PromptPreviewAuditPageRequest): Promise<PromptPreviewAuditPage>;
+  getPromptPreviewAuditDetail(request: PromptPreviewAuditDetailRequest): Promise<PromptPreviewAuditDetailChunk>;
+  releasePromptPreviewAuditSession(request: PromptPreviewAuditReleaseRequest): Promise<void>;
+  cancelPromptPreview(requestId: string): Promise<void>;
+
   /**
    * Subscribe to agent instance updates
    * @param agentId Agent instance ID
    */
-  subscribeToAgentUpdates(agentId: string): Observable<AgentInstance | undefined>;
-  /**
-   * Subscribe to agent instance message status updates
-   * @param agentId Agent instance ID
-   * @param messageId Message ID
-   */
-  subscribeToAgentUpdates(agentId: string, messageId: string): Observable<AgentInstanceLatestStatus | undefined>;
+  subscribeToAgentUpdates(agentId: string): Observable<AgentInstanceUpdate | undefined>;
+  /** Metadata-only read for renderer views; never joins the message table. */
+  getAgentMetadata(agentId: string): Promise<AgentInstance | undefined>;
 
   /**
-   * Get agent instance data by ID
-   * @param agentId Agent instance ID
+   * Content-free durable conversation wake stream. Consumers must re-read a
+   * bounded revision-fenced page from the UtilityProcess SQLite store.
    */
-  getAgent(agentId: string): Promise<AgentInstance | undefined>;
+  subscribeConversationMutations(): Observable<ConversationMutationWake>;
+
+  /** Compatibility-only bounded storage page; main chat uses the opaque v2 transport below. */
+  getAgentMessagePage(agentId: string, options: LegacyAgentMessagePageOptions): Promise<AgentConversationMessagePageSuccess>;
+
+  /** Opaque-cursor, revision-fenced v2 page projected by the UtilityProcess RPC handler. */
+  getAgentConversationMessagePage(
+    conversationId: string,
+    options: AgentConversationMessagePageOptions,
+  ): Promise<AgentConversationMessagePage>;
+
+  /** One atomic, revision-consistent indexed seek around a turn/timeline entry. */
+  getAgentConversationMessageWindow(
+    request: AgentConversationMessageWindowRequest,
+  ): Promise<AgentConversationMessageWindowResult>;
+
+  /** Indexed, revisioned timeline page; never samples or scans history in Electron. */
+  getAgentConversationTimelinePage(
+    request: AgentDeviceRpcGetConversationTimelinePageRequest,
+  ): Promise<ConversationTimelinePage>;
+
+  /** Bounded on-demand turn detail. */
+  getAgentConversationTurnDetail(
+    request: AgentDeviceRpcGetTurnDetailRequest,
+  ): Promise<AgentDeviceRpcGetTurnDetailResponse>;
+
+  /** One bounded persisted canonical-JSON detail range (256 KiB maximum). */
+  getAgentConversationMessageDetail(
+    request: AgentDeviceRpcGetMessageDetailRequest,
+  ): Promise<AgentDeviceRpcGetMessageDetailResponse>;
+
+  /** Save one canonical message through a main-process-only bounded file sink. */
+  exportAgentMessage(request: ExportAgentMessageRequest): Promise<ExportAgentMessageResult>;
+  cancelAgentMessageExport(requestId: string): Promise<void>;
+
+  /** Append a canonical turn tombstone through the v2 runtime RPC. */
+  deleteAgentTurn(request: AgentDeviceRpcDeleteTurnRequest): Promise<AgentDeviceRpcDeleteTurnResponse>;
+
+  /** Atomically tombstone and retry through the v2 runtime RPC. */
+  retryAgentTurn(request: AgentDeviceRpcRetryTurnRequest): Promise<AgentDeviceRpcRetryTurnResponse>;
+
+  /** Retry through the same atomic RPC and resolve at terminal success. */
+  retryAgentTurnAndWait(request: AgentDeviceRpcRetryTurnRequest): Promise<AgentDeviceRpcRetryTurnResponse>;
 
   /**
    * Update agent instance data
@@ -245,16 +403,6 @@ export interface IAgentInstanceService {
   closeAgent(agentId: string): Promise<void>;
 
   /**
-   * Pure function to concatenate prompts with given prompt description and messages
-   * This is useful for front-end to generate prompts from configurations.
-   * Returns an Observable stream that yields intermediate processing states and final result
-   * @param promptDescription Configuration for prompt generation
-   * @param messages Messages to be included in prompt generation
-   * @returns Observable stream of processing states, with final state containing complete results
-   */
-  concatPrompt(promptDescription: Pick<AgentPromptDescription, 'agentFrameworkConfig'>, messages: AgentInstanceMessage[]): Observable<PromptConcatStreamState>;
-
-  /**
    * Get JSON Schema for handler configuration
    * This allows frontend to generate a form based on the schema for a specific handler
    * @param agentFrameworkID Handler ID to get schema for
@@ -262,20 +410,9 @@ export interface IAgentInstanceService {
    */
   getFrameworkConfigSchema(frameworkId: string): Record<string, unknown>;
 
-  /**
-   * Save user message to database
-   * Made public so plugins can use it for message persistence
-   * @param userMessage User message to save
-   */
+  /** @deprecated Legacy prompt plugin port. Production runtime does not call it. */
   saveUserMessage(userMessage: AgentInstanceMessage): Promise<void>;
-
-  /**
-   * Debounced message update to reduce database writes
-   * Made public so plugins can use it for UI updates
-   * @param message Message to update
-   * @param agentId Agent ID for status subscribers
-   * @param debounceMs Debounce delay in milliseconds
-   */
+  /** @deprecated Legacy prompt plugin port. Production runtime does not call it. */
   debounceUpdateMessage(message: AgentInstanceMessage, agentId?: string, debounceMs?: number): void;
 
   /**
@@ -293,33 +430,6 @@ export interface IAgentInstanceService {
    * @param answer The user's answer text
    */
   resolveAskQuestion(agentId: string, questionId: string, answer: string): void;
-
-  /**
-   * Delete specific messages from an agent instance.
-   * Used for turn deletion / retry — removes messages from DB and the agent's message list.
-   * @param agentId Agent instance ID
-   * @param messageIds Array of message IDs to delete
-   */
-  deleteMessages(agentId: string, messageIds: string[]): Promise<void>;
-
-  /**
-   * Rollback file changes made during an agent turn.
-   * Uses the beforeCommitHash stored in the user message metadata to restore files
-   * to their state before the agent turn started.
-   * @param agentId Agent instance ID
-   * @param userMessageId The user message that started the turn
-   * @returns Object with rollback results
-   */
-  rollbackTurn(agentId: string, userMessageId: string): Promise<{ rolledBack: number; errors: string[] }>;
-
-  /**
-   * Get the list of files changed during an agent turn by comparing
-   * the beforeCommitHash (stored in user message metadata) with current HEAD.
-   * @param agentId Agent instance ID
-   * @param userMessageId The user message that started the turn
-   * @returns Array of changed files with their status
-   */
-  getTurnChangedFiles(agentId: string, userMessageId: string): Promise<Array<{ path: string; status: string }>>;
 
   /**
    * Get all active background tasks (heartbeats + alarms) for display in settings UI.
@@ -346,28 +456,47 @@ export interface IAgentInstanceService {
   /**
    * Create a new scheduled task and start its timer.
    */
-  createScheduledTask(input: CreateScheduledTaskInput): Promise<ScheduledTask>;
+  createScheduledTask(input: CreateScheduledTaskInput, options?: ScheduledTaskCallOptions): Promise<ScheduledTask>;
 
   /**
    * Update an existing scheduled task (restarts timer with new config).
    */
   updateScheduledTask(input: UpdateScheduledTaskInput): Promise<ScheduledTask>;
 
+  /** Main-process-only atomic full-scope mutation used by authenticated RPC. */
+  updateScheduledTaskScoped(scope: ScheduledTaskScope, input: UpdateScheduledTaskInput, options?: ScheduledTaskCallOptions): Promise<ScheduledTask>;
+
   /**
    * Delete a scheduled task and stop its timer.
    */
   deleteScheduledTask(taskId: string): Promise<void>;
 
+  /** Main-process-only atomic full-scope soft delete used by authenticated RPC. */
+  deleteScheduledTaskScoped(scope: ScheduledTaskScope, options?: ScheduledTaskCallOptions): Promise<void>;
+
+  /** Main-process-only full-scope lookup used by authenticated RPC. */
+  getScheduledTaskByScope(scope: ScheduledTaskScope, options?: ScheduledTaskCallOptions): Promise<ScheduledTask | undefined>;
+
   /**
    * List all active scheduled tasks (from in-memory registry).
    */
-  listScheduledTasks(): Promise<ScheduledTask[]>;
+  listScheduledTasks(options?: ListScheduledTasksOptions): Promise<ScheduledTask[]>;
 
   /**
    * List active scheduled tasks for a specific agent instance.
    * Used by TabItem to show the clock indicator.
    */
-  listScheduledTasksForAgent(agentInstanceId: string): Promise<ScheduledTask[]>;
+  listScheduledTasksForAgent(agentInstanceId: string, options?: ListScheduledTasksOptions): Promise<ScheduledTask[]>;
+
+  /** Main-process-only bounded keyset page used by the authenticated RPC handler. */
+  listScheduledTasksPageForAgent(input: ListScheduledTasksPageForAgentInput): Promise<ScheduledTaskPage>;
+
+  /** Bounded durable snapshots of schedules owned by remote devices. */
+  listRemoteScheduledTaskProjectionPageForAgent(input: ListRemoteScheduledTaskProjectionPageInput): Promise<RemoteScheduledTaskProjectionPage>;
+
+  replaceRemoteScheduledTaskProjections(agentInstanceId: string, executionNodeId: string, tasks: ScheduledTask[], observedAt: number): Promise<void>;
+  upsertRemoteScheduledTaskProjection(task: ScheduledTask, observedAt: number): Promise<void>;
+  deleteRemoteScheduledTaskProjection(taskId: string, executionNodeId: string): Promise<void>;
 
   /**
    * Return next N run times for a cron expression (for UI preview).
@@ -380,23 +509,38 @@ export const AgentInstanceServiceIPCDescriptor = {
   properties: {
     cancelAgent: ProxyPropertyType.Function,
     closeAgent: ProxyPropertyType.Function,
-    concatPrompt: ProxyPropertyType.Function$,
     createAgent: ProxyPropertyType.Function,
-    debounceUpdateMessage: ProxyPropertyType.Function,
     deleteAgent: ProxyPropertyType.Function,
-    deleteMessages: ProxyPropertyType.Function,
-    getAgent: ProxyPropertyType.Function,
+    getAgentMetadata: ProxyPropertyType.Function,
+    getAgentMessagePage: ProxyPropertyType.Function,
+    getAgentConversationMessagePage: ProxyPropertyType.Function,
+    getAgentConversationMessageWindow: ProxyPropertyType.Function,
+    getAgentConversationTimelinePage: ProxyPropertyType.Function,
+    getAgentConversationTurnDetail: ProxyPropertyType.Function,
+    getAgentConversationMessageDetail: ProxyPropertyType.Function,
+    exportAgentMessage: ProxyPropertyType.Function,
+    cancelAgentMessageExport: ProxyPropertyType.Function,
+    deleteAgentTurn: ProxyPropertyType.Function,
+    retryAgentTurn: ProxyPropertyType.Function,
+    retryAgentTurnAndWait: ProxyPropertyType.Function,
     getAgents: ProxyPropertyType.Function,
     getFrameworkConfigSchema: ProxyPropertyType.Function,
     resolveToolApproval: ProxyPropertyType.Function,
     resolveAskQuestion: ProxyPropertyType.Function,
     requestOrchestration: ProxyPropertyType.Function,
-    saveUserMessage: ProxyPropertyType.Function,
-    rollbackTurn: ProxyPropertyType.Function,
     sendMsgToAgent: ProxyPropertyType.Function,
+    executeAgentTurn: ProxyPropertyType.Function,
+    beginAgentAttachmentUpload: ProxyPropertyType.Function,
+    uploadAgentAttachmentChunk: ProxyPropertyType.Function,
+    commitAgentAttachmentUpload: ProxyPropertyType.Function,
+    preparePromptPreviewExecution: ProxyPropertyType.Function,
+    getPromptPreviewAuditPage: ProxyPropertyType.Function,
+    getPromptPreviewAuditDetail: ProxyPropertyType.Function,
+    releasePromptPreviewAuditSession: ProxyPropertyType.Function,
+    cancelPromptPreview: ProxyPropertyType.Function,
     subscribeToAgentUpdates: ProxyPropertyType.Function$,
+    subscribeConversationMutations: ProxyPropertyType.Function$,
     subscribeToOrchestrationWatch: ProxyPropertyType.Function$,
-    getTurnChangedFiles: ProxyPropertyType.Function,
     getBackgroundTasks: ProxyPropertyType.Function,
     cancelBackgroundTask: ProxyPropertyType.Function,
     setBackgroundAlarm: ProxyPropertyType.Function,
@@ -406,6 +550,11 @@ export const AgentInstanceServiceIPCDescriptor = {
     deleteScheduledTask: ProxyPropertyType.Function,
     listScheduledTasks: ProxyPropertyType.Function,
     listScheduledTasksForAgent: ProxyPropertyType.Function,
+    listScheduledTasksPageForAgent: ProxyPropertyType.Function,
+    listRemoteScheduledTaskProjectionPageForAgent: ProxyPropertyType.Function,
+    replaceRemoteScheduledTaskProjections: ProxyPropertyType.Function,
+    upsertRemoteScheduledTaskProjection: ProxyPropertyType.Function,
+    deleteRemoteScheduledTaskProjection: ProxyPropertyType.Function,
     getCronPreviewDates: ProxyPropertyType.Function,
     updateAgent: ProxyPropertyType.Function,
   },

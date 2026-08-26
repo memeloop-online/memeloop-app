@@ -441,7 +441,7 @@ When('I close the TidGi application', async function(this: ApplicationWorld) {
   try {
     await closeTidGiApplication(this);
   } catch (error) {
-    throw new Error(`Failed to close TidGi application: ${error as Error}`);
+    throw new Error(`Failed to close TidGi application: ${error as Error}`, { cause: error });
   }
 });
 

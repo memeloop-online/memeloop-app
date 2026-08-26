@@ -6,6 +6,7 @@ import { analyzer } from 'vite-bundle-analyzer';
 import { utilityProcessPlugin } from 'vite-plugin-electron-utility-process';
 import { viteEtcd3ProtoPlugin } from './scripts/viteEtcd3ProtoPlugin';
 import { memeloopCliCreateRequirePlugin } from './scripts/viteMemeloopCliCreateRequirePlugin';
+import { viteMemeLoopSourceAliases } from './scripts/viteMemeLoopSourceAliases';
 import { memeLoopNodeWorkerPlugin } from './scripts/viteNodeWorkerPlugin';
 
 // Dynamically read TypeORM's optional peer dependencies to avoid hardcoding
@@ -45,12 +46,13 @@ export default defineConfig({
     }),
   ],
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-      '@services': path.resolve(__dirname, './src/services'),
-      'i18next-fs-backend': path.resolve(__dirname, './node_modules/i18next-fs-backend/cjs/index.js'),
-      'i18next-electron-fs-backend': path.resolve(__dirname, './node_modules/i18next-electron-fs-backend/cjs/index.js'),
-    },
+    alias: [
+      ...viteMemeLoopSourceAliases(__dirname),
+      { find: '@', replacement: path.resolve(__dirname, './src') },
+      { find: '@services', replacement: path.resolve(__dirname, './src/services') },
+      { find: 'i18next-fs-backend', replacement: path.resolve(__dirname, './node_modules/i18next-fs-backend/cjs/index.js') },
+      { find: 'i18next-electron-fs-backend', replacement: path.resolve(__dirname, './node_modules/i18next-electron-fs-backend/cjs/index.js') },
+    ],
   },
   build: {
     commonjsOptions: {
@@ -78,12 +80,22 @@ export default defineConfig({
         // rotating-file-stream@3 is pure ESM ("type":"module") but has a CJS dist.
         // External it so Node.js native require() uses its "exports.require" CJS entry.
         'rotating-file-stream',
+        // winston-daily-rotate-file@5 uses file-stream-rotator@0.6, whose
+        // CommonJS moment callable is mis-interoped when Rolldown inlines it
+        // into the main chunk. Keep only moment external; afterPack
+        // materializes its exact production closure.
+        'moment',
         ...typeormOptionalDepsRegex,
         'expo-sqlite',
         // Optional native accelerators used by ws. afterPack copies them when
         // installed and ws otherwise falls back to its portable implementation.
         'bufferutil',
         'utf-8-validate',
+        // Optional OS-keyring native bindings are selected at runtime. Keeping
+        // the platform package external prevents Rolldown from parsing `.node`
+        // binaries; memeloop-cli already fails closed to its 0600 file store
+        // when a platform binding is unavailable.
+        /^@napi-rs\/keyring-/,
       ],
     },
   },

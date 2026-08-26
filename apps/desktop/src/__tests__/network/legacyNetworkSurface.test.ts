@@ -34,6 +34,9 @@ describe('legacy network production surface', () => {
       'memeloop-cli/' + 'auth',
       'loadOrCreateNode' + 'Keypair',
       'keypair.' + 'yaml',
+      'basicPromptConcat' + 'Handler',
+      'delete' + 'Messages(',
+      'deleteConversation' + 'Turn(',
     ];
     const violations = sourceFiles(sourceRoot).flatMap((file) => {
       const content = fs.readFileSync(file, 'utf8');
@@ -61,5 +64,62 @@ describe('legacy network production surface', () => {
     );
     expect(agentService).toContain('localPeerId: this.memeLoopHostIdentity.peerId');
     expect(worker).toContain('localNodeId = configuredHost.localPeerId');
+  });
+
+  it('wires sync, agent RPC, and truthful capabilities to the same UtilityProcess runtime', () => {
+    const main = fs.readFileSync(path.join(sourceRoot, 'main.ts'), 'utf8');
+    const agentService = fs.readFileSync(
+      path.join(sourceRoot, 'services/agentInstance/index.ts'),
+      'utf8',
+    );
+    const worker = fs.readFileSync(
+      path.join(sourceRoot, 'services/agentInstance/memeloopWorker.ts'),
+      'utf8',
+    );
+
+    expect(main).toContain('syncStorage: agentInstanceService.getMemeLoopSyncStorage()');
+    expect(main).toContain('rpcHandler: agentInstanceService.getMemeLoopDeviceRpcHandler()');
+    expect(main).toContain('buildCapabilities: () => agentInstanceService.getMemeLoopDeviceCapabilities()');
+    expect(agentService).not.toContain('initializeMemeLoopRuntimeBridge');
+    expect(agentService).not.toContain('createMemeLoopRuntime(');
+    expect(worker).toContain('createAgentRuntimeDeviceRpcHandler({');
+    expect(worker).toContain('storageCall: async');
+    expect(worker).toContain('runtimeContext.toolApprovals?.onApprovalRequest');
+    expect(worker).toContain('runtimeContext?.questionWaits?.resolveQuestionAnswer');
+    expect(worker).not.toContain('const resolved = resolveQuestion' + 'Answer(');
+    expect(worker).not.toContain('resolveApproval(' + 'approvalId, decision)');
+    expect(worker).toContain('hasWiki: false');
+    expect(worker).not.toContain('DesktopTiddlyWikiManager');
+    expect(worker).not.toContain("wikiAgentDefinitionWikiIds: ['default']");
+    expect(agentService).toContain('requestId: `${turnId}:local`');
+    expect(agentService).toContain('userMessage,');
+    expect(worker).toContain('userMessage: identity.userMessage');
+    expect(agentService).not.toContain('createHooksWithPlugins');
+    expect(agentService).not.toContain('memeloopTaskAgentWorkerHandler');
+    expect(agentService).not.toContain('statusSubjects');
+    expect(agentService).not.toContain('cancelTokenMap');
+    expect(agentService).not.toContain('projectSyncedMessages');
+    expect(agentService).not.toContain("memeLoopHostIdentity?.peerId ?? 'local'");
+    expect(agentService).toContain('memeloop_host_identity_not_configured');
+  });
+
+  it('delegates Cloud lifecycle to the shared coordinator with signed, resource-scoped grants', () => {
+    const deviceNetwork = fs.readFileSync(
+      path.join(sourceRoot, 'services/deviceNetwork/index.ts'),
+      'utf8',
+    );
+
+    expect(deviceNetwork).toContain('createDesktopCloudConnectionCoordinator({');
+    expect(deviceNetwork).toContain('new StandardDeviceCloudConnectionAdapter({');
+    expect(deviceNetwork).toContain('signDesktopCloudHeartbeat({');
+    expect(deviceNetwork).toContain('rpcMethodScope:');
+    expect(deviceNetwork).toContain('conversationScope:');
+    expect(deviceNetwork).toContain('definitionScope:');
+    expect(deviceNetwork).not.toContain('class ElectronCloudClient');
+    expect(deviceNetwork).not.toContain('scheduleCloudHeartbeat');
+    expect(deviceNetwork).not.toContain('cloudHeartbeatTimer');
+    expect(deviceNetwork).not.toContain('setInterval(');
+    expect(deviceNetwork).not.toContain('registerCloudDevice(');
+    expect(deviceNetwork).not.toContain('sendCloudHeartbeat(');
   });
 });

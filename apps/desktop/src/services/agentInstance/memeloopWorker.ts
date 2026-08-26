@@ -1,21 +1,47 @@
 import 'source-map-support/register';
 
+import type { ModelMessage } from 'ai';
 import { nanoid } from 'nanoid';
 import { timingSafeEqual } from 'node:crypto';
-import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { parentPort } from 'node:worker_threads';
 import { Observable, Subject } from 'rxjs';
-import taskAgents from './agentFrameworks/taskAgents.json';
 
 import { handleWorkerMessages } from '@services/libs/workerAdapter';
 
-import { type AgentDefinition, type AttachmentReference, type ChatMessage, type ConversationMeta, onApprovalRequest, resolveApproval, resolveQuestionAnswer } from 'memeloop';
-import type { IWikiManager, TiddlerFields } from 'memeloop-cli/runtime';
+import {
+  type AgentDefinition,
+  type AgentRuntimeRpcStorage,
+  type ChatMessage,
+  createAgentRuntimeDeviceRpcHandler,
+  type DeviceCapabilities,
+  type DeviceRpcHandler,
+  type DeviceRpcHandlerInput,
+  prepareAgentExecutionModelRequest,
+  type PromptPreviewAuditDetailRequest,
+  type PromptPreviewAuditPageRequest,
+  type PromptPreviewAuditReleaseRequest,
+  PromptPreviewAuditSessionStore,
+} from 'memeloop';
+import type { NodeRuntimeResult } from 'memeloop-cli/runtime';
+import { requireDesktopAtomicRetryStore } from './atomicRetryCapability';
+import { type ConversationMutationWake, installConversationMutationObserver } from './conversationMutationObserver';
+import type { IAgentInstanceService } from './interface';
+import { createDesktopRetryTurnHandler } from './retryTurn';
+import { createDesktopScheduledTaskRpcHandler } from './scheduledTaskRpcStore';
+import type {
+  CreateScheduledTaskInput,
+  ListRemoteScheduledTaskProjectionPageInput,
+  ListScheduledTasksPageForAgentInput,
+  ScheduledTask,
+  ScheduledTaskCallOptions,
+  ScheduledTaskScope,
+  UpdateScheduledTaskInput,
+} from './scheduledTaskTypes';
+import { createDesktopAgentRuntimeProjectionStore } from './sqliteAgentRuntimeProjectionStore';
 import { TerminalSessionManager } from './terminal/sessionManager';
 import { ensureMemeLoopWorkerDataDirectory } from './workerDataDirectory';
-
-const { parentPort } = require('worker_threads') as typeof import('worker_threads');
 
 type WorkerLogEvent = {
   level: 'debug' | 'info' | 'warn' | 'error';
@@ -26,6 +52,7 @@ type WorkerLogEvent = {
 // Use the existing workerAdapter Observable streaming channel for logs,
 // so we don't invent a one-off postMessage protocol.
 const logSubject = new Subject<WorkerLogEvent>();
+const conversationMutationSubject = new Subject<ConversationMutationWake>();
 function workerLog(
   level: WorkerLogEvent['level'],
   message: string,
@@ -40,10 +67,7 @@ function workerLog(
 
 type MainLlmChatRequest = {
   conversationId?: string;
-  messages: Array<{
-    role: 'system' | 'user' | 'assistant' | 'tool';
-    content: string;
-  }>;
+  messages: ModelMessage[];
 };
 
 type PendingLlmStream = {
@@ -59,6 +83,7 @@ type PendingMainRequest<T> = {
 };
 const pendingMainToolList = new Map<string, PendingMainRequest<string[]>>();
 const pendingMainToolCall = new Map<string, PendingMainRequest<unknown>>();
+const pendingMainScheduledTaskCall = new Map<string, PendingMainRequest<unknown>>();
 
 if (parentPort) {
   parentPort.on('message', (message: unknown) => {
@@ -99,11 +124,28 @@ if (parentPort) {
       pending.reject(error);
       return;
     }
+    if (m.type === 'memeloop-scheduled-task-call-result') {
+      const pending = pendingMainScheduledTaskCall.get(m.id);
+      if (!pending) return;
+      pendingMainScheduledTaskCall.delete(m.id);
+      pending.resolve(m.result);
+      return;
+    }
+    if (m.type === 'memeloop-scheduled-task-call-error') {
+      const pending = pendingMainScheduledTaskCall.get(m.id);
+      if (!pending) return;
+      pendingMainScheduledTaskCall.delete(m.id);
+      const error = new Error(m.error?.message ?? 'memeloop-scheduled-task-call failed');
+      error.name = m.error?.name ?? 'Error';
+      error.stack = m.error?.stack;
+      pending.reject(error);
+      return;
+    }
 
     const pending = pendingMainLlmChat.get(m.id);
     if (!pending) return;
     if (m.type === 'memeloop-llm-chat-delta') {
-      const delta = String(m.delta ?? '');
+      const delta = m.delta ?? '';
       if (!delta) return;
       const waiter = pending.waiters.shift();
       if (waiter) waiter({ value: delta, done: false });
@@ -185,6 +227,79 @@ async function callMainTool(
   return result;
 }
 
+async function callMainScheduledTask<T>(
+  method: string,
+  arguments_: unknown[],
+  signal?: AbortSignal,
+  timeoutMs = 30_000,
+): Promise<T> {
+  signal?.throwIfAborted();
+  const id = makeMainRequestId('scheduled-task');
+  return await new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const cleanup = (): void => {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', onAbort);
+      pendingMainScheduledTaskCall.delete(id);
+    };
+    const finish = (callback: () => void): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback();
+    };
+    const onAbort = (): void => {
+      parentPort?.postMessage({ type: 'memeloop-scheduled-task-cancel', id });
+      finish(() => {
+        reject(signal?.reason instanceof Error ? signal.reason : new Error('scheduled_task_call_aborted'));
+      });
+    };
+    const timeout = setTimeout(() => {
+      parentPort?.postMessage({ type: 'memeloop-scheduled-task-cancel', id });
+      finish(() => {
+        reject(new Error(`memeloop-scheduled-task-call timed out after ${timeoutMs}ms for ${method}`));
+      });
+    }, timeoutMs);
+    pendingMainScheduledTaskCall.set(id, {
+      resolve: value => {
+        finish(() => {
+          resolve(value as T);
+        });
+      },
+      reject: error => {
+        finish(() => {
+          reject(error);
+        });
+      },
+    });
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    else parentPort?.postMessage({ type: 'memeloop-scheduled-task-call', id, method, arguments: arguments_ });
+  });
+}
+
+function createMainScheduledTaskServiceBridge(): IAgentInstanceService {
+  const bridge = {
+    createScheduledTask: (input: CreateScheduledTaskInput, options?: ScheduledTaskCallOptions) =>
+      callMainScheduledTask<ScheduledTask>('createScheduledTask', [input], options?.signal),
+    updateScheduledTaskScoped: (scope: ScheduledTaskScope, input: UpdateScheduledTaskInput, options?: ScheduledTaskCallOptions) =>
+      callMainScheduledTask<ScheduledTask>('updateScheduledTaskScoped', [scope, input], options?.signal),
+    deleteScheduledTaskScoped: async (scope: ScheduledTaskScope, options?: ScheduledTaskCallOptions) => {
+      await callMainScheduledTask<undefined>('deleteScheduledTaskScoped', [scope], options?.signal);
+    },
+    getScheduledTaskByScope: (scope: ScheduledTaskScope, options?: ScheduledTaskCallOptions) =>
+      callMainScheduledTask<ScheduledTask | undefined>('getScheduledTaskByScope', [scope], options?.signal),
+    listScheduledTasksPageForAgent: (input: ListScheduledTasksPageForAgentInput) => {
+      const { signal, ...cloneableInput } = input;
+      return callMainScheduledTask('listScheduledTasksPageForAgent', [cloneableInput], signal);
+    },
+    listRemoteScheduledTaskProjectionPageForAgent: (input: ListRemoteScheduledTaskProjectionPageInput) =>
+      callMainScheduledTask('listRemoteScheduledTaskProjectionPageForAgent', [input]),
+    getCronPreviewDates: (expression: string, timezone?: string, count?: number) => callMainScheduledTask<string[]>('getCronPreviewDates', [expression, timezone, count]),
+  } satisfies Partial<IAgentInstanceService>;
+  return bridge as unknown as IAgentInstanceService;
+}
+
 async function* callMainLlmChat(
   request: MainLlmChatRequest,
 ): AsyncGenerator<string, void, unknown> {
@@ -194,7 +309,8 @@ async function* callMainLlmChat(
   parentPort?.postMessage({ type: 'memeloop-llm-chat', id, request });
 
   while (true) {
-    if (pending.error) throw pending.error;
+    const streamError = readPendingLlmError(pending);
+    if (streamError) throw streamError;
     if (pending.deltas.length > 0) {
       yield pending.deltas.shift()!;
       continue;
@@ -205,10 +321,15 @@ async function* callMainLlmChat(
         pending.waiters.push(resolve);
       },
     );
-    if (pending.error) throw pending.error;
+    const resumedError = readPendingLlmError(pending);
+    if (resumedError) throw resumedError;
     if (next.done) return;
     if (next.value) yield next.value;
   }
+}
+
+function readPendingLlmError(pending: PendingLlmStream): Error | undefined {
+  return pending.error;
 }
 
 const workerLogger = {
@@ -247,37 +368,6 @@ for (
 }
 
 type RuntimeUpdate = { conversationId: string; update: unknown };
-
-const metas = new Map<string, ConversationMeta>();
-const messages = new Map<string, ChatMessage[]>();
-const definitionStore = new Map<string, AgentDefinition>();
-
-// Seed built-in agent definitions locally to avoid IPC-dependent lookups from within this worker thread.
-for (const def of taskAgents as unknown as AgentDefinition[]) {
-  if (def?.id) definitionStore.set(def.id, def);
-}
-
-/** Prevent unbounded growth of in-memory conversation state inside the worker thread. */
-const MAX_WORKER_CONVERSATIONS = 128;
-
-function trimWorkerConversationsIfNeeded(): void {
-  while (metas.size > MAX_WORKER_CONVERSATIONS) {
-    let oldestId: string | undefined;
-    let oldestTs = Number.POSITIVE_INFINITY;
-    for (const [id, meta] of metas) {
-      const ts = meta.lastMessageTimestamp ?? 0;
-      if (ts < oldestTs) {
-        oldestTs = ts;
-        oldestId = id;
-      }
-    }
-    if (!oldestId) break;
-    metas.delete(oldestId);
-    messages.delete(oldestId);
-    customUpdateListenersByConversationId.delete(oldestId);
-    conversationCancellation.delete(oldestId);
-  }
-}
 
 type AskQuestionPrompt = {
   type: 'ask-question';
@@ -341,51 +431,6 @@ function emitCustomUpdate(
   }
 }
 
-const inMemoryStorage = {
-  listConversations: async (_options?: unknown) => Array.from(metas.values()),
-  getMessages: async (conversationId: string, _options?: unknown) => messages.get(conversationId) ?? [],
-  appendMessage: async (message: ChatMessage) => {
-    const list = messages.get(message.conversationId) ?? [];
-    list.push(message);
-    messages.set(message.conversationId, list);
-    const meta = metas.get(message.conversationId);
-    if (meta) {
-      meta.lastMessagePreview = message.content.slice(0, 200);
-      meta.lastMessageTimestamp = message.timestamp;
-      meta.messageCount = list.length;
-      metas.set(message.conversationId, meta);
-    }
-  },
-  upsertConversationMetadata: async (meta: ConversationMeta) => {
-    metas.set(meta.conversationId, meta);
-    trimWorkerConversationsIfNeeded();
-  },
-  insertMessagesIfAbsent: async (incoming: ChatMessage[]) => {
-    for (const message of incoming) {
-      const list = messages.get(message.conversationId) ?? [];
-      if (!list.some((existing) => existing.messageId === message.messageId)) {
-        list.push(message);
-        messages.set(message.conversationId, list);
-      }
-    }
-  },
-  getAttachment: async (_contentHash: string): Promise<AttachmentReference | null> => null,
-  saveAttachment: async (
-    _reference: AttachmentReference,
-    _data: Buffer | Uint8Array,
-  ): Promise<void> => undefined,
-  getAgentDefinition: async (id: string): Promise<AgentDefinition | null> => {
-    const hit = definitionStore.get(id);
-    if (hit) return hit;
-    // Avoid calling main-process services from this worker; definitions should be pre-seeded or loaded via runtime wiki manager.
-    return null;
-  },
-  saveAgentInstance: async () => undefined,
-  getConversationMeta: async (
-    conversationId: string,
-  ): Promise<ConversationMeta | null> => metas.get(conversationId) ?? null,
-};
-
 const conversationCancellation = new Set<string>();
 
 const llmProvider = {
@@ -393,170 +438,31 @@ const llmProvider = {
   model: undefined,
   chat: async function*(request: unknown) {
     const request_ = request as {
-      messages?: Array<{
-        role: 'system' | 'user' | 'assistant' | 'tool';
-        content: unknown;
-      }>;
+      messages?: ModelMessage[];
       conversationId?: string;
     };
-    const modelMessages = (request_.messages ?? []).map((message) => ({
-      role: message.role,
-      content: typeof message.content === 'string'
-        ? message.content
-        : JSON.stringify(message.content ?? ''),
-    }));
     for await (
       const delta of callMainLlmChat({
         conversationId: request_.conversationId,
-        messages: modelMessages,
+        messages: request_.messages ?? [],
       })
     ) {
-      yield { type: 'text-delta', content: delta, id: nanoid() };
+      yield { type: 'text-delta' as const, text: delta, id: nanoid() };
     }
   },
 };
 
-// Minimal wiki manager: boot tiddlywiki directly in worker.
-class DesktopTiddlyWikiManager implements IWikiManager {
-  private cache = new Map<string, Promise<any>>();
-  private readonly agentDefTag = '$:/tags/MemeLoop/AgentDefinition';
-
-  private async bootWikiByPath(wikiPath: string): Promise<any> {
-    const absolutePath = path.resolve(wikiPath);
-    if (!fs.existsSync(absolutePath)) {
-      throw new Error(`Wiki path does not exist: ${absolutePath}`);
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { TiddlyWiki } = require('tiddlywiki') as { TiddlyWiki: () => any };
-    const $tw = TiddlyWiki();
-    $tw.boot.argv = [absolutePath, '--load'];
-    await new Promise<void>((resolve, reject) => {
-      $tw.boot.boot((error?: Error) => {
-        if (error) reject(error);
-        else resolve();
-      });
-    });
-    return $tw;
-  }
-
-  private async getWiki(wikiId: string): Promise<any> {
-    throw new Error(`Wiki workspaces are no longer supported. wikiId: ${wikiId}`);
-  }
-
-  clearWikiCache(wikiId?: string): void {
-    if (wikiId === undefined) this.cache.clear();
-    else this.cache.delete(wikiId);
-  }
-
-  async getTiddler(
-    wikiId: string,
-    title: string,
-  ): Promise<TiddlerFields | null> {
-    const $tw = await this.getWiki(wikiId);
-    const tiddler = $tw.wiki.getTiddler(title);
-    if (!tiddler) return null;
-    return {
-      ...(tiddler.fields ?? {}),
-      title,
-      type: tiddler.fields?.type ?? 'text/vnd.tiddlywiki',
-    } as TiddlerFields;
-  }
-
-  async setTiddler(wikiId: string, tiddler: TiddlerFields): Promise<void> {
-    const $tw = await this.getWiki(wikiId);
-    const fields = { ...tiddler };
-    if (!fields.title) fields.title = '';
-    $tw.wiki.addTiddler(new $tw.Tiddler(fields));
-  }
-
-  async listTiddlers(
-    wikiId: string,
-    filter?: { tag?: string; type?: string },
-  ): Promise<TiddlerFields[]> {
-    const $tw = await this.getWiki(wikiId);
-    let filterString = '[all[tiddlers]!is[system]sort[title]]';
-    if (filter?.tag) {
-      filterString = `[all[tiddlers]!is[system]tag[${filter.tag}]sort[title]]`;
-    } else if (filter?.type) {
-      filterString = `[all[tiddlers]!is[system]type[${filter.type}]sort[title]]`;
-    }
-
-    const titles: string[] = $tw.wiki.filterTiddlers(filterString);
-    const out: TiddlerFields[] = [];
-    for (const title of titles) {
-      const tiddler = $tw.wiki.getTiddler(title);
-      if (!tiddler) continue;
-      out.push({
-        ...(tiddler.fields ?? {}),
-        title,
-        type: tiddler.fields?.type ?? 'text/vnd.tiddlywiki',
-      } as TiddlerFields);
-    }
-    return out;
-  }
-
-  async search(wikiId: string, query: string): Promise<TiddlerFields[]> {
-    const $tw = await this.getWiki(wikiId);
-    const escaped = query.replace(/\\/g, '\\\\').replace(/\]/g, '\\]');
-    const filterString = `[all[tiddlers]!is[system]search:title,text,tags[${escaped}]]`;
-    const titles: string[] = $tw.wiki.filterTiddlers(filterString);
-
-    const out: TiddlerFields[] = [];
-    for (const title of titles) {
-      const tiddler = $tw.wiki.getTiddler(title);
-      if (!tiddler) continue;
-      out.push({
-        ...(tiddler.fields ?? {}),
-        title,
-        type: tiddler.fields?.type ?? 'text/vnd.tiddlywiki',
-      } as TiddlerFields);
-    }
-    return out;
-  }
-
-  async listAgentDefinitionsFromWiki(wikiId: string): Promise<any[]> {
-    const all = await this.listTiddlers(wikiId);
-    const out: any[] = [];
-    for (const t of all) {
-      const tags = t.tags;
-      const hasTag = Array.isArray(tags) && tags.includes(this.agentDefTag);
-      if (!hasTag) continue;
-      const text = typeof (t).text === 'string'
-        ? (t).text
-        : '';
-      if (!text.trim()) continue;
-      try {
-        const raw = JSON.parse(text);
-        if (raw && typeof raw.id === 'string') out.push(raw);
-      } catch {
-        // skip invalid JSON
-      }
-    }
-    return out;
-  }
-}
-
-onApprovalRequest((request) => {
-  emitCustomUpdate(request.agentId, {
-    type: 'tool-approval',
-    payload: {
-      type: 'tool-approval',
-      approvalId: request.approvalId,
-      toolName: request.toolName,
-      parameters: request.parameters,
-    },
-  });
-});
-
-const wikiManager = new DesktopTiddlyWikiManager();
-
 let localNodeId = `tidgi-desktop-${nanoid(8)}`;
 const terminalManager = new TerminalSessionManager();
 
-let runtime: any;
-let storage: any;
-let toolRegistry: any;
+let runtime: NodeRuntimeResult['runtime'] | undefined;
+let storage: NodeRuntimeResult['storage'] | undefined;
+let runtimeContext: NodeRuntimeResult['context'] | undefined;
+let approvalRequestCleanup: (() => void) | undefined;
+let deviceRpcHandler: DeviceRpcHandler | undefined;
+let scheduledTaskRpcHandler: ReturnType<typeof createDesktopScheduledTaskRpcHandler> | undefined;
+let runtimeToolIds: string[] = [];
+let runtimeAgentDefinitions: AgentDefinition[] = [];
 let orchestrationClient:
   | import('memeloop').AgentOrchestrationClient
   | undefined;
@@ -565,6 +471,12 @@ let createRemoteOrchestrationHttpHandlerFunction:
   | typeof import('memeloop-cli/runtime').createRemoteOrchestrationHttpHandler
   | undefined;
 let runtimeInitPromise: Promise<void> | undefined;
+let conversationMutationObserverCleanup: (() => void) | undefined;
+const promptPreviewAuditStore = new PromptPreviewAuditSessionStore({
+  createSessionId: () => `desktop-preview-${nanoid()}`,
+  createRevision: () => `preview-revision-${nanoid()}`,
+});
+const promptPreviewPrepareOperations = new Map<string, AbortController>();
 
 interface DesktopHostConfig {
   dataDir: string;
@@ -610,7 +522,7 @@ async function ensureRuntimeInitialized(): Promise<void> {
     localNodeId = configuredHost.localPeerId;
 
     const mainBridgeToolIds = await requestMainBridgeToolList().catch(
-      (error) => {
+      (error: unknown) => {
         workerLog(
           'warn',
           '[memeloop-worker] failed to load main bridge tool list',
@@ -621,10 +533,12 @@ async function ensureRuntimeInitialized(): Promise<void> {
     );
 
     const runtimeResult = await createNodeRuntime({
+      // Core supplies the official profiles. App-specific definitions are
+      // resolved explicitly from storage and must never shadow Core defaults.
+      config: { agents: [] },
       dataDir: configuredHost.dataDir,
       sqliteNativeBinding: configuredHost.sqliteNativeBinding,
       localNodeId,
-      storage: inMemoryStorage,
       llmProvider,
       toolRegistry: new ToolRegistry(),
       configureTools(registry) {
@@ -687,8 +601,6 @@ async function ensureRuntimeInitialized(): Promise<void> {
       },
       terminalManager,
       fileBaseDir: process.cwd(),
-      wikiManager,
-      wikiAgentDefinitionWikiIds: ['default'],
       includeVscodeCli: false,
       conversationCancellation,
       logger: {
@@ -705,10 +617,33 @@ async function ensureRuntimeInitialized(): Promise<void> {
       },
     });
 
-    stopNodeRuntime = runtimeResult.stop;
+    await requireDesktopAtomicRetryStore(runtimeResult);
+
+    stopNodeRuntime = () => runtimeResult.stop();
     runtime = runtimeResult.runtime;
     storage = runtimeResult.storage;
-    toolRegistry = runtimeResult.toolRegistry;
+    conversationMutationObserverCleanup?.();
+    conversationMutationObserverCleanup = installConversationMutationObserver(
+      storage,
+      wake => {
+        conversationMutationSubject.next(wake);
+      },
+    );
+    runtimeContext = runtimeResult.context;
+    approvalRequestCleanup?.();
+    approvalRequestCleanup = runtimeContext.toolApprovals?.onApprovalRequest(request => {
+      emitCustomUpdate(request.conversationId, {
+        type: 'tool-approval',
+        payload: {
+          type: 'tool-approval',
+          approvalId: request.approvalId,
+          toolName: request.toolName,
+          parameters: request.parameters,
+        },
+      });
+    });
+    runtimeToolIds = runtimeResult.toolRegistry.listTools();
+    runtimeAgentDefinitions = [...runtimeResult.agentDefinitions];
     orchestrationClient = runtimeResult.context.orchestration;
   })();
 
@@ -798,14 +733,14 @@ async function ensureDesktopNodeStarted(requestedPort?: number): Promise<void> {
       stage = 'read-address';
       const address = desktopNodeServer?.address();
       if (address && typeof address === 'object') {
-        desktopNodePort = (address).port;
+        desktopNodePort = address.port;
       }
       desktopNodeStarted = true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `desktop node start failed at stage=${stage}: ${message}`,
-      );
+      throw new Error(`desktop node start failed at stage=${stage}: ${message}`, {
+        cause: error,
+      });
     } finally {
       desktopNodeStartPromise = undefined;
     }
@@ -830,8 +765,29 @@ async function stopDesktopHttpServer(): Promise<void> {
 
 async function shutdownDesktopNode(): Promise<void> {
   await stopDesktopHttpServer();
-  await stopNodeRuntime?.();
+  for (const controller of promptPreviewPrepareOperations.values()) {
+    controller.abort(new Error('MemeLoop worker is shutting down'));
+  }
+  promptPreviewPrepareOperations.clear();
+  approvalRequestCleanup?.();
+  approvalRequestCleanup = undefined;
+  conversationMutationObserverCleanup?.();
+  conversationMutationObserverCleanup = undefined;
+  const stop = stopNodeRuntime;
   stopNodeRuntime = undefined;
+  try {
+    await stop?.();
+  } finally {
+    runtime = undefined;
+    storage = undefined;
+    runtimeContext = undefined;
+    deviceRpcHandler = undefined;
+    scheduledTaskRpcHandler = undefined;
+    orchestrationClient = undefined;
+    runtimeToolIds = [];
+    runtimeAgentDefinitions = [];
+    runtimeInitPromise = undefined;
+  }
 }
 
 const workerState = {
@@ -860,6 +816,19 @@ const memeloopWorker = {
     return { ok: true };
   },
   subscribeLogs: () => logSubject.asObservable(),
+  subscribeConversationMutations: () =>
+    new Observable<ConversationMutationWake>(observer => {
+      let disposed = false;
+      const subscription = conversationMutationSubject.subscribe(observer);
+      void ensureRuntimeInitialized().catch((error: unknown) => {
+        if (!disposed) observer.error(error);
+        subscription.unsubscribe();
+      });
+      return () => {
+        disposed = true;
+        subscription.unsubscribe();
+      };
+    }),
   ping: async () => {
     workerLog('warn', '[memeloop-worker] ping');
     await ensureRuntimeInitialized();
@@ -889,11 +858,116 @@ const memeloopWorker = {
     await shutdownDesktopNode();
     return { ok: true };
   },
-  createAgent: async (definitionId: string, initialMessage?: string) => {
+  /**
+   * Execute an authenticated DeviceNetwork RPC against the real UtilityProcess
+   * runtime. The main process deliberately owns no second MemeLoop runtime.
+   */
+  handleDeviceRpc: async (input: DeviceRpcHandlerInput) => {
+    await ensureRuntimeInitialized();
+    if (!runtime || !storage) throw new Error('MemeLoop runtime did not initialize');
+    const activeRuntime = runtime;
+    if (
+      typeof storage.getMessagePage !== 'function' ||
+      typeof storage.getMessageById !== 'function' ||
+      typeof storage.getMessageIdentity !== 'function' ||
+      typeof storage.readMessageDetailRange !== 'function' ||
+      typeof storage.getMessageWindowAround !== 'function' ||
+      typeof storage.getConversationTimelinePage !== 'function' ||
+      typeof storage.readAttachmentRange !== 'function'
+    ) throw new Error('MemeLoop SQLite v2 bounded storage ports are unavailable');
+    deviceRpcHandler ??= createAgentRuntimeDeviceRpcHandler({
+      runtime: activeRuntime,
+      storage: storage as AgentRuntimeRpcStorage,
+      projections: createDesktopAgentRuntimeProjectionStore(storage as AgentRuntimeRpcStorage),
+      retryTurn: createDesktopRetryTurnHandler(activeRuntime),
+      getAgentDefinitions: () => runtimeAgentDefinitions,
+      scheduledTaskHandler: scheduledTaskRpcHandler ??= createDesktopScheduledTaskRpcHandler(
+        createMainScheduledTaskServiceBridge(),
+        localNodeId,
+      ),
+      localNodeId,
+    });
+    return deviceRpcHandler(input);
+  },
+  /**
+   * Typed workerAdapter calls are structured-cloned, so the CLI SQLite handle
+   * never leaves this UtilityProcess and can remain the single sync/runtime
+   * source of truth.
+   */
+  storageCall: async (method: string, arguments_: unknown[]) => {
+    await ensureRuntimeInitialized();
+    if (!storage) throw new Error('MemeLoop storage did not initialize');
+    const callable = (storage as unknown as Record<string, unknown>)[method];
+    if (typeof callable !== 'function') {
+      throw new Error(`memeloop_storage_method_not_supported:${method}`);
+    }
+    return (callable as (...values: unknown[]) => unknown).apply(storage, arguments_);
+  },
+  preparePromptPreviewExecution: async (input: {
+    conversationId: string;
+    requestId: string;
+    inputText?: string;
+  }) => {
+    await ensureRuntimeInitialized();
+    if (!runtimeContext) throw new Error('MemeLoop runtime context did not initialize');
+    const abortController = new AbortController();
+    const previous = promptPreviewPrepareOperations.get(input.requestId);
+    previous?.abort(new Error('prompt preview request superseded'));
+    promptPreviewPrepareOperations.set(input.requestId, abortController);
+    try {
+      const prepared = await prepareAgentExecutionModelRequest(runtimeContext, {
+        conversationId: input.conversationId,
+        stream: false,
+        signal: abortController.signal,
+        ...(input.inputText === undefined ? {} : { inputText: input.inputText }),
+      });
+      abortController.signal.throwIfAborted();
+      return promptPreviewAuditStore.createSession({ request: prepared.prepared.request });
+    } finally {
+      if (promptPreviewPrepareOperations.get(input.requestId) === abortController) {
+        promptPreviewPrepareOperations.delete(input.requestId);
+      }
+    }
+  },
+  getPromptPreviewAuditPage: async (request: PromptPreviewAuditPageRequest) => promptPreviewAuditStore.getPage(request),
+  getPromptPreviewAuditDetail: async (request: PromptPreviewAuditDetailRequest) => promptPreviewAuditStore.getDetail(request),
+  releasePromptPreviewAuditSession: async (request: PromptPreviewAuditReleaseRequest) => {
+    promptPreviewAuditStore.release(request);
+  },
+  cancelPromptPreview: async (requestId: string) => {
+    promptPreviewPrepareOperations.get(requestId)?.abort(new Error('prompt preview cancelled'));
+    promptPreviewPrepareOperations.delete(requestId);
+  },
+  getDeviceCapabilities: async (): Promise<DeviceCapabilities> => {
+    await ensureRuntimeInitialized();
+    if (!runtime || !storage) throw new Error('MemeLoop runtime did not initialize');
+    // The worker's concrete runtime owns the built-in and host-bridged tool
+    // registry. Avoid advertising tools by guessing from the Electron host.
+    return {
+      tools: [...runtimeToolIds],
+      mcpServers: [],
+      // MemeLoop App deliberately has no TidGi workspace/wiki runtime. A
+      // future TiddlyWiki host must provide an explicit wiki port before this
+      // capability can be advertised; pretending it exists routes agents into
+      // tools that can only throw at runtime.
+      hasWiki: false,
+      agentLoop: true,
+      imChannels: [],
+      wikis: [],
+    };
+  },
+  createAgent: async (
+    definitionId: string,
+    initialMessage?: string,
+    conversationId?: string,
+  ) => {
     workerLog('warn', '[memeloop-worker] createAgent', { definitionId });
     await ensureDesktopNodeStarted();
     try {
-      await inMemoryStorage.getAgentDefinition(definitionId);
+      if (!runtime || !storage) {
+        throw new Error('MemeLoop runtime did not initialize');
+      }
+      await storage.getAgentDefinition(definitionId);
       workerLog(
         'warn',
         '[memeloop-worker] createAgent runtime.createAgent start',
@@ -902,6 +976,7 @@ const memeloopWorker = {
       const created = await runtime.createAgent({
         definitionId,
         initialMessage,
+        conversationId,
       });
       workerLog(
         'warn',
@@ -917,39 +992,90 @@ const memeloopWorker = {
       throw error;
     }
   },
-  sendMessage: async (conversationId: string, message: string) => {
+  sendMessage: async (
+    conversationId: string,
+    message: string,
+    identity?: {
+      requestId: string;
+      turnId: string;
+      userMessage?: Partial<ChatMessage> & { messageId: string; turnId: string; content: string };
+    },
+  ) => {
     workerLog('warn', '[memeloop-worker] sendMessage start', {
       conversationId,
     });
     await ensureDesktopNodeStarted();
+    if (!runtime) throw new Error('MemeLoop runtime did not initialize');
     try {
-      await runtime.sendMessage({ conversationId, message });
+      const accepted = await runtime.sendMessage({
+        conversationId,
+        message,
+        ...(identity
+          ? {
+            requestId: identity.requestId,
+            turnId: identity.turnId,
+            userMessage: identity.userMessage ?? {
+              messageId: identity.turnId,
+              turnId: identity.turnId,
+              content: message,
+            },
+          }
+          : {}),
+      }) as unknown as { runId: string; turnId: string; conversationId: string };
       workerLog('warn', '[memeloop-worker] sendMessage done', {
         conversationId,
       });
-      return { ok: true };
-    } catch (e) {
+      return accepted;
+    } catch (error) {
       workerLog('error', '[memeloop-worker] sendMessage failed', {
         conversationId,
-        error: e,
+        error,
       });
-      throw e;
+      throw error;
     }
   },
-  cancelAgent: async (conversationId: string) => {
-    workerLog('warn', '[memeloop-worker] cancelAgent', { conversationId });
+  waitForRunTerminal: async (runId: string) => {
+    if (!runId) throw new Error('scheduled_agent_run_id_missing');
+    await ensureRuntimeInitialized();
+    if (!runtime) throw new Error('MemeLoop runtime did not initialize');
+    for (;;) {
+      const status = await runtime.getRunStatus(runId);
+      if (!status) throw new Error('scheduled_agent_run_missing');
+      if (status.state === 'completed') return status;
+      if (status.state === 'failed' || status.state === 'cancelled') {
+        const error = new Error(status.error?.messageKey ?? `scheduled_agent_run_${status.state}`);
+        Object.assign(error, {
+          code: status.error?.code,
+          diagnosticId: status.error?.diagnosticId,
+          retryable: status.error?.retryable,
+        });
+        throw error;
+      }
+      await new Promise<void>(resolve => setTimeout(resolve, 250));
+    }
+  },
+  cancelRun: async (conversationId: string, runId?: string) => {
+    workerLog('warn', '[memeloop-worker] cancelRun', { conversationId, runId });
     conversationCancellation.add(conversationId);
+    if (!runtime) throw new Error('MemeLoop runtime did not initialize');
+    if (runId) {
+      return { ok: await runtime.cancelRun(runId) };
+    }
+    // Handles the short accept/cancel race before the accepted run id crosses
+    // the worker boundary. The runtime owns the authoritative active-run set.
     await runtime.cancelAgent(conversationId);
     return { ok: true };
   },
-  subscribeToUpdates: (conversationId: string) =>
-    new Observable<RuntimeUpdate>((observer) => {
+  subscribeToUpdates: (conversationId: string) => {
+    if (!runtime) throw new Error('MemeLoop runtime not initialized');
+    const activeRuntime = runtime;
+    return new Observable<RuntimeUpdate>((observer) => {
       workerLog('warn', '[memeloop-worker] subscribeToUpdates start', {
         conversationId,
       });
-      const dispose = runtime.subscribeToUpdates(
+      const dispose = activeRuntime.subscribeToUpdates(
         conversationId,
-        (update: any) => {
+        update => {
           observer.next({ conversationId, update });
         },
       );
@@ -975,14 +1101,16 @@ const memeloopWorker = {
         }
         dispose();
       };
-    }),
+    });
+  },
   resolveAskQuestion: async (
     _conversationId: string,
     questionId: string,
     answer: string,
   ) => {
     workerLog('warn', '[memeloop-worker] resolveAskQuestion', { questionId });
-    const resolved = resolveQuestionAnswer(questionId, answer);
+    await ensureRuntimeInitialized();
+    const resolved = runtimeContext?.questionWaits?.resolveQuestionAnswer(questionId, answer) ?? false;
     return { resolved };
   },
   resolveToolApproval: async (
@@ -993,8 +1121,20 @@ const memeloopWorker = {
       approvalId,
       decision,
     });
-    resolveApproval(approvalId, decision);
-    return { ok: true };
+    await ensureRuntimeInitialized();
+    const broker = runtimeContext?.toolApprovals;
+    const request = broker?.getPendingApprovals().find(candidate => candidate.approvalId === approvalId);
+    const ok = !!request && !!broker?.resolveApproval({
+      approvalId: request.approvalId,
+      runtimeId: request.runtimeId,
+      runId: request.runId,
+      conversationId: request.conversationId,
+      agentId: request.agentId,
+      toolName: request.toolName,
+      parameterDigest: request.parameterDigest,
+      decision,
+    });
+    return { ok };
   },
 };
 

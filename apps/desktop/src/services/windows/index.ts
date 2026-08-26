@@ -6,7 +6,7 @@ import { Menubar } from 'menubar';
 import serviceIdentifier from '@services/serviceIdentifier';
 import { windowDimension, WindowMeta, WindowNames } from '@services/windows/WindowProperties';
 
-import { Channels, MetaDataChannel, ViewChannel, WindowChannel } from '@/constants/channels';
+import { Channels, MetaDataChannel, WindowChannel } from '@/constants/channels';
 import type { IAnalyticsService } from '@services/analytics/interface';
 import type { IPreferenceService } from '@services/preferences/interface';
 import type { IViewService } from '@services/view/interface';
@@ -15,11 +15,9 @@ import type { IWorkspaceViewService } from '@services/workspacesView/interface';
 
 import { SETTINGS_FOLDER } from '@/constants/appPaths';
 import { isTest } from '@/constants/environment';
-import { DELAY_MENU_REGISTER } from '@/constants/parameters';
 import { getDefaultTidGiUrl } from '@/constants/urls';
 import { isMac } from '@/helpers/system';
 import { container } from '@services/container';
-import getViewBounds from '@services/libs/getViewBounds';
 import { logger } from '@services/libs/log';
 import type { IThemeService } from '@services/theme/interface';
 import { isWikiWorkspace } from '@services/workspaces/interface';
@@ -27,8 +25,6 @@ import { getTidgiMiniWindowTargetWorkspace } from '@services/workspacesView/util
 import { handleAttachToTidgiMiniWindow } from './handleAttachToTidgiMiniWindow';
 import { handleCreateBasicWindow } from './handleCreateBasicWindow';
 import type { IWindowOpenConfig, IWindowService } from './interface';
-import { registerBrowserViewWindowListeners } from './registerBrowserViewWindowListeners';
-import { registerMenu } from './registerMenu';
 import { getPreloadPath } from './viteEntry';
 
 @injectable()
@@ -46,39 +42,15 @@ export class Window implements IWindowService {
   constructor(
     @inject(serviceIdentifier.Preference) private readonly preferenceService: IPreferenceService,
     @inject(serviceIdentifier.ThemeService) private readonly themeService: IThemeService,
-  ) {
-    setTimeout(() => {
-      void registerMenu();
-    }, DELAY_MENU_REGISTER);
-  }
+  ) {}
 
   public async findInPage(text: string, forward?: boolean): Promise<void> {
-    const activeWs = await container.get<IWorkspaceService>(serviceIdentifier.Workspace).getActiveWorkspace();
-    const contents = activeWs ? container.get<IViewService>(serviceIdentifier.View).getView(activeWs.id, WindowNames.main)?.webContents : undefined;
-    if (contents !== undefined) {
-      contents.findInPage(text, {
-        forward,
-      });
-    }
+    this.get(WindowNames.main)?.webContents.findInPage(text, { forward });
   }
 
   public async stopFindInPage(close?: boolean, windowName: WindowNames = WindowNames.main): Promise<void> {
-    const mainWindow = this.get(windowName);
-    const activeWs = await container.get<IWorkspaceService>(serviceIdentifier.Workspace).getActiveWorkspace();
-    const view = activeWs ? container.get<IViewService>(serviceIdentifier.View).getView(activeWs.id, WindowNames.main) : undefined;
-
-    if (view) {
-      const contents = view.webContents;
-      if (contents !== undefined) {
-        contents.stopFindInPage('clearSelection');
-        contents.send(ViewChannel.updateFindInPageMatches, 0, 0);
-        // adjust bounds to hide the gap for find in page
-        if (close === true && mainWindow !== undefined) {
-          const contentSize = mainWindow.getContentSize();
-          view.setBounds(await getViewBounds(contentSize as [number, number], { windowName }));
-        }
-      }
-    }
+    void close;
+    this.get(windowName)?.webContents.stopFindInPage('clearSelection');
   }
 
   public async requestRestart(): Promise<void> {
@@ -200,9 +172,7 @@ export class Window implements IWindowService {
     const { hideMenuBar: autoHideMenuBar, titleBar: showTitleBar, tidgiMiniWindowAlwaysOnTop, alwaysOnTop } = preferenceService.getPreferences();
     let windowWithBrowserViewConfig: Partial<BrowserWindowConstructorOptions> = {};
     let windowWithBrowserViewState: windowStateKeeperState | undefined;
-    const WindowToKeepPositionState = [WindowNames.main, WindowNames.tidgiMiniWindow];
-    const WindowWithBrowserView = [WindowNames.main, WindowNames.tidgiMiniWindow, WindowNames.secondary];
-    const isWindowWithBrowserView = WindowWithBrowserView.includes(windowName);
+    const WindowToKeepPositionState = [WindowNames.main];
     if (WindowToKeepPositionState.includes(windowName)) {
       windowWithBrowserViewState = windowStateKeeper({
         file: `window-state-${windowName}.json`,
@@ -218,7 +188,7 @@ export class Window implements IWindowService {
       };
     }
     // hide titleBar should not take effect on setting window
-    const hideTitleBar = [WindowNames.main, WindowNames.tidgiMiniWindow].includes(windowName) && !showTitleBar;
+    const hideTitleBar = windowName === WindowNames.main && !showTitleBar;
     // Descriptive initial titles help identify renderer processes in the OS task manager before the page sets its own title
     const windowTitleByName: Partial<Record<WindowNames, string>> = {
       [WindowNames.main]: 'TidGi [App Shell]',
@@ -265,18 +235,13 @@ export class Window implements IWindowService {
       webPreferences: {
         devTools: true, // Always enable devTools, even in test mode for debugging
         nodeIntegration: false,
-        webSecurity: false,
-        allowRunningInsecureContent: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
         contextIsolation: true,
-        // Keep callbacks active only for windows that host wiki BrowserViews.
-        ...([WindowNames.main, WindowNames.secondary, WindowNames.tidgiMiniWindow].includes(windowName)
-          ? { backgroundThrottling: false }
-          : {}),
         preload: getPreloadPath(),
         additionalArguments: [
           `${MetaDataChannel.browserViewMetaData}${windowName}`,
           `${MetaDataChannel.browserViewMetaData}${encodeURIComponent(JSON.stringify(meta))}`,
-          '--unsafely-disable-devtools-self-xss-warnings',
         ],
       },
     };
@@ -292,16 +257,7 @@ export class Window implements IWindowService {
       }
     } else {
       newWindow = await handleCreateBasicWindow(windowName, windowConfig, meta, config);
-      if (isWindowWithBrowserView) {
-        registerBrowserViewWindowListeners(newWindow, windowName);
-        // calling this to redundantly setBounds WebContentsView
-        // after the UI is fully loaded
-        // if not, WebContentsView mouseover event won't work correctly
-        // https://github.com/atomery/webcatalog/issues/812
-        // await this.workspaceViewService.realignActiveWorkspace();
-      } else {
-        newWindow.setMenuBarVisibility(false);
-      }
+      newWindow.setMenuBarVisibility(false);
     }
     if (shouldKeepWindowPaintableForE2E) {
       // Show the window offscreen without stealing focus. This lets Playwright see a visible
@@ -328,24 +284,6 @@ export class Window implements IWindowService {
           this.mainWindowHideSaveTimer = undefined;
         }
       });
-    }
-    if (isWindowWithBrowserView) {
-      const activeWorkspace = await container.get<IWorkspaceService>(serviceIdentifier.Workspace).getActiveWorkspace();
-      const viewService = container.get<IViewService>(serviceIdentifier.View);
-      const workspaceViewService = container.get<IWorkspaceViewService>(serviceIdentifier.WorkspaceView);
-      // If a window with BrowserViews is being recreated while the app keeps running
-      // (for example, main window closed while tidgi mini window keeps the app alive),
-      // existing WebContentsView instances still live in ViewService and must be attached
-      // to the new BrowserWindow immediately. Otherwise the window comes back blank until
-      // the user manually switches workspace.
-      if (activeWorkspace !== undefined && viewService.getView(activeWorkspace.id, windowName) !== undefined) {
-        logger.info('open: restoring existing view into recreated window', {
-          function: 'Window.open',
-          windowName,
-          workspaceID: activeWorkspace.id,
-        });
-        await workspaceViewService.refreshActiveWorkspaceView();
-      }
     }
     // Track analytics event when preferences window is opened
     if (windowName === WindowNames.preferences) {

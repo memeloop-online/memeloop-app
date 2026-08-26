@@ -10,7 +10,27 @@
   "compilerOptions": {
     "paths": {
       "@services/*": ["./src/services/*"],
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "react": ["./node_modules/@types/react/index.d.ts"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "react-dom": ["./node_modules/@types/react-dom/index.d.ts"],
+      "react-dom/*": ["./node_modules/@types/react-dom/*"],
+      "@assistant-ui/react": ["./node_modules/@assistant-ui/react"],
+      "@mui/icons-material": ["./node_modules/@mui/icons-material"],
+      "@mui/icons-material/*": ["./node_modules/@mui/icons-material/*"],
+      "@mui/material": ["./node_modules/@mui/material"],
+      "@mui/material/*": ["./node_modules/@mui/material/*"],
+      "@mui/system": ["./node_modules/@mui/system"],
+      "@mui/system/*": ["./node_modules/@mui/system/*"],
+      "@mui/types": ["./node_modules/@mui/types"],
+      "@mui/utils": ["./node_modules/@mui/utils"],
+      "@mui/utils/*": ["./node_modules/@mui/utils/*"],
+      "@rjsf/core": ["./node_modules/@rjsf/core"],
+      "@rjsf/mui": ["./node_modules/@rjsf/mui"],
+      "@rjsf/utils": ["./node_modules/@rjsf/utils"],
+      "@rjsf/validator-ajv8": ["./node_modules/@rjsf/validator-ajv8"],
+      "simplebar-react": ["./node_modules/simplebar-react"],
+      "memeloop": ["./node_modules/memeloop"]
     },
     "skipLibCheck": true,
     /* Basic Options */

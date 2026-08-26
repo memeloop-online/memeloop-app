@@ -1,6 +1,7 @@
 import { safeStorage } from 'electron';
 import { inject, injectable } from 'inversify';
 import { cloneDeep, mergeWith } from 'lodash';
+import { EMBEDDED_MODEL_CATALOG, fetchModelCatalog, type ModelCatalog } from 'memeloop/model-catalog';
 import { nanoid } from 'nanoid';
 import { BehaviorSubject, defer, from, Observable } from 'rxjs';
 import { filter, finalize, startWith } from 'rxjs/operators';
@@ -31,6 +32,7 @@ import type {
   IProviderRegistryService,
   ModelInfo,
 } from './interface';
+import { providerConfigsFromModelCatalog } from './modelCatalog';
 import { normalizeOpenAIBaseURL } from './openAIBaseURL';
 import { DEFAULT_RETRY_CONFIG, withRetry } from './retryUtility';
 
@@ -97,6 +99,9 @@ export class ProviderRegistryService implements IProviderRegistryService {
   private initializationPromise: Promise<void> | null = null; // Prevent race condition in lazy initialization
   private activeRequests: Map<string, AbortController> = new Map();
   private settingsLoaded = false;
+  private officialModelCatalog: ModelCatalog = EMBEDDED_MODEL_CATALOG;
+  private modelCatalogRefreshPromise?: Promise<ModelCatalog>;
+  private modelCatalogRefreshedAt = 0;
 
   private userSettings: AIGlobalSettings = {
     providers: [],
@@ -126,6 +131,13 @@ export class ProviderRegistryService implements IProviderRegistryService {
   public async initialize(): Promise<void> {
     // Load settings from database first
     this.ensureSettingsLoaded();
+
+    // Build-time freshness comes from Core's embedded snapshot. Refresh it at
+    // runtime without delaying app startup or making provider settings depend
+    // on network availability.
+    void this.refreshOfficialModelCatalog().catch((error: unknown) => {
+      logger.warn('Official model catalog refresh failed; using embedded Core catalog', { error });
+    });
 
     /**
      * Initialize database connection for API logging
@@ -412,6 +424,37 @@ export class ProviderRegistryService implements IProviderRegistryService {
   async getAIProviders(): Promise<AIProviderConfig[]> {
     this.ensureSettingsLoaded();
     return this.getHydratedProviders();
+  }
+
+  async getOfficialAIProviders(refresh = false): Promise<AIProviderConfig[]> {
+    if (refresh) {
+      await this.refreshOfficialModelCatalog().catch((error: unknown) => {
+        logger.warn('Official model catalog refresh failed; using cached Core catalog', { error });
+      });
+    }
+    return cloneDeep(providerConfigsFromModelCatalog(this.officialModelCatalog));
+  }
+
+  private async refreshOfficialModelCatalog(): Promise<ModelCatalog> {
+    // A renderer can reopen settings frequently; one bounded refresh per six
+    // hours is sufficient and concurrent callers share the same request.
+    if (Date.now() - this.modelCatalogRefreshedAt < 6 * 60 * 60 * 1000) {
+      return this.officialModelCatalog;
+    }
+    if (this.modelCatalogRefreshPromise) return this.modelCatalogRefreshPromise;
+    const refresh = fetchModelCatalog({ timeoutMs: 15_000 })
+      .then(catalog => {
+        this.officialModelCatalog = catalog;
+        this.modelCatalogRefreshedAt = Date.now();
+        return catalog;
+      })
+      .finally(() => {
+        if (this.modelCatalogRefreshPromise === refresh) {
+          this.modelCatalogRefreshPromise = undefined;
+        }
+      });
+    this.modelCatalogRefreshPromise = refresh;
+    return refresh;
   }
 
   async getAIConfig(): Promise<AiAPIConfig> {
@@ -832,13 +875,12 @@ export class ProviderRegistryService implements IProviderRegistryService {
               providerConfig,
             ),
           DEFAULT_RETRY_CONFIG,
-          (attempt, maxAttempts, delayMs, error) => {
+          (attempt, maxAttempts, delayMs) => {
             logger.info('Retrying AI stream creation', {
               requestId,
               attempt,
               maxAttempts,
               delayMs,
-              error: error.message,
             });
           },
         );
@@ -860,7 +902,7 @@ export class ProviderRegistryService implements IProviderRegistryService {
 
         yield {
           requestId,
-          content: `Error: ${errorDetail.message || errorDetail.name}`,
+          content: errorDetail.code,
           status: 'error',
           errorDetail,
         };
@@ -921,7 +963,7 @@ export class ProviderRegistryService implements IProviderRegistryService {
       // Yield error with details
       yield {
         requestId,
-        content: `Error: ${errorDetail.message || errorDetail.name}`,
+        content: errorDetail.code,
         status: 'error',
         errorDetail,
       };

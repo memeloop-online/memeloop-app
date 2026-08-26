@@ -1,11 +1,53 @@
+import type { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema/types';
 import { logger } from '@services/libs/log';
-import type { AiAPIConfig, ILLMProvider } from 'memeloop';
+import type { ILLMProvider, PortableLlmMessage, PortableLlmStreamPart } from 'memeloop';
 
 import { createLLMProvider, type LLMProviderId } from 'memeloop/llm-providers';
 import type { ModelMessage } from './interface';
 
 import { AuthenticationError, MissingAPIKeyError, MissingBaseURLError, parseProviderError } from './errors';
 import type { AIProviderConfig } from './interface';
+
+function toPortableMessages(messages: readonly ModelMessage[]): PortableLlmMessage[] {
+  return messages.map((message, index): PortableLlmMessage => {
+    if (message.role === 'tool') {
+      return {
+        role: 'tool',
+        content: [{
+          type: 'tool-result',
+          toolCallId: message.toolCallId || `legacy-tool-result-${index}`,
+          toolName: 'legacy-tool',
+          output: { type: 'text', value: message.content },
+        }],
+      };
+    }
+    if (typeof message.content === 'string') return message as PortableLlmMessage;
+    const textParts = message.content.map(part => ({
+      type: 'text' as const,
+      text: part.text ?? part.content ?? '',
+    }));
+    if (message.role === 'system') {
+      return { role: 'system', content: textParts.map(part => part.text).join('\n') };
+    }
+    return { role: message.role, content: textParts };
+  });
+}
+
+async function* textOnlyStream(
+  result: string | PortableLlmStreamPart | AsyncIterable<PortableLlmStreamPart>,
+): AsyncGenerator<string> {
+  if (typeof result === 'string') {
+    yield result;
+    return;
+  }
+  if (Symbol.asyncIterator in result) {
+    for await (const part of result) {
+      if (part.type === 'text-delta') yield part.text;
+    }
+    return;
+  }
+  if (result.type === 'text-delta') yield result.text;
+}
 
 /**
  * Map Desktop's AIProviderConfig to a memeloop core ILLMProvider.
@@ -73,33 +115,33 @@ export async function streamFromProvider(
     // wiki-operation into the first system prompt and break per-agent prompt
     // isolation.
     const chatResult = await llmProvider.chat({
-      model,
-      messages,
+      providerId: provider,
+      modelId: model,
+      logicalModelId: model,
+      wireModelId: model,
+      apiMode: 'chat-completions',
+      messages: toPortableMessages(messages),
       stream: true,
       temperature,
-      abortSignal: signal,
+      signal,
     });
 
-    const isIterable = typeof chatResult === 'object' &&
-      chatResult !== null &&
-      (Symbol.asyncIterator in chatResult || Symbol.iterator in chatResult);
-    if (!isIterable) {
-      throw new Error(`${provider} provider did not return a stream`);
-    }
-
-    return chatResult as AsyncIterable<string>;
+    return textOnlyStream(chatResult);
   } catch (error) {
+    const cause = error instanceof Error
+      ? error
+      : new Error(typeof error === 'string' ? error : 'Unknown provider error');
     if (!error) {
-      throw new Error(`${provider} error: Unknown error`);
-    } else if ((error as Error).message.includes('401')) {
+      throw new Error(`${provider} error: Unknown error`, { cause: error });
+    } else if (cause.message.includes('401')) {
       throw new AuthenticationError(provider);
-    } else if ((error as Error).message.includes('404')) {
-      throw new Error(`${provider} error: Model "${model}" not found`);
-    } else if ((error as Error).message.includes('429')) {
-      throw new Error(`${provider} too many requests: Reduce request frequency or check API limits`);
+    } else if (cause.message.includes('404')) {
+      throw new Error(`${provider} error: Model "${model}" not found`, { cause: error });
+    } else if (cause.message.includes('429')) {
+      throw new Error(`${provider} too many requests: Reduce request frequency or check API limits`, { cause: error });
     } else {
       logger.error(`${provider} streaming error:`, error);
-      throw parseProviderError(error as Error, provider);
+      throw parseProviderError(cause, provider);
     }
   }
 }

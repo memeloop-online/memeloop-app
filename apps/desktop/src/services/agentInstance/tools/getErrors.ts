@@ -7,8 +7,9 @@ import { t } from '@services/libs/i18n/placeholder';
 import serviceIdentifier from '@services/serviceIdentifier';
 import type { IWikiService } from '@services/wiki/interface';
 import type { IWorkspaceService } from '@services/workspaces/interface';
+import type { ToolDefinition } from 'memeloop/tools';
 import { z } from 'zod/v4';
-import { registerToolDefinition, type ToolExecutionResult } from './defineTool';
+import type { ToolExecutionResult } from './defineToolTypes';
 
 export const GetErrorsParameterSchema = z.object({
   toolListPosition: z.object({
@@ -49,7 +50,7 @@ async function executeGetErrors(parameters: z.infer<typeof GetErrorsToolSchema>)
     const tiddlerText = tiddlers[0]?.text ?? '';
 
     try {
-      const rendered = await wikiService.wikiOperationInServer(WikiChannel.renderWikiText, target.id, [tiddlerText]) as string;
+      const rendered = await wikiService.wikiOperationInServer(WikiChannel.renderWikiText, target.id, [tiddlerText]);
 
       // Check rendered HTML for common error patterns
       const errorPatterns = [
@@ -93,7 +94,7 @@ async function executeGetErrors(parameters: z.infer<typeof GetErrorsToolSchema>)
   }
 }
 
-const getErrorsDefinition = registerToolDefinition({
+export const getErrorsToolDefinition = {
   toolId: 'getErrors',
   displayName: 'Wiki Get Errors',
   description: 'Render a tiddler and check for rendering errors or warnings',
@@ -107,10 +108,8 @@ const getErrorsDefinition = registerToolDefinition({
   },
 
   async onResponseComplete({ toolCall, executeToolCall, agentFrameworkContext }) {
-    if (!toolCall || toolCall.toolId !== 'wiki-get-errors') return;
-    if (agentFrameworkContext.isCancelled()) return;
+    if (!toolCall?.found || toolCall.toolId !== 'wiki-get-errors') return;
+    if (agentFrameworkContext.operationSignal?.aborted) return;
     await executeToolCall('wiki-get-errors', executeGetErrors);
   },
-});
-
-export const getErrorsTool = getErrorsDefinition.tool;
+} satisfies ToolDefinition<typeof GetErrorsParameterSchema, { 'wiki-get-errors': typeof GetErrorsToolSchema }>;

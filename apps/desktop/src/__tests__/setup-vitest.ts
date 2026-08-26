@@ -8,6 +8,13 @@ import './__mocks__/window';
 if (typeof document !== 'undefined') {
   configure({ computedStyleSupportsPseudoElements: false });
 
+  class TestResizeObserver implements ResizeObserver {
+    disconnect(): void {}
+    observe(): void {}
+    unobserve(): void {}
+  }
+  globalThis.ResizeObserver ??= TestResizeObserver;
+
   // Fix for JSDOM getComputedStyle issue - strip unsupported second parameter
   const originalGetComputedStyle = window.getComputedStyle.bind(window);
   window.getComputedStyle = (elt) => originalGetComputedStyle(elt);
@@ -38,7 +45,7 @@ vi.mock('@services/libs/workerAdapter', async () => {
     createWorkerProxy: () => ({
       configureHost: async () => ({ ok: true }),
       ping: async () => ({ ok: true }),
-      startServer: async (port: number) => ({ nodeId: 'test-node-id', port }),
+      startServer: async (port: number) => ({ running: true, nodeId: 'test-node-id', port: port || 31_337 }),
       stopServer: async () => ({ ok: true }),
       createAgent: async () => ({ conversationId: 'test-conversation-id' }),
       sendMessage: async () => ({ ok: true }),

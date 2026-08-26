@@ -551,7 +551,7 @@ Given(
         ...existing,
         aiSettings: newAi,
         preferences: newPreferences,
-      } as ISettingFile,
+      },
       { spaces: 2 },
     );
   },
@@ -938,7 +938,7 @@ Given('I add test ai settings', async function(this: ApplicationWorld) {
       ...existing,
       aiSettings: newAi,
       preferences: newPreferences,
-    } as ISettingFile,
+    },
     { spaces: 2 },
   );
 });
@@ -1040,7 +1040,7 @@ Given(
         ...existing,
         aiSettings: newAi,
         preferences: newPreferences,
-      } as ISettingFile,
+      },
       { spaces: 2 },
     );
   },

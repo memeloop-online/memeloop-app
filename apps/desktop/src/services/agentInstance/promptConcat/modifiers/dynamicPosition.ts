@@ -7,7 +7,7 @@ import { logger } from '@services/libs/log';
 import { identity } from 'lodash';
 import { z } from 'zod/v4';
 import type { IPrompt } from '../promptConcatSchema';
-import { registerModifier } from './defineModifier';
+import type { ModifierDefinition } from './defineModifier';
 
 const t = identity;
 
@@ -37,7 +37,7 @@ export function getDynamicPositionParameterSchema() {
 /**
  * Dynamic Position Modifier Definition
  */
-const dynamicPositionDefinition = registerModifier({
+export const dynamicPositionModifierDefinition = {
   modifierId: 'dynamicPosition',
   displayName: 'Dynamic Position',
   description: 'Insert content at a specific position relative to a target element',
@@ -91,6 +91,4 @@ const dynamicPositionDefinition = registerModifier({
       modifierId: modifierConfig.id,
     });
   },
-});
-
-export const dynamicPositionModifier = dynamicPositionDefinition.modifier;
+} satisfies ModifierDefinition<typeof DynamicPositionParameterSchema>;

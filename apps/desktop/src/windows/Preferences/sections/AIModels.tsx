@@ -18,7 +18,6 @@ export function AIModels(props: ICustomSectionProps): React.JSX.Element {
     loading,
     config,
     providers,
-    setProviders,
     handleModelChange,
     handleEmbeddingModelChange,
     handleSpeechModelChange,

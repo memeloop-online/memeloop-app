@@ -12,7 +12,7 @@ import { filterMessagesByDuration } from '../../utilities/messageDurationFilter'
 import { normalizeRole } from '../../utilities/normalizeRole';
 import { estimateTokens } from '../../utilities/tokenEstimator';
 import type { IPrompt } from '../promptConcatSchema';
-import { registerModifier } from './defineModifier';
+import type { ModifierDefinition } from './defineModifier';
 
 const t = identity;
 
@@ -46,7 +46,7 @@ export function getFullReplacementParameterSchema() {
 /**
  * Full Replacement Modifier Definition
  */
-const fullReplacementDefinition = registerModifier({
+export const fullReplacementModifierDefinition = {
   modifierId: 'fullReplacement',
   displayName: 'Full Replacement',
   description: 'Replace target content with content from specified source',
@@ -196,6 +196,4 @@ const fullReplacementDefinition = registerModifier({
       modifierId: modifierConfig.id,
     });
   },
-});
-
-export const fullReplacementModifier = fullReplacementDefinition.modifier;
+} satisfies ModifierDefinition<typeof FullReplacementParameterSchema>;

@@ -6,7 +6,7 @@
  */
 import type { ToolCallingMatch } from '@services/agentDefinition/interface';
 import { logger } from '@services/libs/log';
-import type { ToolExecutionResult } from './defineTool';
+import type { ToolExecutionResult } from './defineToolTypes';
 
 /** Default per-tool timeout (30 seconds) */
 const DEFAULT_TOOL_TIMEOUT_MS = 30_000;

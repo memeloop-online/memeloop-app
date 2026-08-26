@@ -18,27 +18,34 @@ describe('createWorkerProxy', () => {
       startServer(): Promise<{ running: boolean }>;
       subscribeLogs(): import('rxjs').Observable<string>;
       subscribeToUpdates(conversationId: string): import('rxjs').Observable<string>;
+      subscribeConversationMutations(): import('rxjs').Observable<{ conversationIds: string[] }>;
     }>(worker as unknown as Worker, {
-      observableMethods: ['subscribeLogs', 'subscribeToUpdates'],
+      observableMethods: ['subscribeLogs', 'subscribeToUpdates', 'subscribeConversationMutations'],
     });
 
     const startPromise = proxy.startServer();
     const startCall = worker.postMessage.mock.calls[0]?.[0];
     expect(startPromise).toBeInstanceOf(Promise);
-    worker.emit('message', {
-      type: 'response',
-      id: startCall?.id,
-      result: { running: true },
-    } satisfies WorkerMessage);
+    worker.emit(
+      'message',
+      {
+        type: 'response',
+        id: startCall?.id,
+        result: { running: true },
+      } satisfies WorkerMessage,
+    );
     await expect(startPromise).resolves.toEqual({ running: true });
 
     const firstLog = firstValueFrom(proxy.subscribeLogs());
     const subscribeCall = worker.postMessage.mock.calls[1]?.[0];
-    worker.emit('message', {
-      type: 'stream',
-      id: subscribeCall?.id,
-      result: 'ready',
-    } satisfies WorkerMessage);
+    worker.emit(
+      'message',
+      {
+        type: 'stream',
+        id: subscribeCall?.id,
+        result: 'ready',
+      } satisfies WorkerMessage,
+    );
     await expect(firstLog).resolves.toBe('ready');
 
     const updateSubscription = proxy.subscribeToUpdates('conversation-1').subscribe();
@@ -55,6 +62,21 @@ describe('createWorkerProxy', () => {
     expect(worker.postMessage.mock.calls.map(([message]) => message)).toContainEqual({
       type: 'unsubscribe',
       id: updateCall?.id,
+    });
+
+    const mutationSubscription = proxy.subscribeConversationMutations().subscribe();
+    const mutationCall = worker.postMessage.mock.calls
+      .map(([message]) => message)
+      .find(message => message.type === 'call' && message.method === 'subscribeConversationMutations');
+    expect(mutationCall).toMatchObject({
+      type: 'call',
+      method: 'subscribeConversationMutations',
+      args: [],
+    });
+    mutationSubscription.unsubscribe();
+    expect(worker.postMessage.mock.calls.map(([message]) => message)).toContainEqual({
+      type: 'unsubscribe',
+      id: mutationCall?.id,
     });
   });
 });

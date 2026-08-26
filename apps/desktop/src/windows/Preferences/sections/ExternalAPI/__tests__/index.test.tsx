@@ -8,44 +8,44 @@ import { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSc
 import { lightTheme } from '@services/theme/defaultTheme';
 import { BehaviorSubject } from 'rxjs';
 
-import { AIProviderConfig, ModelFeature, ModelInfo } from '@services/providerRegistry/interface';
+import { AIProviderConfig, ModelInfo } from '@services/providerRegistry/interface';
 import { ExternalAPI } from '../index';
 
 // Mock data
 const mockLanguageModel: ModelInfo = {
   name: 'gpt-4',
   caption: 'GPT-4 Language Model',
-  features: ['language' as ModelFeature],
+  features: ['language'],
 };
 
 const mockEmbeddingModel: ModelInfo = {
   name: 'text-embedding-3-small',
   caption: 'OpenAI Embedding Model',
-  features: ['embedding' as ModelFeature],
+  features: ['embedding'],
 };
 
 const mockSpeechModel: ModelInfo = {
   name: 'gpt-speech',
   caption: 'GPT Speech',
-  features: ['speech' as ModelFeature],
+  features: ['speech'],
 };
 
 const mockImageModel: ModelInfo = {
   name: 'dall-e',
   caption: 'DALL-E',
-  features: ['imageGeneration' as ModelFeature],
+  features: ['imageGeneration'],
 };
 
 const mockTranscriptionsModel: ModelInfo = {
   name: 'whisper',
   caption: 'Whisper',
-  features: ['transcriptions' as ModelFeature],
+  features: ['transcriptions'],
 };
 
 const mockFreeModel: ModelInfo = {
   name: 'gpt-free',
   caption: 'GPT Free',
-  features: ['free' as ModelFeature],
+  features: ['free'],
 };
 
 const mockProvider: AIProviderConfig = {

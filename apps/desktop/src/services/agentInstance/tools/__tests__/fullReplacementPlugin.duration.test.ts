@@ -5,17 +5,16 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentInstanceMessage } from '../../interface';
-import type { IPromptConcatTool } from '../../promptConcat/promptConcatSchema';
 import type { IPrompt } from '../../promptConcat/promptConcatSchema/prompts';
 
 import { cloneDeep } from 'lodash';
-import defaultAgents from '../../agentFrameworks/taskAgents.json';
-import { fullReplacementModifier } from '../../promptConcat/modifiers/fullReplacement';
+import { defineModifier } from '../../promptConcat/modifiers/defineModifier';
+import { fullReplacementModifierDefinition } from '../../promptConcat/modifiers/fullReplacement';
 import { createAgentFrameworkHooks, PromptConcatHookContext } from '../index';
+import { promptConcatTestAgent } from './promptConcatTestAgent';
 
-// Use the real agent config
-const exampleAgent = defaultAgents[0];
-const realAgentFrameworkConfig = exampleAgent.agentFrameworkConfig;
+const realAgentFrameworkConfig = promptConcatTestAgent.agentFrameworkConfig;
+const fullReplacementModifier = defineModifier(fullReplacementModifierDefinition).modifier;
 
 describe('Full Replacement Plugin - Duration Mechanism', () => {
   beforeEach(() => {
@@ -29,10 +28,10 @@ describe('Full Replacement Plugin - Duration Mechanism', () => {
         p => p.toolId === 'fullReplacement' && p.fullReplacementParam?.sourceType === 'historyOfSession',
       );
       expect(historyPlugin).toBeDefined();
-      expect(historyPlugin!.fullReplacementParam!.targetId).toBe('default-history'); // Real target ID
+      expect(historyPlugin!.fullReplacementParam.targetId).toBe('default-history'); // Real target ID
 
       // Use real prompts structure from taskAgents.json
-      const testPrompts = cloneDeep(realAgentFrameworkConfig.prompts) as IPrompt[];
+      const testPrompts = cloneDeep(realAgentFrameworkConfig.prompts) as unknown as IPrompt[];
 
       const messages: AgentInstanceMessage[] = [
         // Message 0: User message, no duration - should be included
@@ -107,7 +106,7 @@ describe('Full Replacement Plugin - Duration Mechanism', () => {
           agentDef: { id: 'test-agent-def', name: 'test', agentFrameworkConfig: {} },
           isCancelled: () => false,
         },
-        toolConfig: historyPlugin! as unknown as IPromptConcatTool, // Type cast due to JSON import limitations
+        toolConfig: historyPlugin!, // Type cast due to JSON import limitations
         prompts: testPrompts,
         messages,
       };
@@ -119,7 +118,7 @@ describe('Full Replacement Plugin - Duration Mechanism', () => {
       await hooks.processPrompts.promise(context);
 
       // Find the target prompt that should be replaced (using real target ID from config)
-      const targetId = historyPlugin!.fullReplacementParam!.targetId; // 'default-history'
+      const targetId = historyPlugin!.fullReplacementParam.targetId; // 'default-history'
       const historyPrompt = testPrompts.find(p => p.id === 'history');
       expect(historyPrompt).toBeDefined();
 
@@ -181,7 +180,7 @@ describe('Full Replacement Plugin - Duration Mechanism', () => {
         },
       ];
 
-      const testPrompts = cloneDeep(realAgentFrameworkConfig.prompts) as IPrompt[];
+      const testPrompts = cloneDeep(realAgentFrameworkConfig.prompts) as unknown as IPrompt[];
 
       const context: PromptConcatHookContext = {
         agentFrameworkContext: {
@@ -195,7 +194,7 @@ describe('Full Replacement Plugin - Duration Mechanism', () => {
           agentDef: { id: 'test-agent-def', name: 'test', agentFrameworkConfig: {} },
           isCancelled: () => false,
         },
-        toolConfig: historyPlugin! as unknown as IPromptConcatTool, // Type cast for JSON import
+        toolConfig: historyPlugin!, // Type cast for JSON import
         prompts: testPrompts,
         messages,
       };
@@ -205,7 +204,7 @@ describe('Full Replacement Plugin - Duration Mechanism', () => {
 
       await hooks.processPrompts.promise(context);
 
-      const targetId = historyPlugin!.fullReplacementParam!.targetId;
+      const targetId = historyPlugin!.fullReplacementParam.targetId;
       const historyPrompt = testPrompts.find(p => p.id === 'history');
       const targetPrompt = historyPrompt!.children?.find(child => child.id === targetId);
       const children = (targetPrompt as unknown as { children?: IPrompt[] }).children || [];
@@ -263,7 +262,7 @@ describe('Full Replacement Plugin - Duration Mechanism', () => {
         },
       ];
 
-      const testPrompts = cloneDeep(realAgentFrameworkConfig.prompts) as IPrompt[];
+      const testPrompts = cloneDeep(realAgentFrameworkConfig.prompts) as unknown as IPrompt[];
 
       const context: PromptConcatHookContext = {
         agentFrameworkContext: {
@@ -277,7 +276,7 @@ describe('Full Replacement Plugin - Duration Mechanism', () => {
           agentDef: { id: 'test-agent-def', name: 'test', agentFrameworkConfig: {} },
           isCancelled: () => false,
         },
-        toolConfig: historyPlugin! as unknown as IPromptConcatTool, // Type cast for JSON import
+        toolConfig: historyPlugin!, // Type cast for JSON import
         prompts: testPrompts,
         messages,
       };
@@ -287,7 +286,7 @@ describe('Full Replacement Plugin - Duration Mechanism', () => {
 
       await hooks.processPrompts.promise(context);
 
-      const targetId = historyPlugin!.fullReplacementParam!.targetId;
+      const targetId = historyPlugin!.fullReplacementParam.targetId;
       const historyPrompt = testPrompts.find(p => p.id === 'history');
       const targetPrompt = historyPrompt!.children?.find(child => child.id === targetId);
       const children = (targetPrompt as unknown as { children?: IPrompt[] }).children || [];
@@ -312,7 +311,7 @@ describe('Full Replacement Plugin - Duration Mechanism', () => {
         p => p.toolId === 'fullReplacement' && p.fullReplacementParam?.sourceType === 'llmResponse',
       );
       expect(llmResponsePlugin).toBeDefined();
-      expect(llmResponsePlugin!.fullReplacementParam!.targetId).toBe('default-response');
+      expect(llmResponsePlugin!.fullReplacementParam.targetId).toBe('default-response');
     });
   });
 });

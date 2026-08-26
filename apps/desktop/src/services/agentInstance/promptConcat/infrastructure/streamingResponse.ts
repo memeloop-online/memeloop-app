@@ -8,8 +8,13 @@
 import { container } from '@services/container';
 import { logger } from '@services/libs/log';
 import serviceIdentifier from '@services/serviceIdentifier';
-import type { IAgentInstanceService } from '../../interface';
+import type { AgentInstanceMessage } from '../../interface';
 import type { AIResponseContext, PromptConcatHooks } from '../../tools/types';
+
+interface LegacyStreamingMessagePersistence {
+  saveUserMessage(userMessage: AgentInstanceMessage): Promise<void>;
+  debounceUpdateMessage(message: AgentInstanceMessage, agentId?: string, debounceMs?: number): void;
+}
 
 /**
  * Register streaming response handlers to hooks
@@ -43,7 +48,7 @@ export function registerStreamingResponse(hooks: PromptConcatHooks): void {
 
           // Persist immediately so DB timestamp reflects conversation order
           try {
-            const agentInstanceService = container.get<IAgentInstanceService>(serviceIdentifier.AgentInstance);
+            const agentInstanceService = container.get<LegacyStreamingMessagePersistence>(serviceIdentifier.AgentInstance);
             await agentInstanceService.saveUserMessage(aiMessage);
             aiMessage.metadata = { ...aiMessage.metadata, isPersisted: true };
           } catch (persistError) {
@@ -60,7 +65,7 @@ export function registerStreamingResponse(hooks: PromptConcatHooks): void {
 
         // Update UI using the agent instance service
         try {
-          const agentInstanceService = container.get<IAgentInstanceService>(serviceIdentifier.AgentInstance);
+          const agentInstanceService = container.get<LegacyStreamingMessagePersistence>(serviceIdentifier.AgentInstance);
           agentInstanceService.debounceUpdateMessage(aiMessage, agentFrameworkContext.agent.id);
         } catch (serviceError) {
           logger.warn('Failed to update UI for streaming message', {
@@ -110,7 +115,7 @@ export function registerStreamingResponse(hooks: PromptConcatHooks): void {
 
         // Persist immediately so the message exists in DB before agentStatusChanged triggers updateAgent
         try {
-          const agentInstanceService = container.get<IAgentInstanceService>(serviceIdentifier.AgentInstance);
+          const agentInstanceService = container.get<LegacyStreamingMessagePersistence>(serviceIdentifier.AgentInstance);
           await agentInstanceService.saveUserMessage(aiMessage);
           agentInstanceService.debounceUpdateMessage(aiMessage, agentFrameworkContext.agent.id, 0);
         } catch (serviceError) {
@@ -144,7 +149,7 @@ export function registerStreamingResponse(hooks: PromptConcatHooks): void {
       );
 
       if (messagesNeedingUiUpdate.length > 0) {
-        const agentInstanceService = container.get<IAgentInstanceService>(serviceIdentifier.AgentInstance);
+        const agentInstanceService = container.get<LegacyStreamingMessagePersistence>(serviceIdentifier.AgentInstance);
 
         for (const message of messagesNeedingUiUpdate) {
           agentInstanceService.debounceUpdateMessage(message, agentFrameworkContext.agent.id);

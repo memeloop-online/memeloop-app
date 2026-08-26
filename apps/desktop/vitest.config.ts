@@ -1,8 +1,12 @@
 import path from 'path';
 import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
+import { viteMemeLoopSourceAliases } from './scripts/viteMemeLoopSourceAliases';
 
 export default defineConfig({
+  // SWC performs the transform below; disable Vitest's default Oxc pass so
+  // tests do not run two competing JSX/TS transforms.
+  oxc: false,
   // pnpm can expose this Vite plugin and Vitest's Vite type through different
   // physical paths. They are the same runtime version, but private types make
   // the two declarations nominally incompatible.
@@ -72,6 +76,7 @@ export default defineConfig({
   resolve: {
     dedupe: ['react', 'react-dom'],
     alias: [
+      ...viteMemeLoopSourceAliases(__dirname),
       { find: '@', replacement: path.resolve(__dirname, './src') },
       { find: '@services', replacement: path.resolve(__dirname, './src/services') },
       { find: /agentInstance\/memeloopWorkerFactory(\.ts)?$/, replacement: path.resolve(__dirname, './src/__tests__/__stubs__/memeloopWorkerFactoryStub.ts') },

@@ -14,7 +14,7 @@ export async function validateHtmlWikiFile(htmlFileLocation: string): Promise<vo
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
-      throw new Error(`HTML wiki file does not exist: ${resolved}`);
+      throw new Error(`HTML wiki file does not exist: ${resolved}`, { cause: error });
     }
     throw error;
   }
@@ -34,7 +34,7 @@ export async function readHtmlWikiFile(htmlFileLocation: string): Promise<string
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
-      throw new Error(`HTML wiki file does not exist: ${resolved}`);
+      throw new Error(`HTML wiki file does not exist: ${resolved}`, { cause: error });
     }
     throw error;
   }

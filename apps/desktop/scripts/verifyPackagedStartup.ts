@@ -12,10 +12,9 @@ if (!fs.existsSync(executablePath)) throw new Error(`Packaged executable does no
 const REQUIRED_READY_MARKERS = [
   '[test-id-ELECTRON_UNHANDLED_INITIALIZED]',
   'Database initialized for key: agent',
-  'Database initialized for key: wikiEmbedding',
   'MemeLoop worker initialized',
-  'test-id-WorkerServicesReady',
-  '[test-id-ALL_WORKSPACE_VIEW_INITIALIZED]',
+  'DeviceNetworkService started',
+  '[test-id-MEMELOOP_APP_READY]',
 ] as const;
 const FATAL_STARTUP_PATTERN =
   /FATAL (?:uncaughtException|unhandledRejection)|Unhandled Promise Rejection|ERR_MODULE_NOT_FOUND|SQLite package has not been found|Error initializing database|Failed to initialize wiki embedding|Failed to create default wiki workspace|Peer process exited|React Error Boundary caught|process is not defined|ENOENT[^\n]*\.proto/i;

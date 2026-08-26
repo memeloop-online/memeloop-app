@@ -14,13 +14,11 @@ import { DEBOUNCE_SAVE_SETTING_BACKUP_FILE, DEBOUNCE_SAVE_SETTING_FILE } from '@
 import { SQLITE_BINARY_PATH } from '@/constants/paths';
 import { logger } from '@services/libs/log';
 import { BaseDataSourceOptions } from 'typeorm/data-source/BaseDataSourceOptions.js';
-import { ensureSettingFolderExist, fixSettingFileWhenError, readTidgiConfig } from './configSetting';
 import type { DatabaseInitOptions, IDatabaseService, ISettingFile } from './interface';
-import { AgentDefinitionEntity, AgentInstanceEntity, AgentInstanceMessageEntity, ScheduledTaskEntity } from './schema/agent';
+import { AgentDefinitionEntity, AgentInstanceEntity, AgentInstanceMessageEntity, RemoteScheduledTaskProjectionEntity, ScheduledTaskEntity } from './schema/agent';
 import { AgentBrowserTabEntity } from './schema/agentBrowser';
 import { ExternalAPILogEntity } from './schema/externalAPILog';
-import { WikiTiddler } from './schema/wiki';
-import { WikiEmbeddingEntity, WikiEmbeddingStatusEntity } from './schema/wikiEmbedding';
+import { ensureSettingFolderExist, fixSettingFileWhenError } from './settingsInit';
 
 // Schema config interface
 interface SchemaConfig {
@@ -76,16 +74,6 @@ export class DatabaseService implements IDatabaseService {
       synchronize: false,
       migrationsRun: true,
     });
-    this.registerSchema('wiki', {
-      entities: [WikiTiddler], // Wiki related entities
-      synchronize: true,
-      migrationsRun: false,
-    });
-    this.registerSchema('wikiEmbedding', {
-      entities: [WikiEmbeddingEntity, WikiEmbeddingStatusEntity],
-      synchronize: true,
-      migrationsRun: false,
-    });
     this.registerSchema('agent', {
       entities: [
         AgentDefinitionEntity,
@@ -93,6 +81,7 @@ export class DatabaseService implements IDatabaseService {
         AgentInstanceMessageEntity,
         AgentBrowserTabEntity,
         ScheduledTaskEntity,
+        RemoteScheduledTaskProjectionEntity,
       ],
       synchronize: true,
       migrationsRun: false,
@@ -311,7 +300,8 @@ export class DatabaseService implements IDatabaseService {
   }
 
   public async readWikiConfig(wikiFolderLocation: string) {
-    return readTidgiConfig(wikiFolderLocation);
+    void wikiFolderLocation;
+    return undefined;
   }
 
   /**
@@ -478,7 +468,7 @@ export class DatabaseService implements IDatabaseService {
         error,
         sqliteVecAvailable: typeof sqliteVec !== 'undefined',
       });
-      throw new Error(`sqlite-vec extension failed to load: ${(error as Error).message}`);
+      throw new Error(`sqlite-vec extension failed to load: ${(error as Error).message}`, { cause: error });
     }
   }
 

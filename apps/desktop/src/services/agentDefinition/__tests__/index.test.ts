@@ -1,6 +1,5 @@
 import { AgentDefinitionService } from '@services/agentDefinition';
-import { AgentDefinition } from '@services/agentDefinition/interface';
-import defaultAgents from '@services/agentInstance/agentFrameworks/taskAgents.json';
+import { DEFAULT_AGENT_DEFINITION_ID, getOfficialAgentDefinitions } from '@services/agentDefinition/builtinAgentDefinitions';
 import type { IAgentInstanceService } from '@services/agentInstance/interface';
 import { container } from '@services/container';
 import type { IDatabaseService } from '@services/database/interface';
@@ -81,7 +80,7 @@ describe('AgentDefinitionService getAgentDefs integration', () => {
     expect(defs.length).toBeGreaterThan(0);
 
     // Fixed
-    const exampleAgent = defs.find(d => d.id === (defaultAgents as unknown as AgentDefinition[])[0].id);
+    const exampleAgent = defs.find(d => d.id === DEFAULT_AGENT_DEFINITION_ID);
     expect(exampleAgent).toBeDefined();
     expect(exampleAgent!.name).toBeDefined();
     expect(exampleAgent!.agentFrameworkID).toBeDefined();
@@ -96,7 +95,7 @@ describe('AgentDefinitionService getAgentDefs integration', () => {
     const agentDefRepo = realDataSource.getRepository(AgentDefinitionEntity);
 
     // Save only minimal record (id only) to test new behavior
-    const example = (defaultAgents as unknown as AgentDefinition[])[0];
+    const example = getOfficialAgentDefinitions()[0];
     await agentDefRepo.save({
       id: example.id,
     });
@@ -123,7 +122,7 @@ describe('AgentDefinitionService getAgentDefs integration', () => {
     const agentDefRepo = realDataSource.getRepository(AgentDefinitionEntity);
 
     // Save only minimal record (id only) as per new behavior
-    const example = (defaultAgents as unknown as AgentDefinition[])[0];
+    const example = getOfficialAgentDefinitions()[0];
     await agentDefRepo.save({
       id: example.id,
     });
@@ -149,10 +148,10 @@ describe('AgentDefinitionService getAgentDefs integration', () => {
     const templates = await agentDefinitionService.getAgentTemplates();
 
     // Should include all default agents
-    expect(templates.length).toBe((defaultAgents as unknown as AgentDefinition[]).length);
+    expect(templates.length).toBe(getOfficialAgentDefinitions().length);
 
     // Check that template has complete data from taskAgents.json
-    const exampleTemplate = templates.find(t => t.id === (defaultAgents as unknown as AgentDefinition[])[0].id);
+    const exampleTemplate = templates.find(t => t.id === DEFAULT_AGENT_DEFINITION_ID);
     expect(exampleTemplate).toBeDefined();
     expect(exampleTemplate!.name).toBeDefined();
     expect(exampleTemplate!.agentFrameworkID).toBeDefined();

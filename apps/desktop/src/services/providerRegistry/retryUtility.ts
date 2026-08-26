@@ -5,6 +5,7 @@
  * backoff strategy. Designed for AI API calls that may fail transiently.
  */
 import { logger } from '@services/libs/log';
+import { APICallError } from 'ai';
 import { backOff } from 'exponential-backoff';
 
 /**
@@ -38,25 +39,20 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
 function isRetryableError(error: unknown, config: RetryConfig): boolean {
   if (!error) return false;
 
-  // Check for HTTP status code in error
-  const statusCode = (error as { status?: number; statusCode?: number }).status ??
-    (error as { status?: number; statusCode?: number }).statusCode;
-  if (statusCode && config.retryableStatusCodes.includes(statusCode)) {
-    return true;
+  if (APICallError.isInstance(error)) {
+    return error.isRetryable ||
+      (typeof error.statusCode === 'number' && config.retryableStatusCodes.includes(error.statusCode));
   }
 
-  // Check for common retryable error codes
-  const code = (error as { code?: string }).code;
+  const descriptor = typeof error === 'object' && error !== null
+    ? Object.getOwnPropertyDescriptor(error, 'code')
+    : undefined;
+  const code = descriptor && 'value' in descriptor && typeof descriptor.value === 'string'
+    ? descriptor.value
+    : undefined;
   if (code && ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE'].includes(code)) {
     return true;
   }
-
-  // Check for rate limit headers (429)
-  const message = (error as Error).message?.toLowerCase() ?? '';
-  if (message.includes('rate limit') || message.includes('too many requests') || message.includes('429')) {
-    return true;
-  }
-
   return false;
 }
 
@@ -64,7 +60,7 @@ function isRetryableError(error: unknown, config: RetryConfig): boolean {
  * Extract Retry-After header value from error (in milliseconds).
  */
 function getRetryAfterMs(error: unknown): number | undefined {
-  const headers = (error as { headers?: Record<string, string> }).headers;
+  const headers = APICallError.isInstance(error) ? error.responseHeaders : undefined;
   if (!headers) return undefined;
 
   const retryAfter = headers['retry-after'] || headers['Retry-After'];
@@ -113,7 +109,7 @@ export async function withRetry<T>(
       const retryable = isRetryableError(error, fullConfig);
       if (!retryable) {
         logger.debug('Error is not retryable, failing immediately', {
-          error: error.message,
+          errorName: error.name,
           attempt: attemptNumber,
         });
         return false;
@@ -127,7 +123,7 @@ export async function withRetry<T>(
         attempt: attemptNumber,
         maxAttempts: fullConfig.maxAttempts,
         delayMs,
-        error: error.message,
+        errorName: error.name,
         hasRetryAfter: !!retryAfterMs,
       });
 

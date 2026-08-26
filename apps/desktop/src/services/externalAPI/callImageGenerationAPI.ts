@@ -1,7 +1,7 @@
 import { logger } from '@services/libs/log';
 import fs from 'fs-extra';
 
-import type { AiAPIConfig } from 'memeloop';
+import type { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema/types';
 import { AuthenticationError, MissingAPIKeyError, MissingBaseURLError } from './errors';
 import type { AIImageGenerationResponse, AIProviderConfig } from './interface';
 
@@ -190,7 +190,7 @@ async function generateImageFromComfyUI(
     const workflowContent = await fs.readFile(workflowPath, 'utf-8');
     workflow = JSON.parse(workflowContent) as Record<string, unknown>;
   } catch (error) {
-    throw new Error(`Failed to read workflow file at "${workflowPath}": ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Failed to read workflow file at "${workflowPath}": ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
 
   // Inject the prompt into the workflow

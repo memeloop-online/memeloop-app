@@ -70,6 +70,7 @@ export function createDebouncedMessageUpdater(
           if (messageEntity) {
             // Update existing message
             messageEntity.content = messageData_.content;
+            messageEntity.turnId = messageData_.turnId ?? messageEntity.turnId;
             if (messageData_.contentType) messageEntity.contentType = messageData_.contentType;
             if (messageData_.metadata) messageEntity.metadata = messageData_.metadata;
             if (messageData_.duration !== undefined) messageEntity.duration = messageData_.duration ?? undefined;
@@ -121,17 +122,15 @@ export function createDebouncedMessageUpdater(
               source: 'debounceUpdateMessage:create',
             });
 
-            // Update agent entity to link message
+            // The message row is linked by agentId already. Loading and saving
+            // the inverse `messages` relation here made every streamed append
+            // deserialize the complete conversation.
             const agentRepo = transaction.getRepository(AgentInstanceEntity);
-            const agentEntity = await agentRepo.findOne({ where: { id: aid }, relations: { messages: true } });
+            const agentEntity = await agentRepo.findOne({ where: { id: aid } });
             if (agentEntity) {
-              if (!agentEntity.messages) agentEntity.messages = [];
-              agentEntity.messages.push(newMessage);
-              await agentRepo.save(agentEntity);
-
               const updatedAgent: AgentInstance = {
                 ...pick(agentEntity, AGENT_INSTANCE_FIELDS),
-                messages: agentEntity.messages,
+                messages: [newMessage],
               };
               onNewMessage?.(aid, updatedAgent);
             } else {

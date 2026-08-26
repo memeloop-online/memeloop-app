@@ -11,7 +11,7 @@ import serviceIdentifier from '@services/serviceIdentifier';
 import type { IWikiService } from '@services/wiki/interface';
 import type { IWorkspaceService } from '@services/workspaces/interface';
 
-import type { AiAPIConfig } from 'memeloop';
+import type { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema/types';
 import type { ITiddlerFields } from 'tiddlywiki';
 import type { EmbeddingStatus, IWikiEmbeddingService, SearchResult } from './interface';
 

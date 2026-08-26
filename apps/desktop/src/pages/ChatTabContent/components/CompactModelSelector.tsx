@@ -7,9 +7,9 @@ import { useAIConfigManagement } from '../../../windows/Preferences/sections/Ext
 
 // Import from the external component
 import { Autocomplete, TextField } from '@mui/material';
-import { useAgentChatStore } from '../../Agent/store/agentChatStore';
 
 interface ModelSelectorProps {
+  agentId: string;
   agentDefId?: string;
 }
 
@@ -18,15 +18,14 @@ interface ModelSelectorProps {
  * Uses useAIConfigManagement hook to access and update AI configuration
  */
 export const CompactModelSelector: React.FC<ModelSelectorProps> = ({
+  agentId,
   agentDefId,
 }) => {
   const { t } = useTranslation('agent');
   const [dialogOpen, setDialogOpen] = useState(false);
-  const agent = useAgentChatStore((state) => state.agent);
-
   // Use the AI config management hook with both agent instance ID and definition ID
-  const { config, providers = [], handleModelChange } = useAIConfigManagement({
-    agentId: agent?.id,
+  const { config, providers, handleModelChange } = useAIConfigManagement({
+    agentId,
     agentDefId,
   });
 

@@ -1,20 +1,15 @@
 import { Helmet } from '@dr.pogodin/react-helmet';
 import { styled } from '@mui/material/styles';
-import { lazy, Suspense } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Suspense } from 'react';
 import { Route, Switch } from 'wouter';
 
 import { ToolApprovalDialog } from '@/components/ToolApprovalDialog';
 import { PageType } from '@/constants/pageTypes';
-import { WindowNames } from '@services/windows/WindowProperties';
 import { ContentLoading } from './ContentLoading';
 import FindInPage from './FindInPage';
 import { useAskAIWithSelection } from './useAskAIWithSelection';
-import { useInitialPage } from './useInitialPage';
 
 import { subPages } from './subPages';
-
-const WikiBackground = lazy(() => import('../WikiBackground'));
 
 const OuterRoot = styled('div')`
   display: flex;
@@ -26,9 +21,9 @@ const OuterRoot = styled('div')`
 
 const Root = styled('div')`
   display: flex;
-  flex-direction: row;
   flex: 1;
-  height: 100%;
+  min-height: 0;
+  min-width: 0;
   width: 100%;
   overflow: hidden;
   background-color: ${({ theme }) => theme.palette.background.default};
@@ -46,22 +41,19 @@ const ContentRoot = styled('div')`
   flex: 1;
   display: flex;
   flex-direction: column;
-  height: 100%;
-  width: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 `;
 
 export default function Main(): React.JSX.Element {
-  const { t } = useTranslation();
-  useInitialPage();
   useAskAIWithSelection();
   const windowName = window.meta().windowName;
-  const isTidgiMiniWindow = windowName === WindowNames.tidgiMiniWindow;
   return (
     <OuterRoot>
       <Helmet>
         <title>
-          MemeLoop Desktop
-          {isTidgiMiniWindow ? ` [${t('Menu.MiniWindow')}]` : ' [App]'}
+          MemeLoop Desktop [App]
         </title>
       </Helmet>
       <ToolApprovalDialog />
@@ -70,12 +62,10 @@ export default function Main(): React.JSX.Element {
           <FindInPage />
           <Suspense fallback={<ContentLoading />}>
             <Switch>
-              <Route path={`/${PageType.wiki}/:id/`} component={WikiBackground} />
               <Route path={`/${PageType.agent}`} component={subPages.Agent} />
               <Route path={`/${PageType.guide}`} component={subPages.Guide} />
-              <Route path={`/${PageType.help}`} component={subPages.Help} />
-              <Route path='/' component={subPages.Guide} />
-              <Route component={subPages.Guide} />
+              <Route path='/' component={subPages.Agent} />
+              <Route component={subPages.Agent} />
             </Switch>
           </Suspense>
         </ContentRoot>

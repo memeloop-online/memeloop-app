@@ -107,7 +107,7 @@ export const CreateNewAgentContent: React.FC<CreateNewAgentContentProps> = ({ ta
       const frameworkId = temporaryAgentDefinition.agentFrameworkID ?? DEFAULT_AGENT_FRAMEWORK_ID;
       try {
         const schema = await window.service.agentInstance.getFrameworkConfigSchema(frameworkId);
-        setPromptSchema(schema as RJSFSchema);
+        setPromptSchema(schema);
       } catch (error) {
         console.error('Failed to load framework config schema:', error);
         setPromptSchema(null);
@@ -382,7 +382,7 @@ export const CreateNewAgentContent: React.FC<CreateNewAgentContentProps> = ({ ta
                     onChange={(updatedConfig) => {
                       void handleAgentDefinitionChange({
                         ...temporaryAgentDefinition,
-                        agentFrameworkConfig: updatedConfig as Record<string, unknown>,
+                        agentFrameworkConfig: updatedConfig,
                       });
                     }}
                     loading={false}

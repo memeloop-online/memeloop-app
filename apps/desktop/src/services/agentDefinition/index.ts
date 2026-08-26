@@ -4,13 +4,13 @@ import { nanoid } from 'nanoid';
 import { DataSource, Repository } from 'typeorm';
 
 import type { IAgentBrowserService } from '@services/agentBrowser/interface';
-import defaultAgents from '@services/agentInstance/agentFrameworks/taskAgents.json';
 import type { IAgentInstanceService } from '@services/agentInstance/interface';
 import { container } from '@services/container';
 import type { IDatabaseService } from '@services/database/interface';
 import { AgentDefinitionEntity } from '@services/database/schema/agent';
 import { logger } from '@services/libs/log';
 import serviceIdentifier from '@services/serviceIdentifier';
+import { DEFAULT_AGENT_DEFINITION_ID, getOfficialAgentDefinitions } from './builtinAgentDefinitions';
 import type { AgentDefinition, IAgentDefinitionService } from './interface';
 
 @injectable()
@@ -69,8 +69,10 @@ export class AgentDefinitionService implements IAgentDefinitionService {
       const existingCount = await this.agentDefRepository.count();
       if (existingCount === 0) {
         logger.info('Agent database is empty, initializing with default agents');
-        const defaultAgentsList = defaultAgents as AgentDefinition[];
-        // Create agent definition entities with complete data from taskAgents.json
+        const defaultAgentsList = getOfficialAgentDefinitions();
+        // Core owns the built-in profiles. This database is only the App UI's
+        // editable/listing projection; the UtilityProcess executes Core's
+        // canonical profile for the same id.
         const agentDefinitionEntities = defaultAgentsList.map(defaultAgent =>
           this.agentDefRepository!.create({
             id: defaultAgent.id,
@@ -81,7 +83,7 @@ export class AgentDefinitionService implements IAgentDefinitionService {
             agentFrameworkConfig: defaultAgent.agentFrameworkConfig,
             aiApiConfig: defaultAgent.aiApiConfig,
             agentTools: defaultAgent.agentTools,
-            heartbeat: (defaultAgent).heartbeat,
+            heartbeat: defaultAgent.heartbeat,
           })
         );
         // Save all default agents to database
@@ -190,12 +192,10 @@ export class AgentDefinitionService implements IAgentDefinitionService {
     this.ensureRepositories();
 
     try {
-      // Get default agent definition if ID not provided
-      // TODO: Get default agent from preferences
+      // Get Core's explicit default profile when no ID was provided. Database
+      // order must not silently change the default execution contract.
       if (!definitionId) {
-        // Temporary solution: get the first agent definition
-        const agents = await this.getAgentDefs();
-        return agents.length > 0 ? agents[0] : undefined;
+        definitionId = DEFAULT_AGENT_DEFINITION_ID;
       }
 
       // Find agent in database
@@ -246,8 +246,8 @@ export class AgentDefinitionService implements IAgentDefinitionService {
     try {
       const templates: AgentDefinition[] = [];
 
-      // Add default agents from JSON
-      const defaultAgentsList = defaultAgents as AgentDefinition[];
+      // Project the current Core profiles instead of returning a bundled copy.
+      const defaultAgentsList = getOfficialAgentDefinitions();
       templates.push(...defaultAgentsList);
 
       logger.debug(`Found ${templates.length} agent templates`, {

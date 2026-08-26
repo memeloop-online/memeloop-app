@@ -1,6 +1,6 @@
 import type { CreateWorkspaceTabs } from '@/windows/AddWorkspace/constants';
 import type { PreferenceSections } from '@services/preferences/interface';
-import { IWorkspace } from '@services/workspaces/interface';
+import type { IWorkspace } from '@services/workspaces/interface';
 
 export enum WindowNames {
   about = 'about',

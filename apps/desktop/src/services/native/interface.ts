@@ -1,5 +1,5 @@
 import { MessageBoxOptions } from 'electron';
-import { Observable } from 'rxjs';
+import type { Observable } from 'rxjs';
 
 import { NativeChannel } from '@/constants/channels';
 import serviceIdentifier from '@services/serviceIdentifier';
@@ -156,35 +156,15 @@ export interface INativeService {
 export const NativeServiceIPCDescriptor = {
   channel: NativeChannel.name,
   properties: {
-    initialize: ProxyPropertyType.Function,
-    initializeKeyboardShortcuts: ProxyPropertyType.Function,
-    registerKeyboardShortcut: ProxyPropertyType.Function,
-    unregisterKeyboardShortcut: ProxyPropertyType.Function,
+    // Main-process-only helpers remain on INativeService but are never
+    // registered over the renderer IPC boundary.
     getKeyboardShortcuts: ProxyPropertyType.Function,
     executeShortcutCallback: ProxyPropertyType.Function,
-    copyPath: ProxyPropertyType.Function,
-    executeZxScript$: ProxyPropertyType.Function$,
-    formatFileUrlToAbsolutePath: ProxyPropertyType.Function,
-    getLocalHostUrlWithActualInfo: ProxyPropertyType.Function,
-    getAllLocalHostUrlsWithActualInfo: ProxyPropertyType.Function,
     log: ProxyPropertyType.Function,
     logFor: ProxyPropertyType.Function,
-    mkdir: ProxyPropertyType.Function,
-    movePath: ProxyPropertyType.Function,
-    saveBase64File: ProxyPropertyType.Function,
-    moveToTrash: ProxyPropertyType.Function,
-    open: ProxyPropertyType.Function,
-    openInEditor: ProxyPropertyType.Function,
-    openInGitGuiApp: ProxyPropertyType.Function,
-    openNewGitHubIssue: ProxyPropertyType.Function,
     openPath: ProxyPropertyType.Function,
     openURI: ProxyPropertyType.Function,
-    path: ProxyPropertyType.Function,
     pickDirectory: ProxyPropertyType.Function,
     pickFile: ProxyPropertyType.Function,
-    quit: ProxyPropertyType.Function,
-    showElectronMessageBox: ProxyPropertyType.Function,
-    getProcessInfo: ProxyPropertyType.Function,
-    generateMcpToken: ProxyPropertyType.Function,
   },
 };

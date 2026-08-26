@@ -8,7 +8,6 @@ import { useTranslation } from 'react-i18next';
 import { ListItemText } from '@/components/ListItem';
 import defaultProvidersConfig from '@services/providerRegistry/defaultProviders';
 import { AIProviderConfig, ModelFeature, ModelInfo } from '@services/providerRegistry/interface';
-import { ListItemVertical } from '../../../PreferenceComponents';
 import { createEmptyModelForm, createModelForm, DuplicateModelNameError, type ModelFormState, persistModelForm } from './modelForm';
 import { NewModelDialog } from './NewModelDialog';
 import { NewProviderForm } from './NewProviderForm';
@@ -70,6 +69,9 @@ export function ProviderConfig({
   });
 
   const [availableDefaultProviders, setAvailableDefaultProviders] = useState<AIProviderConfig[]>([]);
+  const [officialProviders, setOfficialProviders] = useState<AIProviderConfig[]>(
+    () => defaultProvidersConfig.providers as AIProviderConfig[],
+  );
   const [selectedDefaultProvider, setSelectedDefaultProvider] = useState('');
 
   const [providerForms, setProviderForms] = useState<Record<string, ProviderFormState | undefined>>({});
@@ -101,14 +103,34 @@ export function ProviderConfig({
     }
   }, [providers]);
 
+  // Runtime suggestions come from Core's build-time + refreshed models.dev
+  // catalog. A network failure leaves the embedded/static fallback usable.
+  useEffect(() => {
+    let disposed = false;
+    const getOfficialAIProviders = window.service.externalAPI.getOfficialAIProviders;
+    // Unit-test and staged preload shims may lag the main-process descriptor;
+    // the build snapshot above remains a complete offline fallback.
+    if (typeof getOfficialAIProviders !== 'function') return;
+    void getOfficialAIProviders(true)
+      .then(next => {
+        if (!disposed) setOfficialProviders(next);
+      })
+      .catch((error: unknown) => {
+        void window.service.native.log('warn', 'Failed to refresh official model catalog', { error });
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
   // Update available default providers
   useEffect(() => {
     const currentProviderNames = new Set(providers.map(p => p.provider));
-    const filteredDefaultProviders = defaultProvidersConfig.providers.filter(
+    const filteredDefaultProviders = officialProviders.filter(
       p => !currentProviderNames.has(p.provider),
-    ) as AIProviderConfig[];
+    );
     setAvailableDefaultProviders(filteredDefaultProviders);
-  }, [providers]);
+  }, [officialProviders, providers]);
 
   const showMessage = (message: string, severity: 'success' | 'error' | 'info') => {
     setSnackbarMessage(message);
@@ -123,11 +145,11 @@ export function ProviderConfig({
 
   const providerClasses = useMemo(() => {
     const classes = new Set<string>();
-    defaultProvidersConfig.providers.forEach(p => {
+    officialProviders.forEach(p => {
       if (p.providerClass) classes.add(p.providerClass);
     });
     return Array.from(classes);
-  }, []);
+  }, [officialProviders]);
 
   const handleTabChange = (_event: SyntheticEvent, newValue: number) => {
     setSelectedTabIndex(newValue);
@@ -189,7 +211,7 @@ export function ProviderConfig({
 
   const openAddModelDialog = (providerName: string) => {
     setCurrentProvider(providerName);
-    const provider = defaultProvidersConfig.providers.find(p => p.provider === providerName) as AIProviderConfig | undefined;
+    const provider = officialProviders.find(p => p.provider === providerName);
     const currentModels = providerForms[providerName]?.models;
     const currentModelNames = new Set(currentModels?.map(m => m.name));
 
@@ -198,13 +220,13 @@ export function ProviderConfig({
     } else {
       const localProvider = providers.find(p => p.provider === providerName);
       if (localProvider) {
-        const similarProviders = defaultProvidersConfig.providers.filter(
+        const similarProviders = officialProviders.filter(
           p => p.providerClass === localProvider.providerClass,
         );
         const allModels: ModelInfo[] = [];
         similarProviders.forEach(p => {
           p.models.forEach(m => {
-            if (!currentModelNames.has(m.name)) allModels.push(m as ModelInfo);
+            if (!currentModelNames.has(m.name)) allModels.push(m);
           });
         });
         setAvailableDefaultModels(allModels);
@@ -613,18 +635,18 @@ export function ProviderConfig({
 
   if (providers.length === 0) {
     return (
-      <ListItemVertical>
+      <Box sx={{ width: '100%' }}>
         <ListItemText
           primary={t('Preference.ProviderConfiguration')}
           secondary={t('Preference.NoProvidersAvailable')}
         />
         {addProviderSection}
-      </ListItemVertical>
+      </Box>
     );
   }
 
   return (
-    <ListItemVertical>
+    <Box sx={{ width: '100%' }}>
       <ListItemText
         primary={t('Preference.ProviderConfiguration')}
         secondary={t('Preference.ProviderConfigurationDescription')}
@@ -717,6 +739,6 @@ export function ProviderConfig({
           {snackbarMessage}
         </Alert>
       </Snackbar>
-    </ListItemVertical>
+    </Box>
   );
 }

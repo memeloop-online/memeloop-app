@@ -65,6 +65,7 @@ export function createAgentMessage(
   return {
     id,
     agentId,
+    turnId: id,
     role: message.role,
     content: message.content,
     contentType: message.contentType || 'text/plain',
@@ -79,7 +80,20 @@ export function createAgentMessage(
 /**
  * Message fields to be extracted when creating message entities
  */
-export const MESSAGE_FIELDS = ['id', 'agentId', 'role', 'content', 'contentType', 'metadata', 'created', 'duration'] as const;
+export const MESSAGE_FIELDS = [
+  'id',
+  'agentId',
+  'turnId',
+  'originNodeId',
+  'lamportClock',
+  'originSequence',
+  'role',
+  'content',
+  'contentType',
+  'metadata',
+  'created',
+  'duration',
+] as const;
 
 /**
  * Convert AgentInstanceMessage to database-compatible format

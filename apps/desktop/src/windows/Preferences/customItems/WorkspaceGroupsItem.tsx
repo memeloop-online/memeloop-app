@@ -102,7 +102,9 @@ export function WorkspaceGroupsItem(_props: ICustomItemProps): React.JSX.Element
           value={newGroupName}
           label={t('WorkspaceGroup.CreateGroup')}
           placeholder={t('WorkspaceGroup.GroupName')}
-          onChange={event => setNewGroupName(event.target.value)}
+          onChange={event => {
+            setNewGroupName(event.target.value);
+          }}
           onKeyDown={(event) => {
             if (event.key === 'Enter') void createGroup();
           }}
@@ -138,7 +140,9 @@ export function WorkspaceGroupsItem(_props: ICustomItemProps): React.JSX.Element
                         size='small'
                         label={t('WorkspaceGroup.GroupName')}
                         value={editingName}
-                        onChange={event => setEditingName(event.target.value)}
+                        onChange={event => {
+                          setEditingName(event.target.value);
+                        }}
                         onKeyDown={(event) => {
                           if (event.key === 'Enter') void saveGroupName(group);
                           else if (event.key === 'Escape') {
@@ -201,9 +205,7 @@ export function WorkspaceGroupsItem(_props: ICustomItemProps): React.JSX.Element
                   getOptionLabel={workspace => workspace.name ?? workspace.id ?? ''}
                   isOptionEqualToValue={(option, value) => option.id === value.id}
                   filterSelectedOptions
-                  renderValue={value => value.map(workspace => (
-                    <Chip variant='outlined' size='small' label={workspace.name} key={workspace.id} />
-                  ))}
+                  renderValue={value => value.map(workspace => <Chip variant='outlined' size='small' label={workspace.name} key={workspace.id} />)}
                   renderInput={parameters => (
                     <TextField
                       {...parameters}

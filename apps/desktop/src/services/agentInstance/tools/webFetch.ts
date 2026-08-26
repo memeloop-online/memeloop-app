@@ -4,8 +4,9 @@
 import { t } from '@services/libs/i18n/placeholder';
 import { logger } from '@services/libs/log';
 import { net } from 'electron';
+import type { ToolDefinition } from 'memeloop/tools';
 import { z } from 'zod/v4';
-import { registerToolDefinition, type ToolExecutionResult } from './defineTool';
+import type { ToolExecutionResult } from './defineToolTypes';
 
 export const WebFetchParameterSchema = z.object({
   toolListPosition: z.object({
@@ -69,7 +70,7 @@ function htmlToText(html: string): string {
 }
 
 async function executeWebFetch(parameters: z.infer<typeof WebFetchToolSchema>, maxContentLength: number): Promise<ToolExecutionResult> {
-  const { url, extractText = true } = parameters;
+  const { url, extractText } = parameters;
 
   // Validate URL
   let parsedUrl: URL;
@@ -117,7 +118,7 @@ async function executeWebFetch(parameters: z.infer<typeof WebFetchToolSchema>, m
   }
 }
 
-const webFetchDefinition = registerToolDefinition({
+export const webFetchToolDefinition = {
   toolId: 'webFetch',
   displayName: 'Web Fetch',
   description: 'Fetch content from a URL for external reference',
@@ -131,11 +132,9 @@ const webFetchDefinition = registerToolDefinition({
   },
 
   async onResponseComplete({ toolCall, executeToolCall, config, agentFrameworkContext }) {
-    if (!toolCall || toolCall.toolId !== 'web-fetch') return;
-    if (agentFrameworkContext.isCancelled()) return;
+    if (!toolCall?.found || toolCall.toolId !== 'web-fetch') return;
+    if (agentFrameworkContext.operationSignal?.aborted) return;
     const maxLength = config?.maxContentLength ?? 50000;
     await executeToolCall('web-fetch', (parameters) => executeWebFetch(parameters, maxLength));
   },
-});
-
-export const webFetchTool = webFetchDefinition.tool;
+} satisfies ToolDefinition<typeof WebFetchParameterSchema, { 'web-fetch': typeof WebFetchToolSchema }>;

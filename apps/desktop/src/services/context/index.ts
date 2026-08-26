@@ -52,14 +52,9 @@ export class ContextService implements IContextService {
 
     try {
       const supportedLanguagesPath = path.join(LOCALIZATION_FOLDER, 'supportedLanguages.json');
-      const tiddlywikiLanguagesPath = path.join(LOCALIZATION_FOLDER, 'tiddlywikiLanguages.json');
-
-      const [supportedLanguagesMap, tiddlywikiLanguagesMap] = await Promise.all([
-        fs.readJson(supportedLanguagesPath) as Promise<Record<string, string>>,
-        fs.readJson(tiddlywikiLanguagesPath) as Promise<Record<string, string | undefined>>,
-      ]);
+      const supportedLanguagesMap = await fs.readJson(supportedLanguagesPath) as Record<string, string>;
       this.context.supportedLanguagesMap = supportedLanguagesMap ?? {};
-      this.context.tiddlywikiLanguagesMap = tiddlywikiLanguagesMap ?? {};
+      this.context.tiddlywikiLanguagesMap = {};
 
       this.initialized = true;
     } catch (error) {

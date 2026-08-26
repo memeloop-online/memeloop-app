@@ -8,8 +8,9 @@
  */
 import { t } from '@services/libs/i18n/placeholder';
 import { logger } from '@services/libs/log';
+import type { ToolDefinition } from 'memeloop/tools';
 import { z } from 'zod/v4';
-import { registerToolDefinition, type ToolExecutionResult } from './defineTool';
+import type { ToolExecutionResult } from './defineToolTypes';
 
 /**
  * Model Context Protocol Parameter Schema
@@ -78,7 +79,6 @@ async function connectAndListTools(config: ModelContextProtocolParameter, agentI
   try {
     // Dynamic import to handle cases where SDK isn't installed.
     // Use /* @vite-ignore */ so Vite/Vitest don't try to resolve the path at build time.
-    /* eslint-disable-next-line import/no-unresolved */
     const { Client } = await import(/* @vite-ignore */ '@modelcontextprotocol/sdk/client/index.js');
 
     const client = new Client({ name: 'TidGi-Agent', version: '1.0.0' }, { capabilities: {} });
@@ -87,12 +87,10 @@ async function connectAndListTools(config: ModelContextProtocolParameter, agentI
 
     if (config.command) {
       // Stdio transport
-      /* eslint-disable-next-line import/no-unresolved */
       const { StdioClientTransport } = await import(/* @vite-ignore */ '@modelcontextprotocol/sdk/client/stdio.js');
       transport = new StdioClientTransport({ command: config.command, args: config.args ?? [] });
     } else if (config.serverUrl) {
       // SSE transport
-      /* eslint-disable-next-line import/no-unresolved */
       const { SSEClientTransport } = await import(/* @vite-ignore */ '@modelcontextprotocol/sdk/client/sse.js');
       transport = new SSEClientTransport(new URL(config.serverUrl));
     } else {
@@ -164,7 +162,7 @@ export async function cleanupMCPClient(agentId: string): Promise<void> {
 /**
  * MCP Tool Definition — dynamically creates tool schemas based on connected server's tools.
  */
-const mcpDefinition = registerToolDefinition({
+export const modelContextProtocolToolDefinition = {
   toolId: 'modelContextProtocol',
   displayName: 'MCP (Model Context Protocol)',
   description: 'Connect to external MCP servers and use their tools',
@@ -204,7 +202,7 @@ const mcpDefinition = registerToolDefinition({
   },
 
   async onResponseComplete({ toolCall, addToolResult, agentFrameworkContext, hooks, requestId }) {
-    if (!toolCall) return;
+    if (!toolCall?.found) return;
 
     // MCP tools are prefixed with "mcp-"
     if (!toolCall.toolId?.startsWith('mcp-')) return;
@@ -235,6 +233,4 @@ const mcpDefinition = registerToolDefinition({
     // Continue processing
     // (yieldToSelf would be called by the caller if needed)
   },
-});
-
-export const modelContextProtocolTool = mcpDefinition.tool;
+} satisfies ToolDefinition<typeof ModelContextProtocolParameterSchema>;

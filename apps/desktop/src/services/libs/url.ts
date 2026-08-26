@@ -24,9 +24,7 @@ export function getAllLocalHostUrlsWithActualIP(originalUrl: string): string[] {
       ),
     ];
   }
-  return addresses.map((address) =>
-    originalUrl.replace(/((?:\d{1,3}\.){3}\d{1,3}|localhost)/, address),
-  );
+  return addresses.map((address) => originalUrl.replace(/((?:\d{1,3}\.){3}\d{1,3}|localhost)/, address));
 }
 
 export function getUrlWithCorrectProtocol(_workspace: IWorkspace, originalUrl: string): string {

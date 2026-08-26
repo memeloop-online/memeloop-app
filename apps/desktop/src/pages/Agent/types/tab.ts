@@ -8,7 +8,6 @@ export enum TabType {
   SPLIT_VIEW = 'split_view', // Split view container tab
   CREATE_NEW_AGENT = 'create_new_agent', // Create new agent definition tab
   EDIT_AGENT_DEFINITION = 'edit_agent_definition', // Edit existing agent definition tab
-  WIKI_EMBED = 'wiki_embed', // Embedded wiki BrowserView in Agent page split view
 }
 
 /**
@@ -101,15 +100,6 @@ export interface IEditAgentDefinitionTab extends ITab {
   currentStep?: number;
 }
 
-/**
- * Wiki embed tab type - embeds the existing Wiki BrowserView in Agent page split view
- */
-export interface IWikiEmbedTab extends ITab {
-  type: TabType.WIKI_EMBED;
-  /** Workspace ID of the wiki to embed */
-  workspaceId: string;
-}
-
 export type INewTabButton = {
   id: string;
   title: string;
@@ -119,4 +109,4 @@ export type INewTabButton = {
 /**
  * Union type for any type of tab
  */
-export type TabItem = IWebTab | IChatTab | INewTab | ISplitViewTab | ICreateNewAgentTab | IEditAgentDefinitionTab | IWikiEmbedTab;
+export type TabItem = IWebTab | IChatTab | INewTab | ISplitViewTab | ICreateNewAgentTab | IEditAgentDefinitionTab;

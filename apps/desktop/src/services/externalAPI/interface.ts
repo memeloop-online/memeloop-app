@@ -2,9 +2,9 @@ import { ProxyPropertyType } from 'electron-ipc-cat/common';
 import type { BehaviorSubject, Observable } from 'rxjs';
 
 import { ExternalAPIChannel } from '@/constants/channels';
+import type { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema/types';
 import type { ExternalAPILogEntity } from '@services/database/schema/externalAPILog';
 import type { ModelInfo } from '@services/providerRegistry/interface';
-import type { AiAPIConfig } from 'memeloop';
 
 export type { ModelFeature, ModelInfo } from '@services/providerRegistry/interface';
 

@@ -1,229 +1,82 @@
 import { MEMELOOP_PROTOCOL_SCHEME } from '@/constants/protocol';
-import type { IAnalyticsService } from '@services/analytics/interface';
 import { container } from '@services/container';
 import { logger } from '@services/libs/log';
 import { PreferenceSections } from '@services/preferences/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
 import type { IWindowService } from '@services/windows/interface';
 import { WindowNames } from '@services/windows/WindowProperties';
-import type { IWorkspaceService } from '@services/workspaces/interface';
-import type { IWorkspaceViewService } from '@services/workspacesView/interface';
 import { app } from 'electron';
-import { inject, injectable } from 'inversify';
+import { injectable } from 'inversify';
 import path from 'node:path';
 import type { IDeepLinkService } from './interface';
 
+/**
+ * MemeLoop App deep links are deliberately app-scoped. Wiki/workspace routing
+ * belongs to the TidGi host adapter and must not make that runtime reachable
+ * from this application's composition root.
+ */
 @injectable()
 export class DeepLinkService implements IDeepLinkService {
-  private pendingDeepLink: string | undefined;
-
-  constructor(
-    @inject(serviceIdentifier.Workspace) private readonly workspaceService: IWorkspaceService,
-  ) {}
-  /**
-   * Sanitize tiddler name to prevent injection attacks.
-   * This escapes potentially dangerous characters while preserving readable content.
-   * TiddlyWiki recommends avoiding: | [ ] { } in tiddler titles
-   *
-   * And in the place that use this (wikiOperations/executor/scripts/*.ts), we also use JSON.stringify to exclude "`".
-   * @param tiddlerName The tiddler name to sanitize
-   * @returns Sanitized tiddler name
-   */
-  private sanitizeTiddlerName(tiddlerName: string): string {
-    let sanitized = tiddlerName;
-
-    // Remove null bytes (these should never appear in valid text)
-    sanitized = sanitized.replace(/\0/g, '');
-
-    // Replace newlines and tabs with spaces to prevent breaking out of string context
-    sanitized = sanitized.replace(/[\r\n\t]/g, ' ');
-
-    // Neutralize HTML delimiters one character at a time so overlapping tags cannot survive.
-    sanitized = sanitized.replace(/[<>]/g, character => character === '<' ? '\uFF1C' : '\uFF1E');
-
-    // Trim whitespace
-    sanitized = sanitized.trim();
-
-    // Limit length to prevent DoS
-    if (sanitized.length > 1000) {
-      sanitized = sanitized.substring(0, 1000);
-      logger.warn(`Tiddler name truncated to 1000 characters for security`, { original: tiddlerName.substring(0, 50), function: 'sanitizeTiddlerName' });
-    }
-
-    return sanitized;
-  }
-
-  /**
-   * Handle link and open the workspace.
-   * @param requestUrl like `tidgi://lxqsftvfppu_z4zbaadc0/#:Index` or `tidgi://lxqsftvfppu_z4zbaadc0/#%E6%96%B0%E6%9D%A1%E7%9B%AE`
-   */
-  public readonly openDeepLink: (requestUrl: string, fromPendingQueue?: boolean) => Promise<void> = async (requestUrl, fromPendingQueue = false) => {
-    logger.info(`Receiving deep link`, { requestUrl, function: 'deepLinkHandler' });
-    const analyticsService = container.get<IAnalyticsService>(serviceIdentifier.Analytics);
+  public readonly openDeepLink = async (requestUrl: string): Promise<void> => {
     try {
-      // hostname is workspace id or name
-      const { hostname, hash, pathname } = new URL(requestUrl);
-
-      // Handle tidgi://preferences/<sectionId> deep links (global preferences)
-      if (hostname === 'preferences') {
-        const sectionId = decodeURIComponent(pathname.replace(/^\//, '')) as PreferenceSections;
-        const windowService = container.get<IWindowService>(serviceIdentifier.Window);
-        if (Object.values(PreferenceSections).includes(sectionId)) {
-          logger.info(`Open preferences via deep link`, { sectionId, function: 'deepLinkHandler' });
-          await windowService.open(WindowNames.preferences, { preferenceGotoTab: sectionId });
-        } else {
-          logger.info(`Open preferences window via deep link (no section)`, { function: 'deepLinkHandler' });
-          await windowService.open(WindowNames.preferences);
-        }
-        void analyticsService.track('deep_link.opened', { resolvedWorkspace: false, fromPendingQueue });
-        return;
+      const url = new URL(requestUrl);
+      if (url.protocol !== `${MEMELOOP_PROTOCOL_SCHEME}:`) {
+        throw new Error('unsupported_deep_link_scheme');
       }
-      // Handle tidgi://<workspaceId>/preferences/<sectionId> deep links (workspace settings)
-      if (pathname.startsWith('/preferences/')) {
-        const sectionId = decodeURIComponent(pathname.replace('/preferences/', ''));
-        const workspace = await this.workspaceService.get(hostname);
-        const windowService = container.get<IWindowService>(serviceIdentifier.Window);
-        if (workspace !== undefined) {
-          logger.info(`Open edit workspace via deep link`, { workspaceId: workspace.id, sectionId, function: 'deepLinkHandler' });
-          await windowService.open(WindowNames.editWorkspace, { workspaceID: workspace.id, preferenceGotoTab: sectionId });
-        } else {
-          logger.warn(`Workspace not found for edit workspace deep link`, { hostname, function: 'deepLinkHandler' });
-        }
-        void analyticsService.track('deep_link.opened', { resolvedWorkspace: workspace !== undefined, fromPendingQueue });
-        return;
-      }
-      let workspace = await this.workspaceService.get(hostname);
-      if (workspace === undefined) {
-        logger.info(`Workspace not found, try get by name`, { hostname, function: 'deepLinkHandler' });
-        let workspaceName = hostname;
-        // Host name can't use Chinese or it becomes `xn--1-376ap73a`, so use `w` host, and get workspace name from path
-        if (hostname === 'w') {
-          workspaceName = decodeURIComponent(pathname.split('/')[1] ?? '');
-          logger.info(`Workspace name from w/`, { hostname, pathname, workspaceName, function: 'deepLinkHandler' });
-        }
-        workspace = await this.workspaceService.getByWikiName(workspaceName);
-        if (workspace === undefined) {
-          // Workspace doesn't exist yet, save for later processing
-          logger.info(`Workspace not found, saving deep link for later`, { requestUrl, function: 'deepLinkHandler' });
-          this.pendingDeepLink = requestUrl;
-          return;
-        }
-      }
-
-      if (workspace.pageType) {
-        logger.info(`Open page workspace deep link`, { workspaceId: workspace.id, function: 'deepLinkHandler' });
-        void analyticsService.track('deep_link.opened', {
-          resolvedWorkspace: true,
-          fromPendingQueue,
+      if (url.hostname !== 'preferences') {
+        logger.warn('Ignoring unsupported MemeLoop App deep-link target', {
+          target: url.hostname,
+          function: 'DeepLinkService.openDeepLink',
         });
-        await container.get<IWorkspaceViewService>(serviceIdentifier.WorkspaceView).setActiveWorkspaceView(workspace.id);
         return;
       }
 
-      const rawTiddlerName = hash.substring(1);
-      if (rawTiddlerName.length === 0) {
-        logger.info(`Open workspace deep link`, { workspaceId: workspace.id, function: 'deepLinkHandler' });
-        void analyticsService.track('deep_link.opened', {
-          resolvedWorkspace: true,
-          fromPendingQueue,
+      const sectionId = decodeURIComponent(url.pathname.replace(/^\//, '')) as PreferenceSections;
+      const windowService = container.get<IWindowService>(serviceIdentifier.Window);
+      if (Object.values(PreferenceSections).includes(sectionId)) {
+        await windowService.open(WindowNames.preferences, {
+          preferenceGotoTab: sectionId,
         });
-        await this.workspaceService.openWorkspaceTiddler(workspace);
-        return;
+      } else {
+        await windowService.open(WindowNames.preferences);
       }
-
-      let tiddlerName = rawTiddlerName; // remove '#:'
-      if (tiddlerName.includes(':')) {
-        tiddlerName = tiddlerName.split(':')[1];
-      }
-      // Support CJK
-      tiddlerName = decodeURIComponent(tiddlerName);
-
-      // Sanitize tiddler name to prevent injection attacks
-      tiddlerName = this.sanitizeTiddlerName(tiddlerName);
-
-      // Validate that tiddler name is not empty after sanitization
-      if (!tiddlerName || tiddlerName.length === 0) {
-        logger.warn(`Invalid or empty tiddler name after sanitization`, { original: hash, function: 'deepLinkHandler' });
-        return;
-      }
-
-      logger.info(`Open deep link`, { workspaceId: workspace.id, tiddlerName, function: 'deepLinkHandler' });
-      void analyticsService.track('deep_link.opened', {
-        resolvedWorkspace: true,
-        fromPendingQueue,
-      });
-      await this.workspaceService.openWorkspaceTiddler(workspace, tiddlerName);
     } catch (error) {
-      logger.error(`Invalid URL`, { requestUrl, error, function: 'deepLinkHandler' });
+      logger.error('Invalid MemeLoop App deep link', {
+        requestUrl,
+        error,
+        function: 'DeepLinkService.openDeepLink',
+      });
     }
   };
 
-  /**
-   * Process any pending deep link after workspaces are initialized
-   */
   public async processPendingDeepLink(): Promise<void> {
-    if (this.pendingDeepLink) {
-      const url = this.pendingDeepLink;
-      this.pendingDeepLink = undefined;
-      logger.info(`Processing pending deep link`, { url, function: 'processPendingDeepLink' });
-      await this.openDeepLink(url, true);
-    }
+    // Initial protocol arguments are dispatched from initializeDeepLink once
+    // Electron is ready; the App has no workspace boot queue to drain.
   }
 
-  public initializeDeepLink(protocol: string) {
-    if (process.defaultApp) {
-      if (process.argv.length >= 2) {
-        app.setAsDefaultProtocolClient(protocol, process.execPath, [path.resolve(process.argv[1])]);
-      }
+  public initializeDeepLink(protocol: string): void {
+    if (process.defaultApp && process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient(protocol, process.execPath, [path.resolve(process.argv[1])]);
     } else {
       app.setAsDefaultProtocolClient(protocol);
     }
 
     if (process.platform === 'darwin') {
-      this.setupMacOSHandler();
-    } else {
-      this.setupWindowsLinuxHandler();
-    }
-  }
-
-  private setupMacOSHandler(): void {
-    app.on('open-url', (_event, url) => {
-      _event.preventDefault();
-      void this.openDeepLink(url);
-    });
-  }
-
-  private setupWindowsLinuxHandler(): void {
-    const gotTheLock = app.requestSingleInstanceLock();
-
-    if (gotTheLock) {
-      // Handle second instance (when app is already running)
-      app.on('second-instance', (_event, commandLine) => {
-        const url = commandLine.pop();
-        if (url !== undefined && url !== '') {
-          void this.openDeepLink(url);
-        }
+      app.on('open-url', (event, url) => {
+        event.preventDefault();
+        void this.openDeepLink(url);
       });
+      return;
+    }
 
-      // Handle first instance startup with URL parameter
-      // On Windows/Linux, protocol URLs are passed as command line arguments
-      if (process.argv.length >= 2) {
-        // Find the protocol URL in command line arguments
-        const protocolUrl = process.argv.find(argument => argument.startsWith(`${MEMELOOP_PROTOCOL_SCHEME}://`));
-        if (protocolUrl) {
-          logger.info(`Processing initial deep link from command line`, { protocolUrl, function: 'setupWindowsLinuxHandler' });
-          // Process after app is ready
-          if (app.isReady()) {
-            void this.openDeepLink(protocolUrl);
-          } else {
-            app.once('ready', () => {
-              void this.openDeepLink(protocolUrl);
-            });
-          }
-        }
-      }
-    } else {
-      app.quit();
+    app.on('second-instance', (_event, commandLine) => {
+      const protocolUrl = commandLine.find(argument => argument.startsWith(`${MEMELOOP_PROTOCOL_SCHEME}://`));
+      if (protocolUrl) void this.openDeepLink(protocolUrl);
+    });
+    const protocolUrl = process.argv.find(argument => argument.startsWith(`${MEMELOOP_PROTOCOL_SCHEME}://`));
+    if (protocolUrl) {
+      if (app.isReady()) void this.openDeepLink(protocolUrl);
+      else app.once('ready', () => void this.openDeepLink(protocolUrl));
     }
   }
 }

@@ -68,23 +68,14 @@ export async function createAgent(
   return { ...instanceData, created: now, modified: now };
 }
 
-export async function getAgent(
+/** Read agent metadata without joining its potentially very large message log. */
+export async function getAgentMetadata(
   agentInstanceRepo: Repository<AgentInstanceEntity>,
   agentId: string,
 ): Promise<AgentInstance | undefined> {
-  const instanceEntity = await agentInstanceRepo.findOne({
-    where: { id: agentId },
-    relations: { messages: true },
-    order: { messages: { modified: 'ASC' } },
-  });
+  const instanceEntity = await agentInstanceRepo.findOne({ where: { id: agentId } });
   if (!instanceEntity) return undefined;
-
-  const messages = (instanceEntity.messages || []).slice().sort((a, b) => {
-    const aTime = a.created ? new Date(a.created).getTime() : (a.modified ? new Date(a.modified).getTime() : 0);
-    const bTime = b.created ? new Date(b.created).getTime() : (b.modified ? new Date(b.modified).getTime() : 0);
-    return aTime - bTime;
-  });
-  return { ...pick(instanceEntity, AGENT_INSTANCE_FIELDS), messages };
+  return { ...pick(instanceEntity, AGENT_INSTANCE_FIELDS), messages: [] };
 }
 
 export async function updateAgent(
@@ -95,8 +86,6 @@ export async function updateAgent(
 ): Promise<AgentInstance> {
   const instanceEntity = await agentInstanceRepo.findOne({
     where: { id: agentId },
-    relations: { messages: true },
-    order: { messages: { modified: 'ASC' } },
   });
 
   if (!instanceEntity) {
@@ -108,26 +97,30 @@ export async function updateAgent(
   await agentInstanceRepo.save(instanceEntity);
 
   // Handle message updates if provided
+  const changedMessages: AgentInstanceMessageEntity[] = [];
   if (data.messages && data.messages.length > 0) {
     for (const message of data.messages) {
-      const existingMessage = instanceEntity.messages?.find(m => m.id === message.id);
+      const existingMessage = await agentMessageRepo.findOne({ where: { id: message.id, agentId } });
       if (existingMessage) {
         existingMessage.content = message.content;
         existingMessage.modified = message.modified || new Date();
         if (message.metadata) existingMessage.metadata = message.metadata;
         if (message.contentType) existingMessage.contentType = message.contentType;
+        existingMessage.originNodeId = message.originNodeId ?? existingMessage.originNodeId;
+        existingMessage.lamportClock = message.lamportClock ?? existingMessage.lamportClock;
+        existingMessage.originSequence = message.originSequence ?? existingMessage.originSequence;
+        existingMessage.turnId = message.turnId ?? existingMessage.turnId;
         await agentMessageRepo.save(existingMessage);
+        changedMessages.push(existingMessage);
       } else {
         const messageData = pick(message, MESSAGE_FIELDS) as AgentInstanceMessage;
         const messageEntity = agentMessageRepo.create(toDatabaseCompatibleMessage(messageData));
-        await agentMessageRepo.save(messageEntity);
-        if (!instanceEntity.messages) instanceEntity.messages = [];
-        instanceEntity.messages.push(messageEntity);
+        changedMessages.push(await agentMessageRepo.save(messageEntity));
       }
     }
   }
 
-  return { ...pick(instanceEntity, AGENT_INSTANCE_FIELDS), messages: instanceEntity.messages || [] };
+  return { ...pick(instanceEntity, AGENT_INSTANCE_FIELDS), messages: changedMessages };
 }
 
 export async function deleteAgent(

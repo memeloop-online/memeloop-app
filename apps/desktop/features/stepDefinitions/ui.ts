@@ -38,6 +38,7 @@ When(
       } catch (error) {
         throw new Error(
           `Failed to launch TidGi application: ${error as Error}. You should run \`pnpm run test:prepare-e2e\` before running the tests to ensure the app is built, and build with binaries like "dugite" and "tiddlywiki", see scripts/afterPack.js for more details.`,
+          { cause: error },
         );
       } finally {
         this.appLaunchPromise = undefined;
@@ -228,7 +229,7 @@ Then(
     } catch (error) {
       if (error instanceof Error && error.message.includes('timeout')) {
         // Element still visible after timeout — get parent HTML for debugging
-        let parentHtml = '';
+        let parentHtml: string;
         try {
           const element = currentWindow.locator(selector).first();
           const parent = element.locator('xpath=..');
@@ -239,6 +240,7 @@ Then(
         throw new Error(
           `Element "${elementComment}" with selector "${selector}" should not be visible but was found\n` +
             `Parent element HTML:\n${parentHtml}`,
+          { cause: error },
         );
       }
       // Other errors (element not in DOM at all) are expected — pass
@@ -336,6 +338,7 @@ When(
     } catch (error) {
       throw new Error(
         `Failed to find and click ${elementComment} with selector "${selector}" in current window: ${error as Error}`,
+        { cause: error },
       );
     }
   },
@@ -372,6 +375,7 @@ When(
     } catch (error) {
       throw new Error(
         `Failed to ctrl-click ${elementComment} with selector "${selector}" in current window: ${error as Error}`,
+        { cause: error },
       );
     }
   },
@@ -454,6 +458,7 @@ When(
     } catch (error) {
       throw new Error(
         `Failed to find and right-click ${elementComment} with selector "${selector}" in current window: ${error as Error}`,
+        { cause: error },
       );
     }
   },
@@ -497,6 +502,7 @@ When(
       } catch (error) {
         throw new Error(
           `Failed to click ${elementComment} at index ${index} with selector "${selector}": ${error as Error}`,
+          { cause: error },
         );
       }
     }
@@ -528,6 +534,7 @@ When(
     } catch (error) {
       throw new Error(
         `Failed to type in ${elementComment} element with selector "${selector}": ${error as Error}`,
+        { cause: error },
       );
     }
   },
@@ -606,6 +613,7 @@ When(
     } catch (error) {
       throw new Error(
         `Failed to clear text in ${elementComment} element with selector "${selector}": ${error as Error}`,
+        { cause: error },
       );
     }
   },
@@ -627,7 +635,7 @@ When(
         );
       }
     } catch (error) {
-      throw new Error(`Failed to check window title: ${error as Error}`);
+      throw new Error(`Failed to check window title: ${error as Error}`, { cause: error });
     }
   },
 );
@@ -864,6 +872,7 @@ When(
     } catch (error) {
       throw new Error(
         `Failed to select option "${optionValue}" from MUI Select with test id "${testId}": ${String(error)}`,
+        { cause: error },
       );
     }
   },
@@ -938,6 +947,7 @@ When(
     } catch (error: unknown) {
       throw new Error(
         `Failed to set checkbox ${selector} to ${targetState}: ${String(error)}`,
+        { cause: error },
       );
     }
   },

@@ -5,7 +5,7 @@
  */
 import { allSections, getAllPreferenceItems, zodPreferencesSchema } from '@services/preferences/definitions/registry';
 import { preferenceItemDefinitionSchema, sectionDefinitionDataSchema } from '@services/preferences/definitions/types';
-import { type IPreferences, PreferenceSections } from '@services/preferences/interface';
+import type { IPreferences } from '@services/preferences/interface';
 import { describe, expect, it } from 'vitest';
 
 describe('Section Definition Schema Validation', () => {
@@ -29,13 +29,19 @@ describe('Section Definition Schema Validation', () => {
     }
   });
 
-  it('all section ids match PreferenceSections enum values', () => {
-    const sectionIds = new Set(allSections.map((s) => s.id));
-    // import the enum values at type-level to ensure consistency
-    const enumValues = Object.values(PreferenceSections);
-    for (const v of enumValues) {
-      expect(sectionIds.has(v), `Section "${v}" declared in PreferenceSections but not in allSections`).toBe(true);
-    }
+  it('only exposes the MemeLoop App preference sections, in display order', () => {
+    expect(allSections.map((section) => section.id)).toEqual([
+      'general',
+      'externalAPI',
+      'aiModels',
+      'aiAgent',
+      'notifications',
+      'system',
+      'languages',
+      'downloads',
+      'performance',
+      'updates',
+    ]);
   });
 
   it('no duplicate preference keys across sections', () => {

@@ -8,8 +8,9 @@ import { logger } from '@services/libs/log';
 import serviceIdentifier from '@services/serviceIdentifier';
 import type { IWikiService } from '@services/wiki/interface';
 import type { IWorkspaceService } from '@services/workspaces/interface';
+import type { ToolDefinition } from 'memeloop/tools';
 import { z } from 'zod/v4';
-import { registerToolDefinition, type ToolExecutionResult } from './defineTool';
+import type { ToolExecutionResult } from './defineToolTypes';
 
 export const RecentParameterSchema = z.object({
   toolListPosition: z.object({
@@ -32,7 +33,7 @@ const RecentToolSchema = z.object({
 });
 
 async function executeRecent(parameters: z.infer<typeof RecentToolSchema>): Promise<ToolExecutionResult> {
-  const { workspaceName, limit = 20, daysAgo } = parameters;
+  const { workspaceName, limit, daysAgo } = parameters;
   const workspaceService = container.get<IWorkspaceService>(serviceIdentifier.Workspace);
   const wikiService = container.get<IWikiService>(serviceIdentifier.Wiki);
 
@@ -47,7 +48,7 @@ async function executeRecent(parameters: z.infer<typeof RecentToolSchema>): Prom
     filter = `[!is[system]!has[draft.of]days:modified[${daysAgo}]!sort[modified]limit[${limit}]]`;
   }
 
-  const results = await wikiService.wikiOperationInServer(WikiChannel.runFilter, target.id, [filter]) as string[];
+  const results = await wikiService.wikiOperationInServer(WikiChannel.runFilter, target.id, [filter]);
   logger.debug('Recent executed', { count: results.length, daysAgo });
 
   if (results.length === 0) {
@@ -61,7 +62,7 @@ async function executeRecent(parameters: z.infer<typeof RecentToolSchema>): Prom
   };
 }
 
-const recentDefinition = registerToolDefinition({
+export const recentToolDefinition = {
   toolId: 'recent',
   displayName: 'Wiki Recent Changes',
   description: 'Get recently modified tiddlers sorted by modification time',
@@ -75,10 +76,8 @@ const recentDefinition = registerToolDefinition({
   },
 
   async onResponseComplete({ toolCall, executeToolCall, agentFrameworkContext }) {
-    if (!toolCall || toolCall.toolId !== 'wiki-recent') return;
-    if (agentFrameworkContext.isCancelled()) return;
+    if (!toolCall?.found || toolCall.toolId !== 'wiki-recent') return;
+    if (agentFrameworkContext.operationSignal?.aborted) return;
     await executeToolCall('wiki-recent', executeRecent);
   },
-});
-
-export const recentTool = recentDefinition.tool;
+} satisfies ToolDefinition<typeof RecentParameterSchema, { 'wiki-recent': typeof RecentToolSchema }>;

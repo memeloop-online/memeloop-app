@@ -1,293 +1,332 @@
-// Chat tab content component - Modular version with message rendering system
-
-import { Box, CircularProgress, Typography } from '@mui/material';
-// Import services and hooks
-import React, { useEffect } from 'react';
+import { AgentChatShell, AgentSessionProvider, useAgentSession, useAgentSessionChatAdapter } from '@memeloop/react-ui/agent';
+import type { WebMemeLoopChatAdapter } from '@memeloop/react-ui/chat';
+import { Box, Typography } from '@mui/material';
+import type { AgentInstance } from '@services/agentInstance/interface';
+import { nanoid } from 'nanoid';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 
-// Import internal components
-import { ChatHeader } from './components/ChatHeader';
-import { InputContainer } from './components/InputContainer';
-import { MessagesContainer } from './components/MessagesContainer';
-import { ScrollToBottomButton } from './components/ScrollToBottomButton';
-
-// Import AIModelParametersDialog
+import { TabListDropdown } from '@/pages/Agent/components/TabBar/TabListDropdown';
+import { useTabStore } from '@/pages/Agent/store/tabStore';
 import { AIModelParametersDialog } from '@/windows/Preferences/sections/ExternalAPI/components/AIModelParametersDialog';
-
-// Import custom hooks
-import { useMessageHandling } from './hooks/useMessageHandling';
-import { useRegisterMessageRenderers } from './hooks/useMessageRendering';
-import { useScrollHandling } from './hooks/useScrollHandling';
-
-// Import utils
+import { PreferenceSections } from '@services/preferences/interface';
+import { WindowNames } from '@services/windows/WindowProperties';
+import type { TabItem } from '../Agent/types/tab';
+import { ChatHeader } from './components/ChatHeader';
+import { resolveDesktopAgentError } from './errorPresentation';
+import { createDesktopAgentSessionController, createDesktopTimelineController, loadDesktopMessageDetail, mapDesktopFile } from './sessionClients';
+import { useExecutionTargets } from './useExecutionTargets';
 import { isChatTab } from './utils/tabTypeGuards';
 
-// Import store hooks to fetch agent data
-import { useAgentChatStore } from '@/pages/Agent/store/agentChatStore';
-import { useTabStore } from '@/pages/Agent/store/tabStore';
-import { useShallow } from 'zustand/react/shallow';
-import { AgentWithoutMessages } from '../Agent/store/agentChatStore/types';
-import { TabItem } from '../Agent/types/tab';
-
-/**
- * Props interface for ChatTabContent component
- * Only accepts a tab object as its single prop
- */
 interface ChatTabContentProps {
-  tab: TabItem; // Tab will be checked if it's a chat tab
-  isSplitView?: boolean; // Whether this chat tab is in a split view
+  tab: TabItem;
+  isSplitView?: boolean;
 }
 
-/**
- * Chat Tab Content Component
- * Displays a chat interface for interacting with an AI agent
- * Only works with IChatTab objects
- */
-export const ChatTabContent: React.FC<ChatTabContentProps> = ({ tab, isSplitView }) => {
-  const { t } = useTranslation('agent');
+interface ActiveChatTabContentProps extends ChatTabContentProps {
+  agentId: string;
+  agentDefId?: string;
+  title?: string;
+}
 
-  // Type checking
-  if (!isChatTab(tab)) {
+type AgentMetadata = Omit<AgentInstance, 'messages'>;
+
+const PromptPreviewDialog = React.lazy(async () => {
+  const module = await import('./components/PromptPreviewDialog');
+  return { default: module.PromptPreviewDialog };
+});
+
+const ChatTabSession: React.FC<ActiveChatTabContentProps> = ({ agentId, ...props }) => {
+  const controller = useMemo(() => createDesktopAgentSessionController(), [agentId]);
+
+  useEffect(() => {
+    void controller.start({ agentId, conversationId: agentId }).catch((error: unknown) => {
+      void window.service.native.log('error', 'Failed to start agent chat session', { agentId, error });
+    });
+    return () => {
+      controller.stop();
+    };
+  }, [agentId, controller]);
+
+  return (
+    <AgentSessionProvider controller={controller}>
+      <ChatTabView {...props} agentId={agentId} />
+    </AgentSessionProvider>
+  );
+};
+
+const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
+  agentId,
+  agentDefId,
+  isSplitView,
+  tab,
+  title,
+}) => {
+  const { i18n, t } = useTranslation('agent');
+  const { snapshot } = useAgentSession();
+  const timelineController = useMemo(() => createDesktopTimelineController(), [agentId]);
+  const [metadata, setMetadata] = useState<AgentMetadata>();
+  const [parametersOpen, setParametersOpen] = useState(false);
+  const [previewMode, setPreviewMode] = useState<'preview' | 'edit'>();
+  const switchGeneration = useRef(0);
+  const updateTabData = useTabStore(useShallow(state => state.updateTabData));
+  const formatTimelineTimestamp = useMemo(() => {
+    const locale = i18n.resolvedLanguage || i18n.language;
+    try {
+      const formatter = new Intl.DateTimeFormat(locale, {
+        dateStyle: 'short',
+        timeStyle: 'short',
+      });
+      return (timestamp: number) => formatter.format(new Date(timestamp));
+    } catch {
+      return (timestamp: number) => new Date(timestamp).toISOString();
+    }
+  }, [i18n.language, i18n.resolvedLanguage]);
+
+  useEffect(() => () => {
+    timelineController.dispose();
+  }, [timelineController]);
+
+  useEffect(() => {
+    let disposed = false;
+    void window.service.agentInstance.getAgentMetadata(agentId).then(agent => {
+      if (disposed || !agent) return;
+      const { messages: _messages, ...nextMetadata } = agent;
+      setMetadata(nextMetadata);
+    }).catch((error: unknown) => {
+      void window.service.native.log('warn', 'Failed to load agent chat metadata', { agentId, error });
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [agentId]);
+
+  const sessionAdapter = useAgentSessionChatAdapter({
+    conversationId: agentId,
+    timelineController,
+    createId: nanoid,
+    mapFile: mapDesktopFile,
+    loadMessageDetail: loadDesktopMessageDetail,
+    onError: error => {
+      void window.service.native.log('warn', 'Agent chat operation failed', { agentId, error });
+    },
+  });
+
+  const handleSwitchAgent = useCallback(async (newAgentDefinitionId: string) => {
+    if (newAgentDefinitionId === agentDefId) return;
+    const generation = ++switchGeneration.current;
+    const newAgent = await window.service.agentInstance.createAgent(newAgentDefinitionId);
+    if (generation !== switchGeneration.current) return;
+    updateTabData(tab.id, {
+      agentId: newAgent.id,
+      agentDefId: newAgentDefinitionId,
+      title: newAgent.name,
+    });
+  }, [agentDefId, tab.id, updateTabData]);
+
+  useEffect(() => () => {
+    switchGeneration.current += 1;
+  }, []);
+
+  const refreshAfterRemoteSync = useCallback(async () => {
+    // A historical window must retain its anchor; live appends remain pending.
+    if (sessionAdapter.isAtLiveTail) await sessionAdapter.jumpToLatest?.();
+  }, [sessionAdapter]);
+
+  const exportMessage = useCallback(async (messageId: string, options: { signal: AbortSignal }) => {
+    options.signal.throwIfAborted();
+    const requestId = nanoid();
+    const cancel = (): void => {
+      void window.service.agentInstance.cancelAgentMessageExport(requestId);
+    };
+    options.signal.addEventListener('abort', cancel, { once: true });
+    try {
+      const exporting = window.service.agentInstance.exportAgentMessage({
+        conversationId: agentId,
+        messageId,
+        requestId,
+      });
+      if (options.signal.aborted) cancel();
+      await exporting;
+      options.signal.throwIfAborted();
+    } finally {
+      options.signal.removeEventListener('abort', cancel);
+    }
+  }, [agentId]);
+
+  const {
+    activeExecutionTargetId,
+    cancelSelectedTarget,
+    deleteSelectedTurn,
+    executionTargets,
+    remoteError,
+    remoteRunning,
+    retrySelectedTurn,
+    sendMessage: sendToExecutionTarget,
+    setExecutionTarget,
+  } = useExecutionTargets({
+    agent: snapshot.agent,
+    orderedMessages: [...sessionAdapter.messages],
+    refreshAgent: refreshAfterRemoteSync,
+  });
+
+  const adapter = useMemo<WebMemeLoopChatAdapter>(() => ({
+    ...sessionAdapter,
+    isRunning: sessionAdapter.isRunning || remoteRunning,
+    error: sessionAdapter.error ?? remoteError,
+    executionTargets,
+    activeExecutionTargetId,
+    setExecutionTarget,
+    sendMessage: input =>
+      sendToExecutionTarget(
+        input.text,
+        input.file,
+        input.wikiTiddlers ? [...input.wikiTiddlers] : undefined,
+      ),
+    cancel: cancelSelectedTarget,
+    deleteTurn: deleteSelectedTurn,
+    retryTurn: retrySelectedTurn,
+    exportMessage,
+  }), [
+    activeExecutionTargetId,
+    cancelSelectedTarget,
+    deleteSelectedTurn,
+    executionTargets,
+    exportMessage,
+    remoteError,
+    remoteRunning,
+    retrySelectedTurn,
+    sendToExecutionTarget,
+    sessionAdapter,
+    setExecutionTarget,
+  ]);
+
+  const renameConversation = useCallback(async (name: string) => {
+    const agent = await window.service.agentInstance.updateAgent(agentId, { name });
+    const { messages: _messages, ...nextMetadata } = agent;
+    setMetadata(nextMetadata);
+    updateTabData(tab.id, { title: name });
+  }, [agentId, tab.id, updateTabData]);
+
+  const saveModelParameters = useCallback(async (aiApiConfig: NonNullable<AgentMetadata['aiApiConfig']>) => {
+    const agent = await window.service.agentInstance.updateAgent(agentId, { aiApiConfig });
+    const { messages: _messages, ...nextMetadata } = agent;
+    setMetadata(nextMetadata);
+    setParametersOpen(false);
+  }, [agentId]);
+
+  return (
+    <AgentChatShell
+      adapter={adapter}
+      header={{
+        title: title ?? metadata?.name ?? snapshot.agent?.name ?? '',
+        navigation: isSplitView ? undefined : <TabListDropdown />,
+        actions: (
+          <ChatHeader
+            agentId={agentId}
+            agentDefId={agentDefId ?? snapshot.agent?.agentDefId}
+            loading={adapter.isRunning || adapter.isLoading}
+            onOpenParameters={() => {
+              setParametersOpen(true);
+            }}
+            onOpenPreview={setPreviewMode}
+            onSwitchAgent={handleSwitchAgent}
+          />
+        ),
+        editTitleLabel: t('Prompt.Edit'),
+        onTitleChange: renameConversation,
+      }}
+      loadingMessage={t('Agent.LoadingChat')}
+      emptyMessage={t('Agent.StartConversation')}
+      resolveErrorPresentation={value => resolveDesktopAgentError(value, t)}
+      genericErrorPresentation={{
+        title: t('Chat.ConfigError.Title'),
+        message: t('Chat.ConfigError.MissingConfigError'),
+      }}
+      onErrorAction={async presentation => {
+        if (presentation.actionId === 'open-provider-settings') {
+          await window.service.window.open(WindowNames.preferences, {
+            preferenceGotoTab: PreferenceSections.externalAPI,
+          });
+        }
+      }}
+      timelineLabels={{
+        navigation: t('Chat.Timeline.Navigation'),
+        turn: (index, total) => t('Chat.Timeline.Turn', { index, total }),
+        compacted: count => t('Chat.Timeline.Compacted', { count }),
+        loadEarlier: t('Chat.Timeline.LoadEarlier'),
+        loadLater: t('Chat.Timeline.LoadLater'),
+        seek: t('Chat.Timeline.Seek'),
+        close: t('Chat.Timeline.Close'),
+        newMessages: count => t('Chat.Timeline.NewMessages', { count }),
+        moreResponses: count => t('Chat.Timeline.MoreResponses', { count }),
+      }}
+      formatTimelineTimestamp={formatTimelineTimestamp}
+      actionLabels={{
+        retry: t('Chat.Actions.Retry'),
+        deleteTurn: t('Chat.Actions.DeleteTurn'),
+        copy: t('Chat.Actions.Copy'),
+        copyAll: t('Chat.Actions.CopyAll'),
+        user: t('Chat.Actions.User'),
+        agent: t('Chat.Actions.Agent'),
+      }}
+      messageLabels={{
+        exportFullMessage: t('Chat.Message.ExportFullMessage'),
+      }}
+      dialogs={
+        <>
+          {previewMode !== undefined && (
+            <React.Suspense fallback={null}>
+              <PromptPreviewDialog
+                open
+                onClose={() => {
+                  setPreviewMode(undefined);
+                }}
+                agentId={agentId}
+                agentDefId={agentDefId ?? snapshot.agent?.agentDefId}
+                initialBaseMode={previewMode}
+              />
+            </React.Suspense>
+          )}
+          {parametersOpen && (
+            <AIModelParametersDialog
+              open
+              onClose={() => {
+                setParametersOpen(false);
+              }}
+              config={{
+                api: metadata?.aiApiConfig?.api || { provider: 'openai', model: 'gpt-3.5-turbo' },
+                modelParameters: metadata?.aiApiConfig?.modelParameters || {
+                  temperature: 0.7,
+                  maxTokens: 1000,
+                  topP: 0.95,
+                },
+              }}
+              onSave={saveModelParameters}
+            />
+          )}
+        </>
+      }
+    />
+  );
+};
+
+export const ChatTabContent: React.FC<ChatTabContentProps> = props => {
+  const { t } = useTranslation('agent');
+  if (!isChatTab(props.tab) || !props.tab.agentId) {
     return (
       <Box sx={{ p: 2, textAlign: 'center' }}>
-        <Typography color='error'>
-          {t('Agent.InvalidTabType')}
-        </Typography>
+        <Typography color='error'>{t('Agent.InvalidTabType')}</Typography>
       </Box>
     );
   }
-
-  // Get agent store
-  const {
-    fetchAgent,
-    cancelAgent,
-    subscribeToUpdates,
-    updateAgent,
-    loading,
-    error,
-    agent,
-    streamingMessageIds, // Add streaming state to detect active generation
-  } = useAgentChatStore(
-    useShallow((state) => ({
-      fetchAgent: state.fetchAgent,
-      cancelAgent: state.cancelAgent,
-      subscribeToUpdates: state.subscribeToUpdates,
-      updateAgent: state.updateAgent,
-      loading: state.loading,
-      error: state.error,
-      agent: state.agent,
-      streamingMessageIds: state.streamingMessageIds,
-    })),
-  );
-
-  // Initialize scroll handling
-  const {
-    isUserAtBottomReference,
-    scrollToBottom,
-    debouncedScrollToBottom,
-    isUserAtBottom,
-    hasInitialScrollBeenDone,
-    markInitialScrollAsDone,
-  } = useScrollHandling();
-
-  // Initialize message handling
-  const {
-    message,
-    setMessage,
-    parametersOpen,
-    setParametersOpen,
-    // Only use the variables that are needed
-    handleOpenParameters,
-    handleMessageChange,
-    handleSendMessage,
-    handleKeyPress,
-    selectedFile,
-    handleFileSelect,
-    handleClearFile,
-    selectedWikiTiddlers,
-    handleWikiTiddlerSelect,
-    handleRemoveWikiTiddler,
-  } = useMessageHandling({
-    agentId: tab.agentId,
-    isUserAtBottom,
-    isUserAtBottomReference,
-    debouncedScrollToBottom,
-  });
-
-  // Register message renderers
-  useRegisterMessageRenderers();
-
-  // Setup agent subscription on mount or when tab.agentId changes
-  useEffect(() => {
-    if (!tab.agentId) return;
-
-    // Log the agentId being used for debugging
-    void window.service.native.log('info', 'ChatTabContent: Setting up agent subscription', {
-      agentId: tab.agentId,
-      tabId: tab.id,
-      tabTitle: tab.title,
-    });
-
-    // Fetch agent first
-    void fetchAgent(tab.agentId);
-
-    // Then setup subscription
-    const unsub = subscribeToUpdates(tab.agentId);
-
-    // Cleanup subscription on unmount or when tab.agentId changes
-    return () => {
-      if (unsub) unsub();
-    };
-  }, [tab.agentId, fetchAgent, subscribeToUpdates]);
-  const orderedMessageIds = useAgentChatStore(
-    useShallow((state) => state.orderedMessageIds),
-  );
-
-  // Effect to handle initial scroll when agent is first loaded
-  useEffect(() => {
-    // Only scroll to bottom on initial agent load, not on every agent update
-    const currentAgent: AgentWithoutMessages | null = agent;
-    if (currentAgent && !loading && orderedMessageIds.length > 0) {
-      // Use a ref to track if initial scroll has happened for this agent
-      const agentId = currentAgent.id;
-
-      // Check if we've already scrolled for this agent
-      if (!hasInitialScrollBeenDone(agentId)) {
-        // Scroll to bottom on initial load
-        debouncedScrollToBottom();
-        // Mark this agent as scrolled in our ref
-        markInitialScrollAsDone(agentId);
-      }
-    }
-  }, [agent?.id, loading, debouncedScrollToBottom, hasInitialScrollBeenDone, markInitialScrollAsDone, orderedMessageIds]);
-
-  // Effect to scroll to bottom when messages change
-  useEffect(() => {
-    if (!orderedMessageIds.length) return;
-
-    // Always use debounced scroll to prevent UI jumping for all message updates
-    if (isUserAtBottomReference.current) {
-      debouncedScrollToBottom();
-    }
-  }, [orderedMessageIds.length, isUserAtBottomReference, debouncedScrollToBottom]);
-  const isWorking = loading || agent?.status.state === 'working'; /**
-   * Check if any messages are currently streaming by examining the streamingMessageIds Set
-   * When Set size > 0, it means there's at least one message being streamed from the AI
-   */
-
-  const isStreaming = streamingMessageIds.size > 0;
-  // Keep the input enabled while agent is still being fetched/initialized.
-  // This avoids MUI 'disabled' rendering differences that break our E2E selectors.
-  const inputDisabled = agent ? isWorking : false;
-
-  // Agent switching: create new agent instance with different definition, update tab
-  const updateTabData = useTabStore(useShallow((state) => state.updateTabData));
-  const handleSwitchAgent = React.useCallback(async (newAgentDefinitionId: string) => {
-    if (newAgentDefinitionId === tab.agentDefId) return;
-    try {
-      const newAgent = await window.service.agentInstance.createAgent(newAgentDefinitionId);
-      // Update tab with new agent - this triggers useEffect[tab.agentId] which handles subscription cleanup/setup
-      updateTabData(tab.id, { agentId: newAgent.id, agentDefId: newAgentDefinitionId, title: newAgent.name } as Partial<TabItem>);
-      // Load the new agent into the store
-      await fetchAgent(newAgent.id);
-    } catch (error) {
-      void window.service.native.log('error', 'Failed to switch agent', { error });
-    }
-  }, [tab.agentDefId, tab.id, updateTabData, fetchAgent]);
-
   return (
-    <Box
-      sx={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Chat header with title and model selector */}
-      <ChatHeader
-        title={tab.title}
-        onOpenParameters={handleOpenParameters}
-        loading={isWorking}
-        inputText={message}
-        currentAgentDefId={tab.agentDefId}
-        onSwitchAgent={handleSwitchAgent}
-        isStreaming={isStreaming}
-        isSplitView={isSplitView}
-      />
-
-      {/* Messages container with all chat bubbles */}
-      <Box sx={{ position: 'relative', flex: 1, overflow: 'hidden' }}>
-        <MessagesContainer messageIds={orderedMessageIds} isSplitView={isSplitView} onDeleteTurn={setMessage}>
-          {/* Error state */}
-          {error && (
-            <Box sx={{ textAlign: 'center', p: 2, color: 'error.main' }}>
-              <Typography>{error.message}</Typography>
-            </Box>
-          )}
-
-          {/* Empty state */}
-          {!loading && !error && orderedMessageIds.length === 0 && (
-            <Box sx={{ textAlign: 'center', p: 4, color: 'text.secondary' }}>
-              <Typography>{t('Agent.StartConversation')}</Typography>
-            </Box>
-          )}
-
-          {/* Loading state - when first loading the agent */}
-          {loading && orderedMessageIds.length === 0 && (
-            <Box sx={{ textAlign: 'center', p: 4 }}>
-              <CircularProgress size={24} />
-              <Typography sx={{ mt: 2 }}>{t('Agent.LoadingChat')}</Typography>
-            </Box>
-          )}
-        </MessagesContainer>
-
-        {/* Floating scroll to bottom button */}
-        <ScrollToBottomButton scrollToBottom={scrollToBottom} />
-      </Box>
-
-      {/* Input container for typing messages */}
-      <InputContainer
-        value={message}
-        onChange={handleMessageChange}
-        onSend={handleSendMessage}
-        onCancel={cancelAgent}
-        onKeyPress={handleKeyPress}
-        disabled={inputDisabled}
-        isStreaming={isStreaming}
-        selectedFile={selectedFile}
-        onFileSelect={handleFileSelect}
-        onClearFile={handleClearFile}
-        selectedWikiTiddlers={selectedWikiTiddlers}
-        onWikiTiddlerSelect={handleWikiTiddlerSelect}
-        onRemoveWikiTiddler={handleRemoveWikiTiddler}
-      />
-
-      {/* Model parameter dialog */}
-      {parametersOpen && (
-        <AIModelParametersDialog
-          open={parametersOpen}
-          onClose={() => {
-            setParametersOpen(false);
-          }}
-          config={{
-            api: agent?.aiApiConfig?.api || { provider: 'openai', model: 'gpt-3.5-turbo' },
-            modelParameters: agent?.aiApiConfig?.modelParameters || {
-              temperature: 0.7,
-              maxTokens: 1000,
-              topP: 0.95,
-            },
-          }}
-          onSave={async (newConfig) => {
-            if (agent && tab.agentId) {
-              await updateAgent({
-                aiApiConfig: newConfig,
-              });
-              setParametersOpen(false);
-            }
-          }}
-        />
-      )}
-    </Box>
+    <ChatTabSession
+      {...props}
+      agentId={props.tab.agentId}
+      agentDefId={props.tab.agentDefId}
+      title={props.tab.title}
+    />
   );
 };

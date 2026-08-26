@@ -196,9 +196,9 @@ Then('the browser view should be loaded and visible', async function(this: Appli
       startingDelay: BROWSER_VIEW_RETRY_DELAY_MS,
       maxDelay: BROWSER_VIEW_RETRY_DELAY_MS,
     },
-  ).catch(async () => {
+  ).catch(async (error: unknown) => {
     // Gather diagnostics for failure analysis
-    let diagnostics = '';
+    let diagnostics: string;
     try {
       const loaded = await isLoaded(this.app!, this.currentWindow);
       const content = await getTextContent(this.app!, this.currentWindow);
@@ -209,6 +209,7 @@ Then('the browser view should be loaded and visible', async function(this: Appli
     throw new Error(
       `Browser view is not loaded or visible after ${longRetryAttempts} attempts ` +
         `(budget: ${Math.round(HEAVY_OPERATION_TIMEOUT / 1000)}s). ${diagnostics}`,
+      { cause: error },
     );
   });
 });
@@ -273,7 +274,7 @@ When('I type {string} in {string} element in browser view with selector {string}
   try {
     await typeText(this.app, selector, text, this.currentWindow);
   } catch (error) {
-    throw new Error(`Failed to type in ${elementComment} element with selector "${selector}" in browser view: ${error as Error}`);
+    throw new Error(`Failed to type in ${elementComment} element with selector "${selector}" in browser view: ${error as Error}`, { cause: error });
   }
 });
 
@@ -285,7 +286,7 @@ When('I press {string} in browser view', async function(this: ApplicationWorld, 
   try {
     await pressKey(this.app, key, this.currentWindow);
   } catch (error) {
-    throw new Error(`Failed to press key "${key}" in browser view: ${error as Error}`);
+    throw new Error(`Failed to press key "${key}" in browser view: ${error as Error}`, { cause: error });
   }
 });
 
@@ -503,7 +504,7 @@ When('I execute TiddlyWiki code in browser view: {string}', async function(this:
     const wrappedCode = `(function() { ${code}; return true; })()`;
     await executeTiddlyWikiCode(this.app, wrappedCode, this.currentWindow);
   } catch (error) {
-    throw new Error(`Failed to execute TiddlyWiki code in browser view: ${error as Error}`);
+    throw new Error(`Failed to execute TiddlyWiki code in browser view: ${error as Error}`, { cause: error });
   }
 });
 
@@ -516,7 +517,7 @@ Then('image {string} should be loaded in browser view', async function(this: App
   let lastDiagnostic = '';
   await backOff(
     async () => {
-      let isImageLoaded = false;
+      let isImageLoaded: boolean;
       try {
         const diagnostic = await executeTiddlyWikiCode<{
           loaded: boolean;

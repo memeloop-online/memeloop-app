@@ -1,24 +1,35 @@
 export type WorkerBridgeToolHandler = (
-  args: Record<string, unknown>,
-) => Promise<unknown> | unknown;
+  arguments_: Record<string, unknown>,
+) => unknown;
 
-const workerBridgeToolHandlers = new Map<string, WorkerBridgeToolHandler>();
+/** Runtime-owned bridge for host-only tools executed from the UtilityProcess. */
+export class WorkerToolBridgeRegistry {
+  private readonly handlers = new Map<string, WorkerBridgeToolHandler>();
+  private disposed = false;
 
-export function registerWorkerBridgeTool(toolId: string, handler: WorkerBridgeToolHandler): void {
-  workerBridgeToolHandlers.set(toolId, handler);
-}
-
-export function listWorkerBridgeTools(): string[] {
-  return Array.from(workerBridgeToolHandlers.keys());
-}
-
-export async function executeWorkerBridgeTool(
-  toolId: string,
-  args: Record<string, unknown>,
-): Promise<unknown> {
-  const handler = workerBridgeToolHandlers.get(toolId);
-  if (!handler) {
-    throw new Error(`No worker bridge tool registered for "${toolId}"`);
+  register(toolId: string, handler: WorkerBridgeToolHandler): () => boolean {
+    if (this.disposed) throw new Error('Worker tool bridge registry is disposed');
+    if (this.handlers.has(toolId)) throw new Error(`Worker bridge tool already registered: "${toolId}"`);
+    this.handlers.set(toolId, handler);
+    return () => {
+      if (this.handlers.get(toolId) !== handler) return false;
+      return this.handlers.delete(toolId);
+    };
   }
-  return handler(args);
+
+  listTools(): string[] {
+    return [...this.handlers.keys()];
+  }
+
+  async execute(toolId: string, arguments_: Record<string, unknown>): Promise<unknown> {
+    const handler = this.handlers.get(toolId);
+    if (!handler) throw new Error(`No worker bridge tool registered for "${toolId}"`);
+    return handler(arguments_);
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.handlers.clear();
+  }
 }

@@ -1,5 +1,3 @@
-import { shell } from 'electron';
-import i18next from 'i18next';
 import { inject, injectable } from 'inversify';
 import fetch from 'node-fetch';
 import { BehaviorSubject } from 'rxjs';
@@ -9,7 +7,6 @@ import { MEMELOOP_RELEASE_REPOSITORY } from '@/constants/productIdentity';
 import type { IAnalyticsService } from '@services/analytics/interface';
 import type { IContextService } from '@services/context/interface';
 import { logger } from '@services/libs/log';
-import type { IMenuService } from '@services/menu/interface';
 import type { IPreferenceService } from '@services/preferences/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
 import type { IGithubReleaseData, IUpdaterMetaData, IUpdaterService } from './interface';
@@ -25,7 +22,6 @@ export class Updater implements IUpdaterService {
     @inject(serviceIdentifier.Context) private readonly contextService: IContextService,
     @inject(serviceIdentifier.Preference) private readonly preferenceService: IPreferenceService,
     @inject(serviceIdentifier.Analytics) private readonly analyticsService: IAnalyticsService,
-    @inject(serviceIdentifier.MenuService) private readonly menuService: IMenuService,
   ) {
     this.updaterMetaData$ = new BehaviorSubject<IUpdaterMetaData>(this.updaterMetaData);
   }
@@ -40,19 +36,11 @@ export class Updater implements IUpdaterService {
       ...newUpdaterMetaData,
     };
     this.updateUpdaterSubject();
-    void this.menuService.buildMenu();
   }
 
   public async checkForUpdates(): Promise<void> {
     logger.debug('Checking for updates...');
     this.setMetaData({ status: IUpdaterStatus.checkingForUpdate });
-    await this.menuService.insertMenu('TidGi', [
-      {
-        id: 'update',
-        label: () => i18next.t('Updater.CheckingForUpdate'),
-        enabled: false,
-      },
-    ]);
     let latestVersion: string;
     let latestReleasePageUrl: string;
     const allowPrerelease = await this.preferenceService.get('allowPrerelease');
@@ -77,15 +65,6 @@ export class Updater implements IUpdaterService {
         status: 'error' as IUpdaterStatus,
         info: { errorMessage: (fetchError as Error).message },
       });
-      await this.menuService.insertMenu('TidGi', [
-        {
-          id: 'update',
-          label: () => i18next.t('Updater.CheckingFailed'),
-          click: async () => {
-            await this.checkForUpdates();
-          },
-        },
-      ]);
       return;
     }
     logger.debug('Get release data', { latestVersion });
@@ -98,27 +77,9 @@ export class Updater implements IUpdaterService {
     if (hasNewRelease) {
       void this.analyticsService.track('updater.update_available', { allowPrerelease });
       this.setMetaData({ status: IUpdaterStatus.updateAvailable, info: { version: latestVersion, latestReleasePageUrl } });
-      await this.menuService.insertMenu('TidGi', [
-        {
-          id: 'update',
-          label: () => i18next.t('Updater.UpdateAvailable'),
-          click: async () => {
-            await shell.openExternal(latestReleasePageUrl);
-          },
-        },
-      ]);
     } else {
       void this.analyticsService.track('updater.update_not_available', { allowPrerelease });
       this.setMetaData({ status: IUpdaterStatus.updateNotAvailable, info: { version: latestVersion } });
-      await this.menuService.insertMenu('TidGi', [
-        {
-          id: 'update',
-          label: () => i18next.t('Updater.UpdateNotAvailable'),
-          click: async () => {
-            await this.checkForUpdates();
-          },
-        },
-      ]);
     }
   }
 }

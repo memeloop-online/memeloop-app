@@ -1,10 +1,12 @@
 import type { AgentDefinition } from '../../../agentDefinition/interface';
 import { AgentFrameworkContext } from '../../agentFrameworks/utilities/type';
 import type { AgentInstance, AgentInstanceMessage } from '../../interface';
+import type { AppAgentToolRuntime } from '../../tools/runtime';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('promptConcatStream with image', () => {
+  const emptyToolRuntime = { promptPlugins: new Map() } as AppAgentToolRuntime;
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
@@ -45,7 +47,7 @@ describe('promptConcatStream with image', () => {
         metadata: {
           file: { path: '/path/to/image.png', name: 'image.png' },
         },
-      } as AgentInstanceMessage,
+      },
     ];
 
     const context: AgentFrameworkContext = {
@@ -64,6 +66,7 @@ describe('promptConcatStream with image', () => {
       },
       messages,
       context,
+      emptyToolRuntime,
     );
 
     let finalResult;
@@ -118,7 +121,7 @@ describe('promptConcatStream with image', () => {
         metadata: {
           file: { path: '/path/to/image.png' },
         },
-      } as AgentInstanceMessage,
+      },
     ];
 
     const context: AgentFrameworkContext = {
@@ -137,6 +140,7 @@ describe('promptConcatStream with image', () => {
       },
       messages,
       context,
+      emptyToolRuntime,
     );
 
     let finalResult;

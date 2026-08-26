@@ -2,21 +2,13 @@ import type { HunspellLanguages } from '@/constants/hunspellLanguages';
 import { z } from 'zod';
 import { aiAgentSection } from './aiAgent';
 import { aiModelsSection } from './aiModels';
-import { developersSection } from './developers';
 import { downloadsSection } from './downloads';
 import { externalAPISection } from './externalAPI';
-import { friendLinksSection } from './friendLinks';
 import { generalSection } from './general';
 import { languagesSection } from './languages';
-import { miscSection } from './misc';
-import { networkSection } from './network';
 import { notificationsSection } from './notifications';
 import { performanceSection } from './performance';
-import { privacySection } from './privacy';
-import { searchSection } from './search';
-import { syncSection } from './sync';
 import { systemSection } from './system';
-import { tidgiMiniWindowSection } from './tidgiMiniWindow';
 import type {
   IBooleanPreferenceItem,
   IEnumPreferenceItem,
@@ -27,33 +19,21 @@ import type {
   PreferenceItemDefinition,
 } from './types';
 import { updatesSection } from './updates';
-import { wikiSection } from './wiki';
-import { workspaceGroupsSection } from './workspaceGroups';
 
 /**
  * Ordered list of all sections. Display order matches array order.
  */
 export const allSections: ISectionDefinition[] = [
-  wikiSection,
-  workspaceGroupsSection,
   generalSection,
-  tidgiMiniWindowSection,
-  syncSection,
   externalAPISection,
   aiModelsSection,
   aiAgentSection,
-  searchSection,
   notificationsSection,
   systemSection,
   languagesSection,
-  developersSection,
   downloadsSection,
-  networkSection,
-  privacySection,
   performanceSection,
   updatesSection,
-  friendLinksSection,
-  miscSection,
 ];
 
 /** Map from section ID to its definition */
@@ -125,7 +105,29 @@ export function buildZodSchema(): z.ZodObject<Record<string, z.ZodType>> {
   shape.mcpServerPort = z.number().int().min(1).max(65_535);
   shape.mcpServerRequireToken = z.boolean();
   shape.mcpServerToken = z.string();
-  return z.object(shape) as z.ZodObject<Record<string, z.ZodType>>;
+  // Internal defaults retained until the preference model itself is split.
+  // They are intentionally not rendered by MemeLoop App.
+  shape.aiGenerateBackupTitle = z.boolean();
+  shape.aiGenerateBackupTitleTimeout = z.number();
+  shape.disableAntiAntiLeech = z.boolean();
+  shape.disableAntiAntiLeechForUrls = z.array(z.string());
+  shape.externalAPIDebug = z.boolean();
+  shape.hibernateUnusedWorkspacesAtLaunch = z.boolean();
+  shape.hideMenuBar = z.boolean();
+  shape.ignoreCertificateErrors = z.boolean();
+  shape.rememberLastPageVisited = z.boolean();
+  shape.shareWorkspaceBrowsingData = z.boolean();
+  shape.spellcheck = z.boolean();
+  shape.swipeToNavigate = z.boolean();
+  shape.syncBeforeShutdown = z.boolean();
+  shape.syncDebounceInterval = z.number();
+  shape.syncOnlyWhenNoDraft = z.boolean();
+  shape.tidgiMiniWindow = z.boolean();
+  shape.tidgiMiniWindowAlwaysOnTop = z.boolean();
+  shape.tidgiMiniWindowFixedWorkspaceId = z.string().optional();
+  shape.tidgiMiniWindowShowTitleBar = z.boolean();
+  shape.tidgiMiniWindowSyncWorkspaceWithMainWindow = z.boolean();
+  return z.object(shape);
 }
 
 /** The derived Zod schema — replaces the old zodSchema.ts */

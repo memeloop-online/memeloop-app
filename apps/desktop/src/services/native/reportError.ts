@@ -87,8 +87,8 @@ export function reportErrorToGithubWithTemplates(error: Error): void {
   const sanitizedStack = sanitizePaths(error.stack ?? '');
 
   openNewGitHubIssue({
-    user: 'tiddly-gittly',
-    repo: 'TidGi-Desktop',
+    user: 'linonetwo',
+    repo: 'memeloop-app',
     template: 'bug.yml',
     title: `bug: ${sanitizedMessage.substring(0, 100)}`,
     body: `### Environment 环境信息

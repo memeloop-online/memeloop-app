@@ -26,8 +26,7 @@ interface TabBackgroundTask {
 }
 
 const DropdownPaper = styled(Paper)(({ theme }) => ({
-  minWidth: 260,
-  maxWidth: 400,
+  width: 'min(400px, calc(100vw - 16px))',
   maxHeight: 420,
   borderRadius: 8,
   boxShadow: theme.shadows[8],

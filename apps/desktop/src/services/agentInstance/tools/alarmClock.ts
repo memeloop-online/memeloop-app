@@ -9,9 +9,9 @@ import { AgentInstanceEntity } from '@services/database/schema/agent';
 import { t } from '@services/libs/i18n/placeholder';
 import { logger } from '@services/libs/log';
 import serviceIdentifier from '@services/serviceIdentifier';
+import type { ToolDefinition } from 'memeloop/tools';
 import { z } from 'zod/v4';
 import type { IAgentInstanceService } from '../interface';
-import { registerToolDefinition } from './defineTool';
 
 export const AlarmClockParameterSchema = z.object({
   toolListPosition: z.object({
@@ -189,21 +189,13 @@ export function scheduleAlarmTimer(
 // ─── schedule-task / list-schedules / remove-schedule / update-schedule ──────
 
 const ScheduleTaskToolSchema = z.object({
-  kind: z.enum(['interval', 'at', 'cron']).meta({
+  kind: z.enum(['at', 'cron']).meta({
     title: 'Schedule kind',
-    description: '"interval" (repeat every N seconds), "at" (run at ISO datetime, optionally repeating), "cron" (cron expression)',
-  }),
-  intervalSeconds: z.number().optional().meta({
-    title: 'Interval (seconds)',
-    description: 'Required when kind="interval". Minimum 60.',
+    description: '"at" (one-shot ISO datetime) or "cron" (recurring cron expression)',
   }),
   wakeAtISO: z.string().optional().meta({
     title: 'Wake time (ISO 8601)',
     description: 'Required when kind="at". The datetime to wake at.',
-  }),
-  repeatIntervalMinutes: z.number().optional().meta({
-    title: 'Repeat (minutes)',
-    description: 'When kind="at": repeat every N minutes after first fire.',
   }),
   cronExpression: z.string().optional().meta({
     title: 'Cron expression',
@@ -271,7 +263,7 @@ const UpdateScheduleToolSchema = z.object({
 
 // ─── Tool definition ──────────────────────────────────────────────────────────
 
-const alarmClockDefinition = registerToolDefinition({
+export const alarmClockToolDefinition = {
   toolId: 'alarmClock',
   displayName: 'Alarm Clock',
   description: 'Schedule a self-wake at a future time and temporarily exit',
@@ -291,7 +283,7 @@ const alarmClockDefinition = registerToolDefinition({
   },
 
   async onResponseComplete({ toolCall, executeToolCall, agentFrameworkContext }) {
-    if (!toolCall) return;
+    if (!toolCall?.found) return;
     const agentId = agentFrameworkContext.agent.id;
 
     // ── legacy alarm-clock ────────────────────────────────────────────────
@@ -329,12 +321,9 @@ const alarmClockDefinition = registerToolDefinition({
         const { addTask } = await import('../scheduledTaskManager');
         let schedule: import('@services/database/schema/agent').ScheduleConfig;
 
-        if (parameters.kind === 'interval') {
-          const intervalSeconds = Math.max(60, parameters.intervalSeconds ?? 300);
-          schedule = { kind: 'interval', intervalSeconds };
-        } else if (parameters.kind === 'at') {
+        if (parameters.kind === 'at') {
           if (!parameters.wakeAtISO) throw new Error('wakeAtISO is required for kind="at"');
-          schedule = { kind: 'at', wakeAtISO: parameters.wakeAtISO, repeatIntervalMinutes: parameters.repeatIntervalMinutes };
+          schedule = { kind: 'at', wakeAtISO: parameters.wakeAtISO };
         } else {
           if (!parameters.cronExpression) throw new Error('cronExpression is required for kind="cron"');
           schedule = { kind: 'cron', expression: parameters.cronExpression, timezone: parameters.timezone };
@@ -343,7 +332,7 @@ const alarmClockDefinition = registerToolDefinition({
         const task = await addTask({
           agentInstanceId: agentId,
           name: parameters.name,
-          scheduleKind: parameters.kind,
+          scheduleKind: schedule.kind,
           schedule: schedule,
           payload: parameters.message ? { message: parameters.message } : undefined,
           activeHoursStart: parameters.activeHoursStart,
@@ -364,7 +353,7 @@ const alarmClockDefinition = registerToolDefinition({
     if (toolCall.toolId === 'list-schedules') {
       await executeToolCall('list-schedules', async () => {
         const { getActiveTasksForAgent } = await import('../scheduledTaskManager');
-        const tasks = getActiveTasksForAgent(agentId);
+        const tasks = await getActiveTasksForAgent(agentId);
         if (tasks.length === 0) {
           return { success: true, data: 'No active scheduled tasks.' };
         }
@@ -399,7 +388,13 @@ const alarmClockDefinition = registerToolDefinition({
       });
     }
   },
-});
+} satisfies ToolDefinition<typeof AlarmClockParameterSchema, {
+  'alarm-clock': typeof AlarmClockToolSchema;
+  'schedule-task': typeof ScheduleTaskToolSchema;
+  'list-schedules': typeof ListSchedulesToolSchema;
+  'remove-schedule': typeof RemoveScheduleToolSchema;
+  'update-schedule': typeof UpdateScheduleToolSchema;
+}>;
 
 /** Cancel an active alarm for an agent (call on agent close/delete) */
 export function cancelAlarm(agentId: string): void {
@@ -426,5 +421,3 @@ export function getActiveAlarmAgentIds(): string[] {
 export function getActiveAlarmEntries(): ActiveAlarmTimer[] {
   return [...activeTimers.values()];
 }
-
-export const alarmClockTool = alarmClockDefinition.tool;

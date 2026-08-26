@@ -8,7 +8,8 @@ import { logger } from '@services/libs/log';
 import { cloneDeep } from 'lodash';
 import { AgentFrameworkContext } from '../agentFrameworks/utilities/type';
 import { AgentInstanceMessage } from '../interface';
-import { createAgentFrameworkHooks, pluginRegistry } from '../tools';
+import { createAgentFrameworkHooks } from '../tools';
+import type { AppAgentToolRuntime } from '../tools/runtime';
 import { AgentResponse, PostProcessContext, YieldNextRoundTarget } from '../tools/types';
 import type { IPromptConcatTool } from './promptConcatSchema';
 import { AgentFrameworkConfig, AgentPromptDescription } from './promptConcatSchema';
@@ -25,6 +26,7 @@ export async function responseConcat(
   agentConfig: AgentPromptDescription,
   llmResponse: string,
   context: AgentFrameworkContext,
+  runtime: AppAgentToolRuntime,
   messages: AgentInstanceMessage[] = [],
 ): Promise<{
   processedResponse: string;
@@ -48,9 +50,9 @@ export async function responseConcat(
   const hooks = createAgentFrameworkHooks();
   // Register all tools from configuration
   for (const tool of enabledToolConfigs) {
-    const builtInTool = pluginRegistry.get(tool.toolId);
+    const builtInTool = runtime.promptPlugins.get(tool.toolId);
     if (builtInTool) {
-      builtInTool(hooks);
+      builtInTool(hooks as never);
     } else {
       logger.warn(`No built-in tool found for response toolId: ${tool.toolId}`);
     }

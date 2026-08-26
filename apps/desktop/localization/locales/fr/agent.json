@@ -30,6 +30,7 @@
     "ThinkingProcess": "Réfléchir",
     "Untitled": "Sans titre"
   },
+  "AgentSwitcher": { "Search": "Rechercher des agents..." },
   "Browser": {
     "Back": "reculer",
     "Bookmark": "collection",
@@ -55,12 +56,43 @@
       "ModelNoVisionSupport": "Le modèle sélectionné ne prend pas en charge la vision. Veuillez choisir un modèle compatible avec la vision dans les paramètres.",
       "Title": "Problème de configuration"
     },
+    "RunError": {
+      "ContextCompactionPending": "MemeLoop compacte cette conversation afin que l’agent puisse poursuivre avec son contexte. L’historique est conservé ; patientez un instant, puis réessayez.",
+      "ContextCompactionPendingTitle": "Préparation de la conversation longue",
+      "UserMessageTooLarge": "Ce message fait {{requested}} octets et dépasse la limite de {{limit}} octets. Raccourcissez-le, divisez-le en plusieurs messages ou envoyez son contenu en pièce jointe.",
+      "UserMessageTooLargeTitle": "Le message est trop volumineux"
+    },
     "FileValidation": {
       "NotAnImage": "Le fichier sélectionné n'est pas une image ({{fileType}}). Veuillez sélectionner un fichier image.",
       "TooLarge": "La taille du fichier {{size}}MB dépasse la limite ({{maxSize}}MB). Veuillez sélectionner un fichier plus petit."
     },
     "InputPlaceholder": "Tapez un message, Ctrl+Entrée pour envoyer",
-    "Send": "Envoyer"
+    "Message": {
+      "ExportFullMessage": "Exporter le message complet"
+    },
+    "Send": "Envoyer",
+    "Actions": { "Retry": "Réessayer", "DeleteTurn": "Supprimer le tour", "Copy": "Copier", "CopyAll": "Tout copier", "User": "Utilisateur", "Agent": "Agent" },
+    "Timeline": {
+      "Navigation": "Chronologie de la conversation",
+      "Turn": "Tour {{index}} sur {{total}}",
+      "MoreResponses": "{{count}} réponses supplémentaires",
+      "Compacted": "{{count}} messages précédents condensés",
+      "LoadEarlier": "Charger les messages précédents",
+      "LoadLater": "Charger les messages suivants",
+      "Seek": "Parcourir la chronologie de la conversation",
+      "Close": "Fermer",
+      "NewMessages": "{{count}} nouveaux messages"
+    },
+    "ExecutionTarget": {
+      "NoActiveAgent": "Aucun agent actif n’est disponible.",
+      "Platform": { "cli": "Ligne de commande", "desktop": "Ordinateur", "mobile": "Mobile" },
+      "Reachability": { "connecting": "connexion en cours", "nearby": "à proximité", "offline": "hors ligne", "online": "en ligne" },
+      "RemoteDeviceDescription": "{{platform}} · {{reachability}}",
+      "RemoteAttachmentsUnsupported": "Les pièces jointes ne sont pas encore prises en charge pour l’exécution distante. Utilisez cet appareil ou envoyez uniquement du texte.",
+      "RunOnThisDesktop": "Exécuter sur cet ordinateur",
+      "RunOnThisDesktopWithPeerId": "Exécuter sur cet ordinateur ({{peerId}})",
+      "ThisDevice": "Cet appareil"
+    }
   },
   "Common": {
     "None": "non sélectionné"
@@ -108,6 +140,52 @@
     "Loading": "Chargement du wiki..."
   },
   "EditAgent": {
+    "SchedulePersistentTitle": "Les planifications s’exécutent dans des conversations persistantes",
+    "SchedulePersistentDescription": "Cet éditeur utilise un aperçu temporaire supprimé automatiquement. Créez une vraie conversation, puis configurez sa planification dans les réglages Agent IA.",
+    "ScheduleCreateConversation": "Créer une conversation",
+    "ScheduleCreatingConversation": "Création…",
+    "ActiveHoursEnd": "Fin des heures actives (facultatif)",
+    "ActiveHoursStart": "Début des heures actives (facultatif)",
+    "Hours": "Heures",
+    "Minutes": "Minutes",
+    "ScheduleCron": "Expression Cron avancée",
+    "ScheduleCronExpr": "Expression Cron",
+    "ScheduleCronHelp": "Cron à 5 champs : minute heure jour mois jour-semaine",
+    "ScheduleCronPreview": "Prochaines exécutions :",
+    "ScheduleExecutionTarget": "Exécuter sur l’appareil",
+    "ScheduleExecutionTargetUnavailable": "L’appareil sélectionné est indisponible. Choisissez un appareil disponible avant de modifier cette planification.",
+    "ScheduleIdentityLoading": "Chargement de l’identité sécurisée de cet appareil…",
+    "ScheduleIdentityError": "L’identité sécurisée de cet appareil est indisponible. La planification reste désactivée jusqu’à ce que le réseau d’appareils soit prêt.",
+    "ScheduleDefaultTaskName": "Planification de {{agentName}}",
+    "ScheduleInvalidCron": "Saisissez une planification Cron valide.",
+    "ScheduleInvalidTimezone": "Choisissez un fuseau horaire pris en charge.",
+    "ScheduleNoPreview": "Aucune prochaine exécution n’a été trouvée.",
+    "SchedulePreviewLoading": "Vérification de la planification...",
+    "ScheduleDaily": "Quotidien (à une heure précise)",
+    "ScheduleDailyTime": "Heure de réveil",
+    "ScheduledWakeup": "Réveil planifié",
+    "ScheduledWakeupDescription": "Configurez une planification récurrente pour réveiller automatiquement cet agent et envoyer un rappel.",
+    "ScheduleInterval": "Intervalle (toutes les N secondes/minutes/heures)",
+    "ScheduleIntervalUnit": "Unité",
+    "ScheduleIntervalValue": "Toutes les",
+    "ScheduleMessage": "Message de réveil",
+    "ScheduleMessagePlaceholder": "[Planifié] Vérification périodique. Examinez vos tâches et traitez celles en attente.",
+    "ScheduleMode": "Mode",
+    "ScheduleNone": "Aucun (pas de réveil planifié)",
+    "ScheduleSave": "Enregistrer la planification",
+    "ScheduleSaveWait": "Chargement de l’agent d’aperçu...",
+    "ScheduleSaving": "Enregistrement...",
+    "ScheduleTaskSelection": "Tâche planifiée",
+    "ScheduleNewTask": "Nouvelle tâche planifiée",
+    "ScheduleOperationFailed": "L’opération sur la tâche planifiée a échoué.",
+    "ScheduleSourceIncomplete": "Certains appareils n’ont pas fourni un planning en direct complet. Les modifications sont désactivées jusqu’à ce que toutes les sources soient disponibles.",
+    "ScheduleSourceOnline": "{{executionTarget}} est en ligne.",
+    "ScheduleSourceOffline": "{{executionTarget}} est hors ligne.",
+    "ScheduleSourceDegraded": "{{executionTarget}} est dégradé.",
+    "ScheduleSourceCached": "{{executionTarget}} affiche des données de planning en cache.",
+    "ScheduleTimezone": "Fuseau horaire",
+    "ScheduleUpdate": "Mettre à jour la planification",
+    "Seconds": "Secondes",
     "AgentDescription": "Description de l'agent intelligent",
     "AgentDescriptionHelper": "Décrivez les fonctionnalités et l'utilité de votre agent intelligent",
     "AgentDescriptionPlaceholder": "Entrez la description de l'agent intelligent...",
@@ -155,6 +233,8 @@
     "SearchPlaceholder": "Rechercher un onglet ou un agent intelligent..."
   },
   "Preference": {
+    "NoScheduledTaskAgents": "Créez ou ouvrez une conversation d’agent avant de configurer une planification.",
+    "ScheduledTaskAgent": "Agent",
     "AIAgent": "agent intelligent",
     "AIAgentDescription": "Gérer la base de données des enregistrements de conversation des agents IA",
     "AIAgentDescriptionDetail": "Ici, vous pouvez consulter et supprimer les informations sur la taille et l'emplacement de la base de données des historiques de conversation avec l'Agent IA.",
