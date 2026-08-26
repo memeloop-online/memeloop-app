@@ -22,7 +22,7 @@
     "expo-router": "~4.0.0",
     "expo-secure-store": "~14.0.1",
     "expo-status-bar": "~2.0.0",
-    "memeloop": "^0.2.6",
+    "memeloop": "^0.2.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-native": "~0.76.0",

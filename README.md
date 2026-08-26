@@ -19,10 +19,10 @@ Desktop and mobile consume the published MemeLoop packages from npm:
 
 | Package | Version |
 |---------|---------|
-| `memeloop` | `0.2.0` |
-| `@memeloop/libp2p` | `0.2.0` |
-| `memeloop-cli` | `0.2.0` (desktop) |
-| `@memeloop/react-ui` | `0.1.1` (desktop) |
+| `memeloop` | `0.2.7` |
+| `@memeloop/libp2p` | `0.2.4` |
+| `memeloop-cli` | `0.2.6` (desktop) |
+| `@memeloop/react-ui` | `0.1.5` (desktop) |
 
 ## Quick Start
 
