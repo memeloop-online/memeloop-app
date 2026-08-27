@@ -4,7 +4,7 @@ import {
   OrchestrationError,
   type AgentOrchestrationCapabilities,
   type AgentOrchestrationClient,
-} from 'memeloop';
+} from 'memeloop/orchestration/portable';
 import {
   createDeviceOrchestrationTransport,
   type DeviceNetworkService,
