@@ -24,6 +24,6 @@ allowBuilds:
 # every other package and for all future MemeLoop versions.
 minimumReleaseAgeExclude:
   - '@memeloop/libp2p@0.2.4'
-  - '@memeloop/react-ui@0.1.5'
+  - '@memeloop/react-ui@0.1.6'
   - memeloop-cli@0.2.6
-  - memeloop@0.2.7
+  - memeloop@0.2.8
