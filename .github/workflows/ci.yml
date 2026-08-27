@@ -103,13 +103,24 @@ jobs:
 
       - name: Verify network boundary and pinned bootstrap
         working-directory: apps/desktop
-        run: >-
-          ./node_modules/.bin/cross-env ELECTRON_RUN_AS_NODE=1
-          ./node_modules/.bin/electron ./node_modules/vitest/vitest.mjs run
-          src/__tests__/network/legacyNetworkSurface.test.ts
-          src/services/sshRemote/__tests__/bootstrap.test.ts
-          src/services/memeloopNode/__tests__/ipcSurface.test.ts
-          src/services/memeloopNode/__tests__/chatSyncIntegration.test.ts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test_files=(
+            src/__tests__/network/legacyNetworkSurface.test.ts
+            src/services/sshRemote/__tests__/bootstrap.test.ts
+            src/services/memeloopNode/__tests__/ipcSurface.test.ts
+            src/services/memeloopNode/__tests__/chatSyncIntegration.test.ts
+          )
+          for test_file in "${test_files[@]}"; do
+            test -f "$test_file" || {
+              echo "Required boundary test is missing: $test_file" >&2
+              exit 1
+            }
+            ./node_modules/.bin/cross-env ELECTRON_RUN_AS_NODE=1 \
+              ./node_modules/.bin/electron ./node_modules/vitest/vitest.mjs run \
+              "$test_file"
+          done
 
       - name: Reject local MemeLoop dependency overrides
         run: |
