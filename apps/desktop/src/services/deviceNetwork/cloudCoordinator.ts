@@ -27,11 +27,11 @@ export function createDesktopCloudConnectionCoordinator<Configuration>(
     adapter: {
       isConfigured: configuration => adapter.isConfigured(configuration),
       relayRequiredForOnline: () => desktopRelayRequiredForOnline(getMultiaddrs()),
-      ensureAuthorizer: (configuration, signal) => adapter.ensureAuthorizer(configuration, signal),
-      registerDevice: (configuration, signal) => adapter.registerDevice(configuration, signal),
-      ensureRelay: (configuration, signal) => adapter.ensureRelay(configuration, signal),
-      heartbeat: (configuration, signal) => adapter.heartbeat(configuration, signal),
-      syncDirectory: (configuration, signal) => adapter.syncDirectory(configuration, signal),
+      ensureAuthorizer: (...parameters) => adapter.ensureAuthorizer(...parameters),
+      registerDevice: (...parameters) => adapter.registerDevice(...parameters),
+      ensureRelay: (...parameters) => adapter.ensureRelay(...parameters),
+      heartbeat: (...parameters) => adapter.heartbeat(...parameters),
+      syncDirectory: (...parameters) => adapter.syncDirectory(...parameters),
       ...(adapter.dispose
         ? { dispose: (configuration: Configuration, signal: AbortSignal) => adapter.dispose!(configuration, signal) }
         : {}),
