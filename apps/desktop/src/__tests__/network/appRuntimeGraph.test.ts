@@ -8,6 +8,29 @@ const desktopRoot = path.resolve(sourceRoot, '..');
 const entrypoints = ['main.ts', 'preload/index.ts', 'renderer.tsx']
   .map(file => path.join(sourceRoot, file));
 const candidateSuffixes = ['', '.ts', '.tsx', '.js', '.jsx', '.json', '/index.ts', '/index.tsx'];
+const forbiddenRuntimePrefixes = [
+  'services/git/',
+  'services/gitServer/',
+  'services/htmlWiki/',
+  'services/memeloopNode/',
+  'services/menu/',
+  'services/sync/',
+  'services/view/',
+  'services/wiki/',
+  'services/wikiEmbedding/',
+  'services/wikiGitWorkspace/',
+  'services/workspaces/',
+  'services/workspacesView/',
+  'services/auth/',
+];
+
+function normalizeRuntimePath(file: string): string {
+  return file.replaceAll('\\', '/');
+}
+
+function isForbiddenRuntimePath(file: string): boolean {
+  return forbiddenRuntimePrefixes.some(prefix => file.startsWith(prefix));
+}
 
 function resolveLocalImport(specifier: string, importer: string): string | undefined {
   let base: string;
@@ -85,25 +108,14 @@ function getRuntimeGraph(): Set<string> {
 
 describe('MemeLoop App production import graph', () => {
   const graph = getRuntimeGraph();
-  const relativeGraph = [...graph].map(file => path.relative(sourceRoot, file));
+  // `path.relative` follows the host separator. Normalize at collection time
+  // so exact membership and prefix security checks have identical semantics on
+  // Windows, macOS, and Linux.
+  const relativeGraph = [...graph]
+    .map(file => normalizeRuntimePath(path.relative(sourceRoot, file)));
 
   it('does not assemble inherited TidGi host services or routes', () => {
-    const forbiddenPrefixes = [
-      'services/git/',
-      'services/gitServer/',
-      'services/htmlWiki/',
-      'services/memeloopNode/',
-      'services/menu/',
-      'services/sync/',
-      'services/view/',
-      'services/wiki/',
-      'services/wikiEmbedding/',
-      'services/wikiGitWorkspace/',
-      'services/workspaces/',
-      'services/workspacesView/',
-      'services/auth/',
-    ];
-    expect(relativeGraph.filter(file => forbiddenPrefixes.some(prefix => file.startsWith(prefix)))).toEqual([]);
+    expect(relativeGraph.filter(isForbiddenRuntimePath)).toEqual([]);
     expect(relativeGraph).toContain('services/windows/appWindow.ts');
     expect(relativeGraph).not.toContain('services/windows/index.ts');
 
@@ -117,6 +129,17 @@ describe('MemeLoop App production import graph', () => {
     expect(reachableSource).not.toMatch(/WikiBackground|WIKI_EMBED|\/wiki\/:id/);
     expect(relativeGraph).not.toContain('services/native/externalApp.ts');
     expect(fs.readFileSync(path.join(sourceRoot, 'services/native/reportError.ts'), 'utf8')).not.toContain('TidGi-Desktop');
+  });
+
+  it('normalizes Windows relative paths before exact and forbidden-prefix checks', () => {
+    const windowsSourceRoot = String.raw`C:\repo\apps\desktop\src`;
+    const windowsGraph = [
+      String.raw`C:\repo\apps\desktop\src\services\windows\appWindow.ts`,
+      String.raw`C:\repo\apps\desktop\src\services\wiki\index.ts`,
+    ].map(file => normalizeRuntimePath(path.win32.relative(windowsSourceRoot, file)));
+
+    expect(windowsGraph).toContain('services/windows/appWindow.ts');
+    expect(windowsGraph.filter(isForbiddenRuntimePath)).toEqual(['services/wiki/index.ts']);
   });
 
   it('does not retain the inherited fixed-width workspace or vertical-tab sidebars', () => {
