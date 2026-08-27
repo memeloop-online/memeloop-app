@@ -54,11 +54,11 @@ export class ContextService implements IContextService {
   }
 
   public async get<K extends keyof IContext>(key: K): Promise<IContext[K]> {
-    if (key in this.context) {
+    if (Object.hasOwn(this.context, key)) {
       return this.context[key];
     }
 
-    throw new Error(`${key} not existed in ContextService`);
+    throw new Error(`Context key is not exposed: ${key}`);
   }
 
   public async isOnline(): Promise<boolean> {
