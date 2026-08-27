@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 
-import type { IPreferenceWindowMeta, IPossibleWindowMeta, WindowNames } from '@services/windows/WindowProperties';
+import type { IPossibleWindowMeta, IPreferenceWindowMeta, WindowNames } from '@services/windows/WindowProperties';
 
 interface UsePreferenceGotoTabOptions {
   /** Skip scrolling while the user is searching. */

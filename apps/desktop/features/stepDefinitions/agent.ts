@@ -1,4 +1,4 @@
-import { After, DataTable, Given, Then, When } from '@cucumber/cucumber';
+import { After, DataTable, Given, Then } from '@cucumber/cucumber';
 import { AIGlobalSettings, AIProviderConfig } from '@services/providerRegistry/interface';
 import { backOff } from 'exponential-backoff';
 import fs from 'fs-extra';

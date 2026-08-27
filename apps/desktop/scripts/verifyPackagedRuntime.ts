@@ -135,21 +135,25 @@ verifyProductionClosure(
   PACKAGED_ELECTRON_UNHANDLED_PACKAGE,
 );
 
-for (const forbiddenLegacyEntry of [
-  '/template/wiki',
-  '/node_modules/tiddlywiki',
-  '/src/services/wiki',
-  '/src/services/workspaces',
-]) {
+for (
+  const forbiddenLegacyEntry of [
+    '/template/wiki',
+    '/node_modules/tiddlywiki',
+    '/src/services/wiki',
+    '/src/services/workspaces',
+  ]
+) {
   if ([...archiveEntries].some(entry => entry === forbiddenLegacyEntry || entry.startsWith(`${forbiddenLegacyEntry}/`))) {
     throw new Error(`Packaged App contains inherited TiddlyWiki/workspace content: ${forbiddenLegacyEntry}`);
   }
 }
 
-for (const forbiddenLegacyDirectory of [
-  path.join(resourcesDirectory, 'template', 'wiki'),
-  path.join(resourcesDirectory, 'node_modules', 'tiddlywiki'),
-]) {
+for (
+  const forbiddenLegacyDirectory of [
+    path.join(resourcesDirectory, 'template', 'wiki'),
+    path.join(resourcesDirectory, 'node_modules', 'tiddlywiki'),
+  ]
+) {
   if (fs.existsSync(forbiddenLegacyDirectory)) {
     throw new Error(`Packaged resources contain inherited TiddlyWiki content: ${forbiddenLegacyDirectory}`);
   }

@@ -2,12 +2,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import {
-  BUNDLED_ETCD3_PROTO_DIRECTORY,
-  PACKAGED_BETTER_SQLITE_RUNTIME_PATHS,
-  PACKAGED_ELECTRON_UNHANDLED_PACKAGE,
-  REQUIRED_ETCD3_PROTO_FILES,
-} from '../../../scripts/afterPack';
+import { BUNDLED_ETCD3_PROTO_DIRECTORY, PACKAGED_BETTER_SQLITE_RUNTIME_PATHS, PACKAGED_ELECTRON_UNHANDLED_PACKAGE, REQUIRED_ETCD3_PROTO_FILES } from '../../../scripts/afterPack';
 
 const staleNoisePackages = [
   'sodium-universal',

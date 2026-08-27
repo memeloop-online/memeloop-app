@@ -93,7 +93,6 @@ export interface IDatabaseService {
    * Delete the database file for a given key and close any active connection.
    */
   deleteDatabase(key: string): Promise<void>;
-
 }
 
 export const DatabaseServiceIPCDescriptor = {
