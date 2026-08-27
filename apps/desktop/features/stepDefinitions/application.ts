@@ -131,80 +131,15 @@ export class ApplicationWorld {
     const pages = this.app.windows();
 
     if (windowName === WindowNames.main) {
-      // Main window is the first/primary window, typically showing guide, agent, help, or wiki pages
-      // It's the window that opens on app launch
+      // Main window is the first application window.
       const allWindows = pages.filter((page) => !page.isClosed());
       if (allWindows.length > 0) {
         // Return the first window (main window is always the first one created)
         return allWindows[0];
       }
       return undefined;
-    } else if (windowName === WindowNames.tidgiMiniWindow) {
-      // Special handling for tidgi mini window
-      // First try to find by Electron window dimensions (more reliable than title)
-      const windowDimensions = checkWindowDimension(windowName);
-      try {
-        const electronWindowInfo = await this.app.evaluate(
-          async (
-            { BrowserWindow },
-            size: { width: number; height: number },
-          ) => {
-            const allWindows = BrowserWindow.getAllWindows();
-            const tidgiMiniWindow = allWindows.find((win) => {
-              const bounds = win.getBounds();
-              return (
-                bounds.width === size.width && bounds.height === size.height
-              );
-            });
-            return tidgiMiniWindow ? { id: tidgiMiniWindow.id } : null;
-          },
-          windowDimensions,
-        );
-
-        if (electronWindowInfo) {
-          // Found by dimensions, now match with Playwright page
-          const allWindows = pages.filter((page) => !page.isClosed());
-          for (const page of allWindows) {
-            try {
-              // Try to match by checking if this page belongs to the found electron window
-              // For now, use title as fallback verification
-              const title = await page.title();
-              if (
-                title.includes('太记小窗') ||
-                title.includes('TidGi Mini Window') ||
-                title.includes('TidGiMiniWindow')
-              ) {
-                return page;
-              }
-            } catch {
-              continue;
-            }
-          }
-        }
-      } catch {
-        // If Electron API fails, fallback to title matching
-      }
-
-      // Fallback: Match by window title
-      const allWindows = pages.filter((page) => !page.isClosed());
-      for (const page of allWindows) {
-        try {
-          const title = await page.title();
-          if (
-            title.includes('太记小窗') ||
-            title.includes('TidGi Mini Window') ||
-            title.includes('TidGiMiniWindow')
-          ) {
-            return page;
-          }
-        } catch {
-          // Page might be closed or not ready, continue to next
-          continue;
-        }
-      }
-      return undefined;
     } else {
-      // For regular windows (preferences, about, addWorkspace, etc.)
+      // Match the standalone application's secondary windows by route.
       return pages.find((page) => {
         if (page.isClosed()) return false;
         const url = page.url() || '';

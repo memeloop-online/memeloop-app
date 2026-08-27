@@ -3,8 +3,8 @@ import path from 'path';
 import { __TEST__ as v8CompileCacheLibrary } from 'v8-compile-cache-lib';
 import { slugify } from '../helpers/slugify';
 import { isElectronDevelopment, isTest } from './environment';
-import { cacheDatabaseFolderName, httpsCertKeyFolderName, settingFolderName } from './fileNames';
-import { DEFAULT_FIRST_WIKI_FOLDER_PATH as PATHS_DEFAULT_FIRST_WIKI_FOLDER_PATH, DEFAULT_FIRST_WIKI_NAME, sourcePath } from './paths';
+import { cacheDatabaseFolderName, settingFolderName } from './fileNames';
+import { sourcePath } from './paths';
 
 /**
  * Application Path Configuration
@@ -81,13 +81,7 @@ if (isTest) {
 // Application directories
 export const USER_DATA_FOLDER = getElectronApp().getPath('userData');
 export const SETTINGS_FOLDER = path.resolve(USER_DATA_FOLDER, settingFolderName);
-export const HTTPS_CERT_KEY_FOLDER = path.resolve(USER_DATA_FOLDER, httpsCertKeyFolderName);
 export const CACHE_DATABASE_FOLDER = path.resolve(USER_DATA_FOLDER, cacheDatabaseFolderName);
-
-// Git directory (dugite package location)
-export const LOCAL_GIT_DIRECTORY = isPackaged
-  ? path.resolve(process.resourcesPath, 'node_modules', 'dugite', 'git')
-  : path.resolve(sourcePath, 'node_modules', 'dugite', 'git');
 // Logging and cache directories
 export const LOG_FOLDER = path.resolve(USER_DATA_FOLDER, 'logs');
 export const V8_CACHE_FOLDER = v8CompileCacheLibrary.getCacheDir();
@@ -95,12 +89,3 @@ export const V8_CACHE_FOLDER = v8CompileCacheLibrary.getCacheDir();
 // Resolve this in the main process so the sandboxed renderer never reads env.
 export const INSTALLER_LOG_FOLDER = path.resolve(getElectronApp().getPath('temp'), '..', 'SquirrelTemp');
 export const DEFAULT_DOWNLOADS_PATH = path.join(getElectronApp().getPath('home'), 'Downloads');
-
-// Use Electron's app.getPath('desktop') which correctly resolves the Desktop folder even when it has
-// been redirected (e.g. OneDrive Desktop sync on Windows). path.join(os.homedir(), 'Desktop') can
-// point to a non-existent path in such environments and causes E-3 errors when creating a new wiki.
-// For dev/test keep the paths.ts value (which has the proper test isolation logic).
-export const DEFAULT_FIRST_WIKI_FOLDER_PATH = (isElectronDevelopment || isTest)
-  ? PATHS_DEFAULT_FIRST_WIKI_FOLDER_PATH
-  : getElectronApp().getPath('desktop');
-export const DEFAULT_FIRST_WIKI_PATH = path.join(DEFAULT_FIRST_WIKI_FOLDER_PATH, DEFAULT_FIRST_WIKI_NAME);

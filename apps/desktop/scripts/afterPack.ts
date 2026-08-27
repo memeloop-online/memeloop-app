@@ -9,10 +9,6 @@ import { BUNDLED_ETCD3_PROTO_DIRECTORY, copyEtcd3Proto } from './etcd3Proto';
 
 export { BUNDLED_ETCD3_PROTO_DIRECTORY, REQUIRED_ETCD3_PROTO_FILES } from './etcd3Proto';
 
-export const TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE = [
-  ['editions', 'tiddlywiki-surveys'],
-] as const;
-
 /**
  * etcd3 reads these files synchronously relative to its CommonJS __dirname.
  * Vite bundles etcd3 into `.vite/build`, so the preserved `../proto` lookup
@@ -170,17 +166,9 @@ export default async (
       `Copied etcd3@${etcd3Manifest.version} proto runtime to ${etcd3ProtoDestination}`,
     );
 
-    fs.cpSync(
-      path.join(sourceNodeModulesFolder, 'zx'),
-      path.join(cwd, 'node_modules', 'zx'),
-      { dereference: true, recursive: true },
-    );
-
     const packagePathsToCopyDereferenced: string[][] = [
       ...PACKAGED_BETTER_SQLITE_RUNTIME_PATHS.map(packagePath => [...packagePath]),
       ...getBetterSqliteBinaryPaths(),
-      // Wiki workers load boot/core/plugin files from process.resourcesPath.
-      ['tiddlywiki'],
       // `ws` optional native deps (required in our bundled Electron runtime when it tries to resolve them)
       ['bufferutil'],
       ['utf-8-validate'],
@@ -227,15 +215,6 @@ export default async (
       );
       fs.copySync(source, destinationMain, { dereference: true });
 
-      // Survey source material is not used by MemeLoop at runtime and contains
-      // filenames whose relative paths exceed the limits of MSIX and NuGet.
-      // Keep all actual TiddlyWiki editions and exclude only this archive.
-      if (first === 'tiddlywiki') {
-        for (const editionPath of TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE) {
-          fs.removeSync(path.resolve(destinationMain, ...editionPath));
-        }
-      }
-
       // These packages may be required from inside app.asar bundles, so place
       // them both in Resources/node_modules and Resources/app/node_modules.
       if (
@@ -269,33 +248,6 @@ export default async (
     }
     assertNoSymbolicLinks(electronUnhandledDestination);
     console.log(`Copied ${PACKAGED_ELECTRON_UNHANDLED_PACKAGE}@${electronUnhandledManifest.version} production closure`);
-
-    console.log('Copy dugite');
-    // it has things like `git/bin/libexec/git-core/git-add` link to `git/bin/libexec/git-core/git`, to reduce size, so can't use `dereference: true, recursive: true` here.
-    // pnpm exposes the package itself as a symlink. Resolve only that outer
-    // link, then preserve dugite's internal links in the copied Git runtime.
-    const dugiteSource = fs.realpathSync(path.join(sourceNodeModulesFolder, 'dugite'));
-    const dugiteDestination = path.join(cwd, 'node_modules', 'dugite');
-    fs.removeSync(dugiteDestination);
-    fs.copySync(
-      dugiteSource,
-      dugiteDestination,
-      { dereference: false },
-    );
-    // The Vite main bundle keeps `require('dugite')` external, so Node must
-    // find its lightweight JS entry under app/node_modules. Keep the 155 MB
-    // embedded Git distribution only in Resources/node_modules; GitService
-    // points dugite to it through LOCAL_GIT_DIRECTORY at runtime.
-    fs.copySync(
-      path.join(sourceNodeModulesFolder, 'dugite', 'package.json'),
-      path.join(appNodeModulesDirectory, 'dugite', 'package.json'),
-      { dereference: true },
-    );
-    fs.copySync(
-      path.join(sourceNodeModulesFolder, 'dugite', 'build'),
-      path.join(appNodeModulesDirectory, 'dugite', 'build'),
-      { dereference: true },
-    );
 
     if (platform === 'win32') {
       console.log('Copy registry-js (Windows only)');

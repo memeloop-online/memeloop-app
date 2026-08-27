@@ -135,18 +135,24 @@ verifyProductionClosure(
   PACKAGED_ELECTRON_UNHANDLED_PACKAGE,
 );
 
-const syncAdaptorPath = path.join(
-  resourcesDirectory,
-  'node_modules',
-  'tiddlywiki',
-  'plugins',
-  'linonetwo',
-  'tidgi-ipc-syncadaptor',
-  'fix-location-info.js',
-);
-const syncAdaptor = fs.readFileSync(syncAdaptorPath, 'utf8');
-if (syncAdaptor.includes('node_modules/electron/index.js') || syncAdaptor.includes('ELECTRON_OVERRIDE_DIST_PATH')) {
-  throw new Error('Packaged Wiki UtilityProcess plugin inlines the npm electron launcher');
+for (const forbiddenLegacyEntry of [
+  '/template/wiki',
+  '/node_modules/tiddlywiki',
+  '/src/services/wiki',
+  '/src/services/workspaces',
+]) {
+  if ([...archiveEntries].some(entry => entry === forbiddenLegacyEntry || entry.startsWith(`${forbiddenLegacyEntry}/`))) {
+    throw new Error(`Packaged App contains inherited TiddlyWiki/workspace content: ${forbiddenLegacyEntry}`);
+  }
+}
+
+for (const forbiddenLegacyDirectory of [
+  path.join(resourcesDirectory, 'template', 'wiki'),
+  path.join(resourcesDirectory, 'node_modules', 'tiddlywiki'),
+]) {
+  if (fs.existsSync(forbiddenLegacyDirectory)) {
+    throw new Error(`Packaged resources contain inherited TiddlyWiki content: ${forbiddenLegacyDirectory}`);
+  }
 }
 
 console.log(

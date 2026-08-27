@@ -1,9 +1,7 @@
 import { DatabaseChannel } from '@/constants/channels';
-import type { IUserInfos } from '@services/auth/interface';
 import type { IPreferences } from '@services/preferences/interface';
 import type { AIGlobalSettings } from '@services/providerRegistry/interface';
 import type { IToolPermissionEntry } from '@services/toolPermissions/interface';
-import type { ISyncableWikiConfig, IWorkspace, IWorkspaceGroup } from '@services/workspaces/interface';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
 import type { DataSource } from 'typeorm';
 
@@ -21,9 +19,6 @@ export interface IAnalyticsSecretSettings {
 export interface ISettingFile {
   analyticsSecrets?: IAnalyticsSecretSettings;
   preferences: IPreferences;
-  userInfos: IUserInfos;
-  workspaces: Record<string, IWorkspace>;
-  workspaceGroups?: Record<string, IWorkspaceGroup>;
   aiSettings?: AIGlobalSettings;
   'toolPermissions.blacklist'?: IToolPermissionEntry[];
   'toolPermissions.whitelist'?: IToolPermissionEntry[];
@@ -37,7 +32,7 @@ export interface DatabaseInitOptions {
 }
 
 /**
- * Allow wiki or external app to save/search external non-tiddlywiki store like sqlite (removed) or config file.
+ * Own application settings and per-feature SQLite stores.
  */
 export interface IDatabaseService {
   /**
@@ -58,7 +53,7 @@ export interface IDatabaseService {
   /**
    * Save setting that used by services to same file, will handle data race.
    * Normally you should use methods on other services instead of this, and they will can this method instead.
-   * @param key setting file top level key like `userInfos`
+   * @param key top-level setting key
    * @param value whole setting from a service
    */
   setSetting<K extends keyof ISettingFile>(key: K, value: ISettingFile[K]): void;
@@ -99,12 +94,6 @@ export interface IDatabaseService {
    */
   deleteDatabase(key: string): Promise<void>;
 
-  /**
-   * Read tidgi.config.json from a wiki folder and return the syncable config.
-   * Exposed over IPC so the renderer can pre-fill the Add Workspace form when
-   * importing an existing wiki with "use tidgi.config" enabled.
-   */
-  readWikiConfig(wikiFolderLocation: string): Promise<Partial<ISyncableWikiConfig> | undefined>;
 }
 
 export const DatabaseServiceIPCDescriptor = {
@@ -118,6 +107,5 @@ export const DatabaseServiceIPCDescriptor = {
     getDatabaseInfo: ProxyPropertyType.Function,
     getDatabasePath: ProxyPropertyType.Function,
     deleteDatabase: ProxyPropertyType.Function,
-    readWikiConfig: ProxyPropertyType.Function,
   },
 };

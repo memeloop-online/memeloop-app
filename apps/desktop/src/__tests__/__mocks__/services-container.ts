@@ -1,4 +1,3 @@
-import type { IMemeloopNodeService } from '@/services/memeloopNode/interface';
 import type { AIStreamResponse } from '@/services/providerRegistry/interface';
 import type { IToolApprovalRequest, IToolPermissionsService } from '@/services/toolPermissions/interface';
 import { AgentBrowserService } from '@services/agentBrowser';
@@ -25,12 +24,10 @@ vi.mock('@services/libs/bindServiceAndProxy', () => ({
 export const serviceInstances: {
   window: Partial<IWindowService>;
   native: Partial<INativeService>;
-  auth: Record<string, unknown>;
   context: Partial<IContextService>;
   preference: Partial<IPreferenceService>;
   externalAPI: Partial<IProviderRegistryService>;
   toolPermissions: Partial<IToolPermissionsService>;
-  memeloopNode: Partial<IMemeloopNodeService>;
 } = {
   window: {
     open: vi.fn().mockResolvedValue(undefined),
@@ -38,13 +35,6 @@ export const serviceInstances: {
   native: {
     log: vi.fn().mockResolvedValue(undefined),
     pickDirectory: vi.fn().mockResolvedValue(['/test/selected/path']),
-  },
-  auth: {
-    get: vi.fn().mockResolvedValue(undefined),
-    set: vi.fn().mockResolvedValue(undefined),
-    getStorageServiceUserInfo: vi.fn().mockResolvedValue(undefined),
-    getUserInfos: vi.fn().mockResolvedValue({ userName: '' }),
-    setUserInfos: vi.fn(),
   },
   context: {
     get: vi.fn().mockResolvedValue(undefined),
@@ -104,25 +94,6 @@ export const serviceInstances: {
     getSessionApprovals: vi.fn(async () => []),
     clearSessionApprovals: vi.fn(async () => undefined),
   },
-  memeloopNode: {
-    cloudLogin: vi.fn(async () => ({ ok: true })),
-    cloudLogout: vi.fn(async () => undefined),
-    setCloudUrl: vi.fn(async () => undefined),
-    getCloudUrl: vi.fn(async () => null),
-    getAccountStatus: vi.fn(async () => ({
-      cloudUrl: null,
-      loggedIn: false,
-      email: null,
-    })),
-    getSubscriptionStatus: vi.fn(async () => ({
-      plan: 'free' as const,
-      status: 'active' as const,
-      tokenUsed: 0,
-      tokenTotal: 10000,
-      billingHistory: [],
-    })),
-    openBillingPage: vi.fn(async () => undefined),
-  },
 };
 
 // Bind the shared mocks into container so real services resolved from container.get()
@@ -132,7 +103,6 @@ container.bind(serviceIdentifier.NativeService).toConstantValue(serviceInstances
 container.bind(serviceIdentifier.ProviderRegistry).to(ProviderRegistryService).inSingletonScope();
 container.bind(serviceIdentifier.Preference).toConstantValue(serviceInstances.preference);
 container.bind(serviceIdentifier.Context).toConstantValue(serviceInstances.context);
-container.bind(serviceIdentifier.Authentication).toConstantValue(serviceInstances.auth);
 container.bind(serviceIdentifier.AgentDefinition).to(AgentDefinitionService).inSingletonScope();
 container.bind(serviceIdentifier.AgentBrowser).to(AgentBrowserService).inSingletonScope();
 // Bind real DatabaseService instead of mock

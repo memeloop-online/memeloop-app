@@ -2,7 +2,6 @@
 // Modifiers
 import type { DynamicPositionParameter, FullReplacementParameter } from '../modifiers';
 // LLM Tools
-import type { GitToolParameter } from '@services/agentInstance/tools/git';
 import type { ModelContextProtocolParameter } from '@services/agentInstance/tools/modelContextProtocol';
 import type { ToolApprovalConfig } from '@services/agentInstance/tools/types';
 
@@ -30,5 +29,4 @@ export type IPromptConcatTool = {
 
   // LLM Tool parameters
   modelContextProtocolParam?: ModelContextProtocolParameter;
-  gitParam?: GitToolParameter;
 };

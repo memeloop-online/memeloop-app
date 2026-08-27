@@ -4,8 +4,6 @@ import path from 'path';
 import { makeSlugPath } from '../supports/paths';
 import { clearAISettings } from './agent';
 import { ApplicationWorld } from './application';
-import { clearTidgiMiniWindowSettings } from './tidgiMiniWindow';
-import { clearHibernationTestData, clearSubWikiRoutingTestData } from './wiki';
 
 Before(async function(this: ApplicationWorld, { pickle }) {
   // Initialize scenario-specific paths
@@ -19,18 +17,13 @@ Before(async function(this: ApplicationWorld, { pickle }) {
   );
   const logsDirectory = path.resolve(scenarioRoot, 'userData-test', 'logs');
   const screenshotsDirectory = path.resolve(logsDirectory, 'screenshots');
-  const wikiTestRoot = path.resolve(scenarioRoot, 'wiki-test');
 
   // Create necessary directories for this scenario
   await fs.ensureDir(logsDirectory);
   await fs.ensureDir(screenshotsDirectory);
-  await fs.ensureDir(wikiTestRoot); // Ensure wiki-test root exists for default wiki creation
 
   if (pickle.tags.some((tag) => tag.name === '@ai-setting')) {
     await clearAISettings(scenarioRoot);
-  }
-  if (pickle.tags.some((tag) => tag.name === '@tidgi-mini-window')) {
-    await clearTidgiMiniWindowSettings(scenarioRoot);
   }
 });
 
@@ -39,7 +32,7 @@ After(async function(this: ApplicationWorld, { pickle }) {
   // This releases file locks so wiki folders can be deleted
   if (this.app) {
     try {
-      // Close all windows including tidgi mini window before closing the app, otherwise it might hang, and refused to exit until ctrl+C
+      // Close all application windows before closing the app.
       const allWindows = this.app.windows();
 
       // Try to close windows gracefully with short timeout, then force close
@@ -108,26 +101,8 @@ After(async function(this: ApplicationWorld, { pickle }) {
   );
 
   // Clean up settings and test data AFTER app is closed
-  if (pickle.tags.some((tag) => tag.name === '@tidgi-mini-window')) {
-    await clearTidgiMiniWindowSettings(scenarioRoot);
-  }
   if (pickle.tags.some((tag) => tag.name === '@ai-setting')) {
     await clearAISettings(scenarioRoot);
   }
-  if (pickle.tags.some((tag) => tag.name === '@subwiki')) {
-    await clearSubWikiRoutingTestData(scenarioRoot);
-  }
-  // Clean up hibernation test data - remove wiki2 folder created during tests
-  if (pickle.tags.some((tag) => tag.name === '@hibernation')) {
-    await clearHibernationTestData(scenarioRoot);
-  }
-  // Clean up move workspace test data - remove wiki-test-moved folder
-  if (pickle.tags.some((tag) => tag.name === '@move-workspace')) {
-    const wikiTestMovedPath = path.resolve(scenarioRoot, 'wiki-test-moved');
-    if (await fs.pathExists(wikiTestMovedPath)) {
-      await fs.remove(wikiTestMovedPath);
-    }
-  }
-
   // Scenario-specific logs are already in the right place, no need to move them
 });

@@ -1,9 +1,7 @@
 import { MessageBoxOptions } from 'electron';
-import type { Observable } from 'rxjs';
 
 import { NativeChannel } from '@/constants/channels';
 import serviceIdentifier from '@services/serviceIdentifier';
-import type { IZxFileInput } from '@services/wiki/wikiWorker';
 import { WindowNames } from '@services/windows/WindowProperties';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
 import type { IProcessInfo } from './processInfo';
@@ -63,28 +61,10 @@ export interface INativeService {
    */
   copyPath(fromFilePath: string, toFilePath: string, options?: { fileToDir?: boolean }): Promise<false | string>;
   /**
-   * Execute zx script in a wiki worker and get result.
-   * @param zxWorkerArguments
-   * @param workspaceID Each wiki has its own worker, we use wiki's workspaceID to determine which worker to use. If not provided, will use current active workspace's ID
-   */
-  executeZxScript$(zxWorkerArguments: IZxFileInput, workspaceID?: string): Observable<string>;
-  /**
    * Handles in-app assets loading. This should be called after `app.whenReady()` is resolved.
    * This handles file:// protocol when webview load image content, not handling file external link clicking.
    */
   formatFileUrlToAbsolutePath(urlWithFileProtocol: string): string;
-  /**
-   * Replace 0.0.0.0 to actual IP address.
-   * @param urlToReplace Usually `getDefaultHTTPServerIP(port)`
-   */
-  getLocalHostUrlWithActualInfo(urlToReplace: string, workspaceID: string): Promise<string>;
-  /**
-   * Replace 0.0.0.0 with ALL local (non-internal) IP addresses.
-   * Used to generate multiple QR codes for devices with multiple network interfaces.
-   * @param urlToReplace Usually `getDefaultHTTPServerIP(port)`
-   * @returns Array of URLs with real IPs
-   */
-  getAllLocalHostUrlsWithActualInfo(urlToReplace: string, workspaceID: string): Promise<string[]>;
   log(level: string, message: string, meta?: Record<string, unknown>): Promise<void>;
   /**
    * Log a message for a specific label (e.g., wiki name)

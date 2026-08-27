@@ -3,14 +3,11 @@ import fs from 'fs-extra';
 import { inject, injectable } from 'inversify';
 import { randomBytes } from 'node:crypto';
 import path from 'path';
-import type { Observable } from 'rxjs';
 
 import { NativeChannel } from '@/constants/channels';
 import { getLoggerForLabel, logger } from '@services/libs/log';
-import { getAllLocalHostUrlsWithActualIP, getLocalHostUrlWithActualIP } from '@services/libs/url';
 import type { IPreferenceService } from '@services/preferences/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
-import type { IZxFileInput } from '@services/wiki/wikiWorker';
 import type { IWindowService } from '@services/windows/interface';
 import { WindowNames } from '@services/windows/WindowProperties';
 import type { INativeService, IPickDirectoryOptions } from './interface';
@@ -219,12 +216,6 @@ export class NativeService implements INativeService {
     }
   }
 
-  public executeZxScript$(zxWorkerArguments: IZxFileInput, workspaceID?: string): Observable<string> {
-    void zxWorkerArguments;
-    void workspaceID;
-    throw new Error('Wiki scripting is not available in MemeLoop App');
-  }
-
   public async showElectronMessageBox(options: Electron.MessageBoxOptions, windowName: WindowNames = WindowNames.main): Promise<Electron.MessageBoxReturnValue | undefined> {
     const window = this.windowService.get(windowName);
     if (window !== undefined) {
@@ -296,16 +287,6 @@ export class NativeService implements INativeService {
   public async openNewGitHubIssue(error: Error): Promise<void> {
     void error;
     throw new Error('TidGi issue reporting is not available in MemeLoop App');
-  }
-
-  public async getLocalHostUrlWithActualInfo(urlToReplace: string, workspaceID: string): Promise<string> {
-    void workspaceID;
-    return await getLocalHostUrlWithActualIP(urlToReplace);
-  }
-
-  public async getAllLocalHostUrlsWithActualInfo(urlToReplace: string, workspaceID: string): Promise<string[]> {
-    void workspaceID;
-    return getAllLocalHostUrlsWithActualIP(urlToReplace);
   }
 
   public async path(method: 'basename' | 'dirname' | 'join', pathString: string | undefined, ...paths: string[]): Promise<string | undefined> {

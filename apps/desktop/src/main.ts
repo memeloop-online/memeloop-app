@@ -276,7 +276,7 @@ app.on('before-quit', (event): void => {
   event.preventDefault();
 
   if (beforeQuitCleanupPromise === undefined) {
-    // Safety net: if cleanup hangs (e.g. a wiki worker never terminates), force-exit after 15 s.
+    // Safety net: if a host service cleanup hangs, force-exit after 15 s.
     const forceExitTimer = setTimeout(() => {
       logger.warn('before-quit cleanup timed out after 15 s, forcing exit');
       shouldSkipBeforeQuitInterception = true;

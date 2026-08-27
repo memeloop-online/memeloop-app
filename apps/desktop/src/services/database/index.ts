@@ -299,11 +299,6 @@ export class DatabaseService implements IDatabaseService {
     }
   }
 
-  public async readWikiConfig(wikiFolderLocation: string) {
-    void wikiFolderLocation;
-    return undefined;
-  }
-
   /**
    * Close database connection for a given key
    */

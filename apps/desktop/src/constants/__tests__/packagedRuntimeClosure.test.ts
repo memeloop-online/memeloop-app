@@ -7,7 +7,6 @@ import {
   PACKAGED_BETTER_SQLITE_RUNTIME_PATHS,
   PACKAGED_ELECTRON_UNHANDLED_PACKAGE,
   REQUIRED_ETCD3_PROTO_FILES,
-  TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE,
 } from '../../../scripts/afterPack';
 
 const staleNoisePackages = [
@@ -82,12 +81,6 @@ describe('packaged runtime dependency closure', () => {
     expect(workspacePolicy).toMatch(/allowBuilds:\n(?: {2}.+\n)* {2}protobufjs: false\n/);
     expect(workspacePolicy).toContain('electron-winstaller@5.4.0: patches/electron-winstaller@5.4.0.patch');
     expect(wininstallerPatch).toContain('+const arch = os.arch();');
-  });
-
-  it('excludes only the non-runtime TiddlyWiki survey edition with overlong paths', () => {
-    expect(TIDDLYWIKI_EDITION_PATHS_EXCLUDED_FROM_PACKAGE).toEqual([
-      ['editions', 'tiddlywiki-surveys'],
-    ]);
   });
 
   it('declares the complete etcd3 proto closure beside the bundled main process', () => {

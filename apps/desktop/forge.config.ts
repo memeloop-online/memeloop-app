@@ -15,15 +15,14 @@ const supportedLanguageCodes = Object.keys(supportedLanguages);
 
 const config: ForgeConfig = {
   rebuildConfig: {
-    // Prevent @electron/rebuild from traversing symlinks into sibling projects (e.g. memeloop-cloud)
-    // that share the same pnpm store. Only rebuild the native modules actually used by TidGi.
+    // Prevent @electron/rebuild from traversing symlinks into sibling projects
+    // that share the same pnpm store. Only rebuild App runtime native modules.
     projectRootPath: __dirname,
     onlyModules: ['bufferutil', 'nsfw', 'registry-js', 'utf-8-validate'],
   },
   packagerConfig: {
-    // Keep staging on the same filesystem as `out`. Node 24's recursive
-    // cross-device fs.cp can race on TiddlyWiki's very large hard-linked tree;
-    // same-device finalization is an atomic rename instead.
+    // Keep staging on the same filesystem as `out`; same-device finalization
+    // is an atomic rename and avoids partially-copied application bundles.
     tmpdir: path.resolve(__dirname, '..', '..', '.electron-packager'),
     name: MEMELOOP_PRODUCT_NAME,
     executableName: MEMELOOP_EXECUTABLE_NAME,
@@ -50,7 +49,7 @@ const config: ForgeConfig = {
       // entry file leaves its relative imports trapped inside app.asar.
       unpack: '{**/.vite/build/**/*,**/.webpack/main/*.worker.*,**/.webpack/main/*Worker*,**/.webpack/main/native_modules/path.txt,**/{.**,**}/**/*.node}',
     },
-    extraResource: ['localization', 'template/wiki', 'build-resources/tidgiMiniWindow@2x.png', 'build-resources/tidgiMiniWindowTemplate@2x.png'],
+    extraResource: ['localization'],
     // @ts-expect-error - mac config is valid
     mac: {
       category: 'productivity',

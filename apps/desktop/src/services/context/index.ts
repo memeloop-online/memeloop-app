@@ -8,16 +8,11 @@ import os from 'os';
 import path from 'path';
 import process from 'process';
 
-import * as appPaths from '@/constants/appPaths';
-import * as paths from '@/constants/paths';
-import { getMainWindowEntry } from '@services/windows/viteEntry';
-import type { IConstants, IContext, IContextService, IPaths } from './interface';
+import type { IContext, IContextService } from './interface';
 
 @injectable()
 export class ContextService implements IContextService {
-  // @ts-expect-error Property 'MAIN_WINDOW_WEBPACK_ENTRY' is missing, esbuild will make it `pathConstants = { ..._constants_paths__WEBPACK_IMPORTED_MODULE_4__, ..._constants_appPaths__WEBPACK_IMPORTED_MODULE_5__, 'http://localhost:3012/main_window' };`
-  private readonly pathConstants: IPaths = { ...paths, ...appPaths };
-  private readonly constants: IConstants = {
+  private readonly constants: Omit<IContext, 'supportedLanguagesMap'> = {
     isDevelopment: isElectronDevelopment,
     isTest,
     platform: process.platform,
@@ -31,12 +26,9 @@ export class ContextService implements IContextService {
   private initialized = false;
 
   constructor() {
-    this.pathConstants.MAIN_WINDOW_WEBPACK_ENTRY = getMainWindowEntry();
     this.context = {
-      ...this.pathConstants,
       ...this.constants,
       supportedLanguagesMap: {},
-      tiddlywikiLanguagesMap: {},
     };
   }
 
@@ -54,8 +46,6 @@ export class ContextService implements IContextService {
       const supportedLanguagesPath = path.join(LOCALIZATION_FOLDER, 'supportedLanguages.json');
       const supportedLanguagesMap = await fs.readJson(supportedLanguagesPath) as Record<string, string>;
       this.context.supportedLanguagesMap = supportedLanguagesMap ?? {};
-      this.context.tiddlywikiLanguagesMap = {};
-
       this.initialized = true;
     } catch (error) {
       console.error('Failed to load language maps:', error);

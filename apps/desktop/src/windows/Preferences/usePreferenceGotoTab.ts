@@ -1,15 +1,11 @@
 import { useEffect } from 'react';
 
-import type { IPossibleWindowMeta, WindowNames } from '@services/windows/WindowProperties';
+import type { IPreferenceWindowMeta, IPossibleWindowMeta, WindowNames } from '@services/windows/WindowProperties';
 
 interface UsePreferenceGotoTabOptions {
   /** Skip scrolling while the user is searching. */
   searchQuery?: string;
 }
-
-type WindowMetaWithGotoTab = {
-  preferenceGotoTab?: string;
-};
 
 /**
  * Read `preferenceGotoTab` from window metadata and scroll to the matching section reference.
@@ -26,7 +22,7 @@ export function usePreferenceGotoTab(
 
   useEffect(() => {
     if (searchQuery?.trim()) return;
-    const scrollTo = (window.meta() as IPossibleWindowMeta<WindowMetaWithGotoTab>).preferenceGotoTab;
+    const scrollTo = (window.meta() as IPossibleWindowMeta<IPreferenceWindowMeta>).preferenceGotoTab;
     if (scrollTo === undefined) return;
     const timer = setTimeout(() => {
       const reference = sectionReferences.get(scrollTo);

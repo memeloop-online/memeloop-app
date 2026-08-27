@@ -17,7 +17,7 @@ const REQUIRED_READY_MARKERS = [
   '[test-id-MEMELOOP_APP_READY]',
 ] as const;
 const FATAL_STARTUP_PATTERN =
-  /FATAL (?:uncaughtException|unhandledRejection)|Unhandled Promise Rejection|ERR_MODULE_NOT_FOUND|SQLite package has not been found|Error initializing database|Failed to initialize wiki embedding|Failed to create default wiki workspace|Peer process exited|React Error Boundary caught|process is not defined|ENOENT[^\n]*\.proto/i;
+  /FATAL (?:uncaughtException|unhandledRejection)|Unhandled Promise Rejection|ERR_MODULE_NOT_FOUND|SQLite package has not been found|Error initializing database|Peer process exited|React Error Boundary caught|process is not defined|ENOENT[^\n]*\.proto/i;
 const STARTUP_TIMEOUT_MS = 45_000;
 const STABILITY_WINDOW_MS = 5_000;
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
@@ -32,10 +32,6 @@ const isolatedCacheDirectory = path.join(isolatedConfigDirectory, 'cache');
 const isolatedDataDirectory = path.join(isolatedConfigDirectory, 'data');
 const isolatedStateDirectory = path.join(isolatedConfigDirectory, 'state');
 const isolatedRuntimeDirectory = path.join(isolatedConfigDirectory, 'runtime');
-const isolatedPackagedWikiParentDirectory = path.join(
-  isolatedPackagedScenarioDirectory,
-  'wiki-test',
-);
 
 for (
   const directory of [
@@ -47,7 +43,6 @@ for (
     isolatedDataDirectory,
     isolatedStateDirectory,
     isolatedRuntimeDirectory,
-    isolatedPackagedWikiParentDirectory,
   ]
 ) {
   fs.mkdirSync(directory, { recursive: true });

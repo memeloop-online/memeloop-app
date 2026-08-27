@@ -110,16 +110,6 @@ describe('Preferences - All Sections Rendering', () => {
       writable: true,
     });
 
-    Object.defineProperty(window.service.auth, 'get', {
-      value: vi.fn().mockResolvedValue('TestUser'),
-      writable: true,
-    });
-
-    Object.defineProperty(window.service.auth, 'set', {
-      value: vi.fn().mockResolvedValue(undefined),
-      writable: true,
-    });
-
     // database may not exist in the mock; ensure it's an object first
     if (!('database' in window.service)) {
       (window.service as Record<string, unknown>).database = {};

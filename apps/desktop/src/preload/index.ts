@@ -1,7 +1,6 @@
 import 'reflect-metadata';
 import { contextBridge, ipcRenderer } from 'electron';
 import type { IServicesWithOnlyObservables, IServicesWithoutObservables } from 'electron-ipc-cat/common';
-import type { LegacyServiceTypes } from './common/legacyServiceTypes';
 
 import './common/i18n';
 import './common/log';
@@ -12,7 +11,7 @@ import 'electron-ipc-cat/fixContextIsolation';
 import type { IPossibleWindowMeta } from '@services/windows/WindowProperties';
 import { consoleLogToLogFile } from './fixer/consoleLogToLogFile';
 
-type RendererServiceTypes = typeof service & LegacyServiceTypes;
+type RendererServiceTypes = typeof service;
 
 declare global {
   interface Window {
