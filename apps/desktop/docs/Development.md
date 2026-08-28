@@ -29,7 +29,7 @@ Development Workflow
 
 1. First run: Use `pnpm start:init` to ensure everything is properly set up
 2. Daily development: Use `pnpm run start:dev` for faster iteration
-3. After pulling changes: Run `pnpm run build:plugin` if plugins were updated
+3. After pulling changes: Run `pnpm install --frozen-lockfile`
 4. Before committing: Run `pnpm run lint` and `pnpm run test`
 
 Note: You can see webpack error messages at console during development.
@@ -51,14 +51,12 @@ This is the fastest way to start development. It directly launches the Electron 
 #### Full Development Setup
 
 ```shell
-pnpm start
+pnpm run start:init
 ```
 
 This runs the complete setup process including:
 
 - `clean` - Clears build artifacts and development folders
-- `init:git-submodule` - Updates git submodules
-- `build:plugin` - Compiles TiddlyWiki plugins
 - `start:dev` - Launches the Electron application
 
 #### Debug Variants
@@ -92,17 +90,16 @@ This will print verbose debug information from electron-packager to help diagnos
 ### Build & Package Scripts
 
 ```shell
-pnpm run build:plugin    # Compile TiddlyWiki plugins only
-pnpm run package         # Package for production
-pnpm run package:dev     # Package for testing (with NODE_ENV=test)
-pnpm run make            # Create distributable packages
+pnpm run test:prepare-e2e # Package the production-like E2E application
+pnpm run make             # Create distributable packages
+pnpm run make:analyze     # Create packages and emit bundle analysis
 ```
 
 ### Testing Scripts
 
 ```shell
 pnpm run test           # Run all tests (unit + E2E)
-pnpm run test:unit      # Run Jest unit tests only
+pnpm run test:unit      # Run Vitest unit tests only
 pnpm run test:e2e       # Run Cucumber E2E tests only
 ```
 

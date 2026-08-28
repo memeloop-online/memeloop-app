@@ -42,7 +42,7 @@ export default function RemoteSetup(): React.JSX.Element {
         <Box>
           <Typography variant='h4'>Bootstrap remote compute</Typography>
           <Typography color='text.secondary'>
-            Runs the pinned MemeLoop SSH bootstrap. The host must already provide Node.js 24+, npm, key-based SSH and a verified host key.
+            Runs the pinned memeloop-cli@0.2.7 SSH bootstrap. The host must already provide Node.js 24+, npm, key-based SSH and a verified host key.
           </Typography>
         </Box>
         {error && <Alert severity='error'>{error}</Alert>}

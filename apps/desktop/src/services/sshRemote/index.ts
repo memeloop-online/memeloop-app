@@ -1,7 +1,10 @@
-import { bootstrapRemoteCli, MEMELOOP_CLI_VERSION, type RemoteBootstrapEvidence } from 'memeloop-cli';
+import { bootstrapRemoteCli, type RemoteBootstrapEvidence } from 'memeloop-cli';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+/** Remote onboarding is deliberately immutable until the next reviewed release. */
+export const MEMELOOP_REMOTE_BOOTSTRAP_VERSION = '0.2.7';
 
 export interface SSHHost {
   host: string;
@@ -57,7 +60,7 @@ export async function bootstrapRemote(
 ): Promise<RemoteBootstrapEvidence> {
   return bootstrapRemoteCli({
     target: targetFor(host),
-    version: MEMELOOP_CLI_VERSION,
+    version: MEMELOOP_REMOTE_BOOTSTRAP_VERSION,
     port: host.port ?? 22,
     identityFile: host.identityFile,
     hostKeyPolicy: options.acceptNewHostKey ? 'accept-new' : 'strict',

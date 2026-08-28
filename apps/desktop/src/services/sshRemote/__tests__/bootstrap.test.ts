@@ -2,7 +2,7 @@ import { bootstrapRemoteCli, MEMELOOP_CLI_VERSION } from 'memeloop-cli';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { bootstrapRemote } from '../index';
+import { bootstrapRemote, MEMELOOP_REMOTE_BOOTSTRAP_VERSION } from '../index';
 
 vi.mock('memeloop-cli', async importOriginal => {
   const actual = await importOriginal<typeof import('memeloop-cli')>();
@@ -34,9 +34,11 @@ function installedCliManifest(): CliManifest {
 describe('Desktop SSH bootstrap boundary', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('pins bootstrap to the exact installed memeloop-cli manifest version', () => {
+  it('pins bootstrap to the reviewed memeloop-cli 0.2.7 release', () => {
     const manifest = installedCliManifest();
     expect(manifest.name).toBe('memeloop-cli');
+    expect(MEMELOOP_REMOTE_BOOTSTRAP_VERSION).toBe('0.2.7');
+    expect(MEMELOOP_REMOTE_BOOTSTRAP_VERSION).toBe(manifest.version);
     expect(MEMELOOP_CLI_VERSION).toBe(manifest.version);
   });
 
@@ -48,7 +50,7 @@ describe('Desktop SSH bootstrap boundary', () => {
 
     expect(bootstrapRemoteCli).toHaveBeenCalledWith({
       target: 'operator@worker',
-      version: MEMELOOP_CLI_VERSION,
+      version: MEMELOOP_REMOTE_BOOTSTRAP_VERSION,
       port: 2222,
       identityFile: undefined,
       hostKeyPolicy: 'strict',
@@ -57,15 +59,14 @@ describe('Desktop SSH bootstrap boundary', () => {
   });
 
   it('uses the same exact version for installation and explicit first-use TOFU', async () => {
-    const cliVersion = installedCliManifest().version;
     const result = await bootstrapRemote(
       { host: 'worker.example', identityFile: '/keys/worker' },
       { dryRun: false, acceptNewHostKey: true },
     );
 
-    expect(result).toMatchObject({ version: cliVersion, changed: true });
+    expect(result).toMatchObject({ version: MEMELOOP_REMOTE_BOOTSTRAP_VERSION, changed: true });
     expect(bootstrapRemoteCli).toHaveBeenCalledWith(expect.objectContaining({
-      version: cliVersion,
+      version: MEMELOOP_REMOTE_BOOTSTRAP_VERSION,
       hostKeyPolicy: 'accept-new',
       identityFile: '/keys/worker',
       dryRun: false,

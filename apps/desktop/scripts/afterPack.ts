@@ -176,19 +176,12 @@ export default async (
       ['rotating-file-stream', 'package.json'],
       ['rotating-file-stream', 'dist', 'cjs', 'index.js'],
       ['rotating-file-stream', 'dist', 'cjs', 'package.json'],
-      // nsfw native module
-      ['nsfw', 'build', 'Release', 'nsfw.node'],
       // Refer to `node_modules\sqlite-vec\index.cjs` for latest file names
       // sqlite-vec: copy main entry files and platform-specific binary
       ['sqlite-vec', 'package.json'],
       ['sqlite-vec', 'index.cjs'],
       [getSqliteVecPlatformPackageName()],
     ];
-
-    // macOS only: copy app-path binary for finding apps
-    if (platform === 'darwin') {
-      packagePathsToCopyDereferenced.push(['app-path', 'main']);
-    }
 
     console.log('Copying packagePathsToCopyDereferenced');
     const optionalPackages = new Set(['bufferutil', 'utf-8-validate']);

@@ -520,6 +520,7 @@ async function ensureRuntimeInitialized(): Promise<void> {
     createRemoteOrchestrationHttpHandlerFunction = createRemoteOrchestrationHttpHandler;
     const configuredHost = requireHostConfig();
     localNodeId = configuredHost.localPeerId;
+    workerLog('info', '[memeloop-worker] runtime module loaded');
 
     const mainBridgeToolIds = await requestMainBridgeToolList().catch(
       (error: unknown) => {
@@ -531,7 +532,9 @@ async function ensureRuntimeInitialized(): Promise<void> {
         return [] as string[];
       },
     );
+    workerLog('info', '[memeloop-worker] main bridge tools loaded', { count: mainBridgeToolIds.length });
 
+    workerLog('info', '[memeloop-worker] createNodeRuntime starting');
     const runtimeResult = await createNodeRuntime({
       // Core supplies the official profiles. App-specific definitions are
       // resolved explicitly from storage and must never shadow Core defaults.
@@ -616,6 +619,7 @@ async function ensureRuntimeInitialized(): Promise<void> {
         stop: async () => undefined,
       },
     });
+    workerLog('info', '[memeloop-worker] createNodeRuntime completed');
 
     await requireDesktopAtomicRetryStore(runtimeResult);
 

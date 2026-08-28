@@ -67,11 +67,11 @@ importers:
         specifier: ^5.3.0
         version: 5.3.0
       '@memeloop/libp2p':
-        specifier: ^0.2.4
-        version: 0.2.4(memeloop@0.2.8(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3)))
+        specifier: ^0.2.5
+        version: 0.2.5(memeloop@0.2.9(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3)))
       '@memeloop/react-ui':
-        specifier: ^0.1.6
-        version: 0.1.6(ddfeca9e03926f38dbec20e5d59f0379)
+        specifier: ^0.1.7
+        version: 0.1.7(16ff3761be3e428334f073a3bc052f45)
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(supports-color@10.2.2)(zod@4.4.3)
@@ -208,11 +208,11 @@ importers:
         specifier: ^5.3.7
         version: 5.3.7(@mui/material@7.3.11(@emotion/react@11.14.0(@types/react@19.2.17)(react@19.2.8)(supports-color@10.2.2))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.17)(react@19.2.8)(supports-color@10.2.2))(@types/react@19.2.17)(react@19.2.8)(supports-color@10.2.2))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@types/react@19.2.17)(react@19.2.8)
       memeloop:
-        specifier: ^0.2.8
-        version: 0.2.8(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3))
+        specifier: ^0.2.9
+        version: 0.2.9(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3))
       memeloop-cli:
-        specifier: ^0.2.6
-        version: 0.2.6(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3))(supports-color@10.2.2)(yauzl@2.10.0)
+        specifier: ^0.2.7
+        version: 0.2.7(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3))(supports-color@10.2.2)(yauzl@2.10.0)
       monaco-editor:
         specifier: ^0.56.0
         version: 0.56.0
@@ -2161,23 +2161,23 @@ packages:
     resolution: {integrity: sha512-9QOtNffcOF/c1seMCDnjckb3R9WHcG34tky+FHpNKKCW0wc/scYLwMtO+ptyGUfMW0/b/n4qRiALlaFHc9Oj7Q==}
     engines: {node: '>= 10.0.0'}
 
-  '@memeloop/libp2p@0.2.4':
-    resolution: {integrity: sha512-eyRUQdOyxkjT4fTkGMloLI4ZUA05tjA64Vg7mlOS+Za6328mKCe4ih3YCp/bTRQi9dr1mcXU+LE1wemgE/2yXQ==}
+  '@memeloop/libp2p@0.2.5':
+    resolution: {integrity: sha512-813frM7LyfYOQ4BpzxB1AaEhPkeb/7z18ePN5+D1evcV9sNZ0P78EX15pjV6+2AYc9LF2TC6Y1Q5BwdtU7SOdw==}
     peerDependencies:
-      memeloop: ^0.2.6
+      memeloop: ^0.2.9
 
-  '@memeloop/react-ui@0.1.6':
-    resolution: {integrity: sha512-ENj/jOqVqZEBo2sYDkevYq3L0kNOvTH9Wb/HDJAEa1Sdmswso54eS5QH8uT1DsuFGHPO3mAsMd29tLbUl+0apQ==}
+  '@memeloop/react-ui@0.1.7':
+    resolution: {integrity: sha512-S2AlUYF9bjkK5ZDIZQ2PptdlDFwj/RZL7DUzYy9Dr9r1A9DMl2xuVcUH13DswwLnoU6vKE1a1Hh7YHRL+aQgfQ==}
     peerDependencies:
       '@assistant-ui/react': ^0.15.16
-      '@mui/icons-material': '>=6.0.0'
-      '@mui/material': '>=6.0.0'
+      '@mui/icons-material': '>=6.0.0 <10.0.0'
+      '@mui/material': '>=6.0.0 <10.0.0'
       '@rjsf/core': '>=6.0.0'
       '@rjsf/mui': '>=6.0.0'
       '@rjsf/utils': '>=6.0.0'
       '@rjsf/validator-ajv8': '>=6.0.0'
       material-ui-cron: '>=2.0.0'
-      memeloop: ^0.2.6
+      memeloop: ^0.2.9
       react: '>=18.0.0'
       react-dom: '>=18.0.0'
       react-native: '>=0.78.0'
@@ -7153,13 +7153,13 @@ packages:
     resolution: {integrity: sha512-aisnrDP4GNe06UcKFnV5bfMNPBUw4jsLGaWwWfnH3v02GnBuXX2MCVn5RbrWo0j3pczUilYblq7fQ7Nw2t5XKw==}
     engines: {node: '>= 0.8'}
 
-  memeloop-cli@0.2.6:
-    resolution: {integrity: sha512-63NUb0KAuxAXXPtfbaDwtYklYfo1OOqgWH2nPF/YhGq2WQ/1v8r7VIfTkUvOXekmFuLfHjjWIp7qpR7lAoJr9w==}
+  memeloop-cli@0.2.7:
+    resolution: {integrity: sha512-ZHqa8TU43LwGyc+hGTeuDVMlfLdtFVAzWGfpG3FDHGh6XXOidBvqbSmdwKKqRnnzwCnzHDkSmu9Zo+O/GG8s7A==}
     engines: {node: '>=24'}
     hasBin: true
 
-  memeloop@0.2.8:
-    resolution: {integrity: sha512-IuO6XtW2cDupL500luTFoXOPmOVELL2XJc+fT0OERfeCf4IwyNJUwwDGvJeNvKg1vL73R/y6UrESgNpQsHy8cQ==}
+  memeloop@0.2.9:
+    resolution: {integrity: sha512-+mgLVKJzt7Ji2OM/E+wH7pQ9PH7ctUNcZMGnA2E0FIrgiJDVL+p2p8PuHZwzt89PYwiJ/GQS8dqrKbF1xH7isw==}
     peerDependencies:
       '@ai-sdk/anthropic': ^4.0.19
       '@ai-sdk/azure': ^4.0.0
@@ -11943,7 +11943,7 @@ snapshots:
       - supports-color
     optional: true
 
-  '@memeloop/libp2p@0.2.4(memeloop@0.2.8(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3)))':
+  '@memeloop/libp2p@0.2.5(memeloop@0.2.9(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3)))':
     dependencies:
       '@chainsafe/libp2p-noise': 17.0.0
       '@chainsafe/libp2p-yamux': 8.0.1
@@ -11960,15 +11960,15 @@ snapshots:
       '@libp2p/websockets': 10.1.19
       '@multiformats/multiaddr': 13.0.3
       libp2p: 3.3.8
-      memeloop: 0.2.8(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3))
+      memeloop: 0.2.9(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3))
       uint8arrays: 6.1.1
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@memeloop/react-ui@0.1.6(ddfeca9e03926f38dbec20e5d59f0379)':
+  '@memeloop/react-ui@0.1.7(16ff3761be3e428334f073a3bc052f45)':
     dependencies:
-      memeloop: 0.2.8(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3))
+      memeloop: 0.2.9(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3))
       react: 19.2.8
     optionalDependencies:
       '@assistant-ui/react': 0.15.16(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.15)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(use-sync-external-store@1.6.0(react@19.2.8))
@@ -17331,12 +17331,13 @@ snapshots:
 
   media-typer@1.1.0: {}
 
-  memeloop-cli@0.2.6(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3))(supports-color@10.2.2)(yauzl@2.10.0):
+  memeloop-cli@0.2.7(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3))(supports-color@10.2.2)(yauzl@2.10.0):
     dependencies:
       '@ai-sdk/openai': 4.0.20(zod@3.25.76)
       '@ai-sdk/openai-compatible': 3.0.14(zod@3.25.76)
-      '@memeloop/libp2p': 0.2.4(memeloop@0.2.8(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3)))
+      '@memeloop/libp2p': 0.2.5(memeloop@0.2.9(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3)))
       '@modelcontextprotocol/sdk': 1.29.0(supports-color@10.2.2)(zod@3.25.76)
+      '@types/node': 22.19.20
       '@types/react': 18.3.31
       better-sqlite3: 13.0.1
       commander: 12.1.0
@@ -17346,12 +17347,11 @@ snapshots:
       ink-spinner: 5.0.0(ink@5.2.1(@types/react@18.3.31)(react@18.3.1))(react@18.3.1)
       ink-text-input: 6.0.0(ink@5.2.1(@types/react@18.3.31)(react@18.3.1))(react@18.3.1)
       js-yaml: 4.3.0
-      memeloop: 0.2.8(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3))
+      memeloop: 0.2.9(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3))
       proxy-agent: 8.0.2(supports-color@10.2.2)
       puppeteer: 25.4.0(proxy-agent@8.0.2(supports-color@10.2.2))(yauzl@2.10.0)
       react: 18.3.1
       tiddlywiki: 5.4.1
-      tw5-typed: 1.1.5
       typescript: 5.9.3
       typescript-language-server: 5.3.0
       zod: 3.25.76
@@ -17378,8 +17378,9 @@ snapshots:
       - utf-8-validate
       - yauzl
 
-  memeloop@0.2.8(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3)):
+  memeloop@0.2.9(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3)):
     dependencies:
+      '@types/json-schema': 7.0.15
       acorn: 8.17.0
       ai: 7.0.37(zod@4.4.3)
       ajv: 8.20.0

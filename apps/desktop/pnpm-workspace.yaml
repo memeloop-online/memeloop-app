@@ -36,7 +36,6 @@ onlyBuiltDependencies:
   - electron
   - electron-winstaller
   - esbuild
-  - nsfw
   - registry-js
   - unrs-resolver
 
@@ -50,7 +49,6 @@ allowBuilds:
   electron: true
   electron-winstaller: true
   esbuild: true
-  nsfw: true
   puppeteer: false
   # protobufjs only reports optional CLI generation hints; it produces no runtime files.
   protobufjs: false
@@ -89,7 +87,7 @@ minimumReleaseAgeExclude:
   - ai@7.0.37
   - fs-extra@11.4.0
   - inversify@8.2.3
-  - '@memeloop/libp2p@0.2.2 || 0.2.4'
-  - '@memeloop/react-ui@0.1.2 || 0.1.4 || 0.1.5 || 0.1.6'
-  - memeloop-cli@0.2.3 || 0.2.4 || 0.2.6
-  - memeloop@0.2.2 || 0.2.4 || 0.2.6 || 0.2.7 || 0.2.8
+  - '@memeloop/libp2p@0.2.5'
+  - '@memeloop/react-ui@0.1.7'
+  - memeloop-cli@0.2.7
+  - memeloop@0.2.9

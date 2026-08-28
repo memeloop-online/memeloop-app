@@ -44,6 +44,15 @@ const resolveDependencyFromOwner = (ownerRoot: string, dependencyName: string): 
 };
 
 describe('packaged runtime dependency closure', () => {
+  it('does not package native modules removed with the wiki workspace runtime', () => {
+    const afterPackSource = readFileSync(path.resolve(process.cwd(), 'scripts/afterPack.ts'), 'utf8');
+    const workspacePolicy = readFileSync(path.resolve(process.cwd(), 'pnpm-workspace.yaml'), 'utf8');
+
+    expect(afterPackSource).not.toMatch(/\['(?:app-path|nsfw)'/);
+    expect(workspacePolicy).not.toMatch(/^ {2}- nsfw$/m);
+    expect(workspacePolicy).not.toMatch(/^ {2}nsfw: true$/m);
+  });
+
   it('does not copy or externalize dependencies removed by Noise 17', () => {
     const afterPackSource = readFileSync(path.resolve(process.cwd(), 'scripts/afterPack.ts'), 'utf8');
     const mainViteSource = readFileSync(path.resolve(process.cwd(), 'vite.main.config.ts'), 'utf8');

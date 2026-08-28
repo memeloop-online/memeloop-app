@@ -123,6 +123,8 @@ import { cancelAlarm, getActiveAlarmEntries, scheduleAlarmTimer } from './tools/
 import { cleanupMCPClient } from './tools/modelContextProtocol';
 import { type AppAgentToolRuntime, bootstrapAppAgentToolRuntime } from './tools/runtime';
 
+const MEMELOOP_WORKER_INITIALIZATION_TIMEOUT_MS = 30_000;
+
 function getWorkerErrorDetails(error: unknown): {
   message: string;
   name: string;
@@ -642,7 +644,7 @@ export class AgentInstanceService implements IAgentInstanceService {
             () => {
               reject(new Error('MemeLoop worker initial ping timeout'));
             },
-            8000,
+            MEMELOOP_WORKER_INITIALIZATION_TIMEOUT_MS,
           );
         }),
       ]);

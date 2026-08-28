@@ -23,10 +23,10 @@ allowBuilds:
 # form the SDK 57 compatibility set selected by `expo install --check`. Keep
 # pnpm 11's release-age policy for every future version.
 minimumReleaseAgeExclude:
-  - '@memeloop/libp2p@0.2.4'
-  - '@memeloop/react-ui@0.1.6'
-  - memeloop-cli@0.2.6
-  - memeloop@0.2.8
+  - '@memeloop/libp2p@0.2.5'
+  - '@memeloop/react-ui@0.1.7'
+  - memeloop-cli@0.2.7
+  - memeloop@0.2.9
   - '@expo/cli@57.0.19'
   - '@expo/inline-modules@0.1.7'
   - '@expo/local-build-cache-provider@57.0.8'

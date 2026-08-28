@@ -19,10 +19,15 @@ Desktop and mobile consume the published MemeLoop packages from npm:
 
 | Package | Version |
 |---------|---------|
-| `memeloop` | `0.2.7` |
-| `@memeloop/libp2p` | `0.2.4` |
-| `memeloop-cli` | `0.2.6` (desktop) |
-| `@memeloop/react-ui` | `0.1.5` (desktop) |
+| `memeloop` | `0.2.9` |
+| `@memeloop/libp2p` | `0.2.5` |
+| `memeloop-cli` | `0.2.7` (desktop) |
+| `@memeloop/react-ui` | `0.1.7` |
+
+Desktop SSH onboarding always installs the reviewed, exact
+`memeloop-cli@0.2.7` release. The dependency range remains compatible with
+patch releases, but changing the bootstrap version requires an explicit code,
+test and packaging-gate update.
 
 ## Quick Start
 
