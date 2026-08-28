@@ -19,12 +19,12 @@ export type SummaryParameter = z.infer<typeof SummaryParameterSchema>;
 const SummaryToolSchema = z.object({
   text: z.string().meta({
     title: 'Summary text',
-    description: 'The final summary or answer to present to the user. Use wikitext format.',
+    description: 'The final Markdown summary or answer to present to the user.',
   }),
 }).meta({
   title: 'summary',
-  description: 'Call this tool when your task is fully complete. Provide a final summary in wikitext format. This will end the agent loop and present the answer to the user.',
-  examples: [{ text: '!! Task Complete\n\nI have created the tiddler "My Note" with the requested content.' }],
+  description: 'Call this tool when your task is fully complete. Provide a concise Markdown summary. This ends the agent loop and presents the answer to the user.',
+  examples: [{ text: '## Task complete\n\nI created the requested project summary.' }],
 });
 
 export const summaryToolDefinition = {

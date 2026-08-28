@@ -222,7 +222,7 @@ function NumberField({ item, preferences, query, onNeedsRestart }: {
   query: string;
 }): React.JSX.Element {
   const { t } = useTranslation(['translation', 'agent']);
-  const value = preferences[item.key] as number;
+  const value = preferences[item.key] as unknown as number;
   const title = tx(t, item.titleKey, item.ns);
   const description = item.descriptionKey ? tx(t, item.descriptionKey, item.ns) : undefined;
 
@@ -245,7 +245,7 @@ function NumberField({ item, preferences, query, onNeedsRestart }: {
           onChange={async (event) => {
             const newValue = Number(event.target.value);
             if (!Number.isNaN(newValue)) {
-              await window.service.preference.set(item.key, newValue);
+              await window.service.preference.set(item.key, newValue as never);
               if (item.needsRestart) onNeedsRestart();
             }
           }}

@@ -284,7 +284,6 @@ describe('useExecutionTargets', () => {
       result.current.sendMessage(
         'with attachment',
         new File(['hello'], 'note.txt', { type: 'text/plain' }),
-        [{ workspaceName: 'wiki', tiddlerTitle: 'Context' }],
       )
     );
 
@@ -292,14 +291,11 @@ describe('useExecutionTargets', () => {
       userMessage: {
         content: 'with attachment',
         attachments: [expect.objectContaining({ filename: 'note.txt', size: 5 })],
-        metadata: {
-          wikiTiddlers: [{ workspaceName: 'wiki', tiddlerTitle: 'Context' }],
-        },
       },
     }));
   });
 
-  it('streams a remote attachment and wiki metadata before dispatching the turn', async () => {
+  it('streams a remote attachment before dispatching the turn', async () => {
     const { sendRpc, syncWithDevice } = installHost();
     const { result } = renderExecutionTargets();
     await waitFor(() => {
@@ -311,7 +307,6 @@ describe('useExecutionTargets', () => {
       result.current.sendMessage(
         'attachment',
         new File(['x'], 'x.txt'),
-        [{ workspaceName: 'wiki', tiddlerTitle: 'Remote context' }],
       )
     );
 
@@ -328,9 +323,6 @@ describe('useExecutionTargets', () => {
           filename: 'x.txt',
           size: 1,
         }],
-        metadata: {
-          wikiTiddlers: [{ workspaceName: 'wiki', tiddlerTitle: 'Remote context' }],
-        },
       },
     });
     expect(syncWithDevice).toHaveBeenCalledTimes(2);

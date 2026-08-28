@@ -2,11 +2,9 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { defaultPackagedExecutablePath } from './packagedPaths';
 
-const executableArgument = process.argv[2];
-if (!executableArgument) throw new Error('Usage: verifyPackagedStartup.ts <path-to-packaged-executable>');
-
-const executablePath = path.resolve(executableArgument);
+const executablePath = path.resolve(process.argv[2] ?? defaultPackagedExecutablePath());
 if (!fs.existsSync(executablePath)) throw new Error(`Packaged executable does not exist: ${executablePath}`);
 
 const REQUIRED_READY_MARKERS = [

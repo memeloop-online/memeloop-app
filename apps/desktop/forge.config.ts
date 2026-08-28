@@ -18,9 +18,14 @@ const config: ForgeConfig = {
     // Prevent @electron/rebuild from traversing symlinks into sibling projects
     // that share the same pnpm store. Only rebuild App runtime native modules.
     projectRootPath: __dirname,
-    onlyModules: ['bufferutil', 'nsfw', 'registry-js', 'utf-8-validate'],
+    onlyModules: ['bufferutil', 'utf-8-validate'],
   },
   packagerConfig: {
+    // Offline/restricted builders may point at a directory containing the
+    // exact `electron-v<version>-<platform>-<arch>.zip` artifact.
+    ...(process.env.MEMELOOP_ELECTRON_ZIP_DIR
+      ? { electronZipDir: path.resolve(process.env.MEMELOOP_ELECTRON_ZIP_DIR) }
+      : {}),
     // Keep staging on the same filesystem as `out`; same-device finalization
     // is an atomic rename and avoids partially-copied application bundles.
     tmpdir: path.resolve(__dirname, '..', '..', '.electron-packager'),
@@ -73,7 +78,7 @@ const config: ForgeConfig = {
           setupExe: `Install-MemeLoop-Desktop-Windows-${arch}.exe`,
           setupIcon: 'build-resources/icon-installer.ico',
           description,
-          iconUrl: 'https://raw.githubusercontent.com/tiddly-gittly/TidGi-Desktop/master/build-resources/icon%405x.png',
+          iconUrl: 'https://raw.githubusercontent.com/linonetwo/memeloop-app/master/apps/desktop/build-resources/icon%405x.png',
         };
       },
     },
@@ -89,7 +94,7 @@ const config: ForgeConfig = {
           packageDisplayName: MEMELOOP_PRODUCT_NAME,
           appExecutable: `${MEMELOOP_EXECUTABLE_NAME}.exe`,
           appDisplayName: MEMELOOP_PRODUCT_NAME,
-          publisher: 'CN=TiddlyWiki Community',
+          publisher: 'CN=MemeLoop',
         },
       },
     },

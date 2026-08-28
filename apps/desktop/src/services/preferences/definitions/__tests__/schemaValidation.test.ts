@@ -73,14 +73,10 @@ describe('Section Definition Schema Validation', () => {
     const schemaKeys = new Set(Object.keys(zodPreferencesSchema.shape));
     const requiredKeys: Array<keyof IPreferences> = [
       'themeSource',
-      'spellcheck',
       'language',
-      'syncBeforeShutdown',
-      'syncDebounceInterval',
-      'tidgiMiniWindow',
       'useHardwareAcceleration',
-      'keyboardShortcuts',
-      'spellcheckLanguages',
+      'externalAPIDebug',
+      'analyticsEnabled',
     ];
     for (const key of requiredKeys) {
       expect(schemaKeys.has(key), `Missing key "${key}" in zodPreferencesSchema`).toBe(true);

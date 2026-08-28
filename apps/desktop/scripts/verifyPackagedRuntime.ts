@@ -2,13 +2,9 @@ import { extractFile, listPackage } from '@electron/asar';
 import fs from 'node:fs';
 import path from 'node:path';
 import { BUNDLED_ETCD3_PROTO_DIRECTORY, PACKAGED_BETTER_SQLITE_RUNTIME_PATHS, PACKAGED_ELECTRON_UNHANDLED_PACKAGE, REQUIRED_ETCD3_PROTO_FILES } from './afterPack';
+import { defaultPackagedArchivePath } from './packagedPaths';
 
-const archiveArgument = process.argv[2];
-if (!archiveArgument) {
-  throw new Error('Usage: verifyPackagedRuntime.ts <path-to-app.asar>');
-}
-
-const archivePath = path.resolve(archiveArgument);
+const archivePath = path.resolve(process.argv[2] ?? defaultPackagedArchivePath());
 if (!fs.existsSync(archivePath)) throw new Error(`Packaged app.asar does not exist: ${archivePath}`);
 
 // @electron/asar follows the host separator when listing an archive. Normalize

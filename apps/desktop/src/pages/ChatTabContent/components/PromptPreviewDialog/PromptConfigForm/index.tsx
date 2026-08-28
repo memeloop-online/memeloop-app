@@ -44,7 +44,7 @@ interface PromptConfigFormProps {
 
 /**
  * React JSON Schema Form component for prompt configuration.
- * Merges @memeloop/react-ui/web Theme templates/widgets with TidGi custom layout/widgets; hooks stay local to avoid duplicate React.
+ * Merges @memeloop/react-ui/web theme templates with App-specific layout widgets; hooks stay local to avoid duplicate React.
  */
 export const PromptConfigForm: React.FC<PromptConfigFormProps> = ({
   schema,

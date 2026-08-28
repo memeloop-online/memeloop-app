@@ -112,7 +112,7 @@ export interface IAgentDefinitionService {
    */
   getAgentDef(id?: string): Promise<AgentDefinition | undefined>;
   /**
-   * Get all available agent templates from built-in defaults and active main workspaces.
+   * Get all available agent templates from Core's built-in profiles.
    * This returns fully populated templates suitable for creating new agents. No server-side
    * search filtering is performed; clients should filter templates as needed.
    */

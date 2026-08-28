@@ -33,8 +33,8 @@ export default defineConfig({
     ...(process.env.ANALYZE === 'true'
       ? [analyzer({ analyzerMode: 'static', openAnalyzer: false, fileName: 'bundle-analyzer-main' })]
       : []),
-    // MemeLoop's agent runtime still uses a Node worker. Git and Wiki use
-    // Electron UtilityProcess below for process-level crash isolation.
+    // The agent runtime uses a Node worker plus an Electron UtilityProcess for
+    // process-level crash isolation.
     memeLoopNodeWorkerPlugin(),
     utilityProcessPlugin(),
     swc.vite({
@@ -63,8 +63,6 @@ export default defineConfig({
         // Electron is a runtime builtin in main and UtilityProcess chunks.
         // Never bundle the npm launcher package (it contains host __dirname).
         'electron',
-        'sqlite-vec',
-        'registry-js',
         'esbuild',
         '@modelcontextprotocol/sdk',
         /^@modelcontextprotocol\/sdk\//,

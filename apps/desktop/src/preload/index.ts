@@ -3,7 +3,6 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { IServicesWithOnlyObservables, IServicesWithoutObservables } from 'electron-ipc-cat/common';
 
 import './common/i18n';
-import './common/log';
 import './common/remote';
 import * as service from './common/services';
 import './common/exportServices';
@@ -29,7 +28,6 @@ contextBridge.exposeInMainWorld(
   }),
 );
 
-// All App renderer windows use the same React shell. There is no hidden
-// TiddlyWiki WebContentsView preload path.
+// All App renderer windows use the same React shell.
 void ipcRenderer;
 void consoleLogToLogFile('MemeLoop');

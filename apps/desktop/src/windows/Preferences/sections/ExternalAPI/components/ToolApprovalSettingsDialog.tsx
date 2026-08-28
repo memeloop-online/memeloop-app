@@ -58,22 +58,12 @@ const DEFAULT_SETTINGS: ToolApprovalSettings = {
 
 /** Known tool IDs for the dropdown */
 const KNOWN_TOOL_IDS = [
-  'wiki-search',
-  'wiki-operation',
-  'wiki-backlinks',
-  'wiki-toc',
-  'wiki-recent',
-  'wiki-list-tiddlers',
-  'wiki-get-errors',
-  'wiki-update-embeddings',
   'zx-script',
   'web-fetch',
   'spawn-agent',
   'alarm-clock',
   'ask-question',
   'summary',
-  'git-search-commits',
-  'git-read-commit-file',
 ];
 
 interface ToolApprovalSettingsDialogProps {
@@ -93,7 +83,7 @@ export function ToolApprovalSettingsDialog({ open, onClose }: ToolApprovalSettin
     if (!open) return;
     const loadSettings = async () => {
       try {
-        const saved = localStorage.getItem('tidgi-toolApprovalSettings');
+        const saved = localStorage.getItem('memeloop-toolApprovalSettings');
         if (saved) {
           const parsed = JSON.parse(saved) as Partial<ToolApprovalSettings>;
           setSettings({ ...DEFAULT_SETTINGS, ...parsed });
@@ -107,7 +97,7 @@ export function ToolApprovalSettingsDialog({ open, onClose }: ToolApprovalSettin
 
   const handleSave = useCallback(async () => {
     try {
-      localStorage.setItem('tidgi-toolApprovalSettings', JSON.stringify(settings));
+      localStorage.setItem('memeloop-toolApprovalSettings', JSON.stringify(settings));
       onClose();
     } catch (error) {
       void window.service.native.log('error', 'ToolApprovalSettings: save failed', { error });

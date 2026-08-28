@@ -48,7 +48,7 @@ function runSmokeCalibration(): void {
         {
           stdio: 'inherit',
           cwd: process.cwd(),
-          env: { ...process.env, NODE_ENV: 'test', TIDGI_E2E_IS_CALIBRATION: 'true' },
+          env: { ...process.env, NODE_ENV: 'test', MEMELOOP_E2E_IS_CALIBRATION: 'true' },
         },
       );
       cucumberExitOk = true;
@@ -173,7 +173,7 @@ function extractStepTimings(jsonFilePath: string): StepTiming[] {
 }
 
 function isLaunchStep(name: string): boolean {
-  return /launch|page to load|browser view.*loaded/i.test(name);
+  return /launch|page to load/i.test(name);
 }
 
 function isWaitStep(name: string): boolean {

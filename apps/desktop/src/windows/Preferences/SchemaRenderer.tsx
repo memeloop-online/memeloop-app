@@ -139,7 +139,7 @@ function NumberItem({
   preference: IPreferences;
 }): React.JSX.Element {
   const { t } = useTranslation(['translation', 'agent']);
-  const value = preference[item.key] as number;
+  const value = preference[item.key] as unknown as number;
   return (
     <ListItem
       secondaryAction={
@@ -150,7 +150,7 @@ function NumberItem({
           onChange={async (event) => {
             const newValue = Number(event.target.value);
             if (!Number.isNaN(newValue)) {
-              await window.service.preference.set(item.key, newValue);
+              await window.service.preference.set(item.key, newValue as never);
               if (item.needsRestart) {
                 onNeedsRestart();
               }
@@ -211,7 +211,7 @@ function StringArrayItem({
   preference: IPreferences;
 }): React.JSX.Element {
   const { t } = useTranslation(['translation', 'agent']);
-  const value = (preference[item.key] as string[]) ?? [];
+  const value = (preference[item.key] as unknown as string[]) ?? [];
   const [localValue, setLocalValue] = React.useState(value.join('\n'));
   React.useEffect(() => {
     setLocalValue(value.join('\n'));
@@ -233,7 +233,7 @@ function StringArrayItem({
         }}
         onBlur={async () => {
           const newArray = localValue.split('\n').map((s) => s.trim()).filter(Boolean);
-          await window.service.preference.set(item.key, newArray);
+          await window.service.preference.set(item.key, newArray as never);
           if (item.needsRestart) {
             onNeedsRestart();
           }

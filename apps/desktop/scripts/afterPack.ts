@@ -99,7 +99,7 @@ const copyProductionDependencyClosure = (
  * Running afterPack hook
  * Forge 8 exposes packageAfterPrune as a promise-based Forge hook.
  * The first argument is the resolved Forge configuration.
- * @param buildPath /var/folders/qj/7j0zx32d0l75zmnrl1w3m3b80000gn/T/electron-packager/darwin-x64/TidGi-darwin-x64/Electron.app/Contents/Resources/app
+ * @param buildPath Electron Packager's platform-specific Resources/app directory.
  * @param electronVersion 12.0.6
  * @param platform darwin / win32 (even on win11 x64)
  * @param arch x64
@@ -116,11 +116,6 @@ export default async (
   const projectRoot = path.resolve(__dirname, '..');
   const sourceNodeModulesFolder = path.resolve(projectRoot, 'node_modules');
   const resolvePackageSource = (...packagePathInNodeModules: string[]) => path.resolve(sourceNodeModulesFolder, ...packagePathInNodeModules);
-
-  const getSqliteVecPlatformPackageName = () => {
-    const os = platform === 'win32' ? 'windows' : platform;
-    return `sqlite-vec-${os}-${arch}`;
-  };
 
   const getBetterSqliteBinaryPaths = (): string[][] => {
     const compiledBinary = ['better-sqlite3', 'build', 'Release', 'better_sqlite3.node'];
@@ -176,11 +171,6 @@ export default async (
       ['rotating-file-stream', 'package.json'],
       ['rotating-file-stream', 'dist', 'cjs', 'index.js'],
       ['rotating-file-stream', 'dist', 'cjs', 'package.json'],
-      // Refer to `node_modules\sqlite-vec\index.cjs` for latest file names
-      // sqlite-vec: copy main entry files and platform-specific binary
-      ['sqlite-vec', 'package.json'],
-      ['sqlite-vec', 'index.cjs'],
-      [getSqliteVecPlatformPackageName()],
     ];
 
     console.log('Copying packagePathsToCopyDereferenced');
@@ -241,15 +231,5 @@ export default async (
     }
     assertNoSymbolicLinks(electronUnhandledDestination);
     console.log(`Copied ${PACKAGED_ELECTRON_UNHANDLED_PACKAGE}@${electronUnhandledManifest.version} production closure`);
-
-    if (platform === 'win32') {
-      console.log('Copy registry-js (Windows only)');
-      // registry-js has native binary that is loaded using relative path (../../build/Release/registry.node)
-      fs.copySync(
-        path.join(sourceNodeModulesFolder, 'registry-js'),
-        path.join(cwd, 'node_modules', 'registry-js'),
-        { dereference: true },
-      );
-    }
   }
 };

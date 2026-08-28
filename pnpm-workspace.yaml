@@ -1,6 +1,6 @@
 packages:
-  # Desktop is an independent nested pnpm workspace with its own lockfile and
-  # packages/tidgi-shared. Do not install it through the Mobile/root lockfile.
+  # Desktop is an independent nested pnpm workspace with its own lockfile.
+  # Do not install it through the Mobile/root lockfile.
   - apps/mobile
 
 overrides:

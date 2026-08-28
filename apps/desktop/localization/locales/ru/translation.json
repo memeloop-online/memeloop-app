@@ -537,6 +537,7 @@
     "System": "Система",
     "SystemDefaultTheme": "Тема по умолчанию",
     "TestNotification": "Тест уведомлений",
+    "MemeLoopTestNotificationDescription": "<0>Если уведомления не появляются, включите MemeLoop в разделе <1>Системные настройки → Уведомления</1>.</0>",
     "TestNotificationDescription": "<0>Если уведомление не отображается, убедитесь, что уведомления включены в <1>настройках macOS → Уведомления → TidGi</1></0>",
     "Theme": "Тема",
     "TiddlyWiki": "TiddlyWiki",

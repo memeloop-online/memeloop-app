@@ -634,6 +634,7 @@
     "System": "System",
     "SystemDefaultTheme": "System Defalut Theme",
     "TestNotification": "Test notifications",
+    "MemeLoopTestNotificationDescription": "<0>If notifications do not appear, enable MemeLoop in <1>System Settings → Notifications</1>.</0>",
     "TestNotificationDescription": "<0>If notifications dont show up, make sure you enable notifications in<1>macOS Preferences → Notifications → TidGi</1>.</0>",
     "Theme": "Theme",
     "TiddlyWiki": "TiddlyWiki",

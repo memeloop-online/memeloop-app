@@ -121,7 +121,7 @@ export function validateCucumberArguments(arguments_: string[]): void {
           'Missing value for --name',
           [
             'Provide a scenario title after --name:',
-            '  pnpm test:e2e --name "Wiki-search tool usage"',
+            '  pnpm test:e2e --name "Agent tool usage"',
           ],
         );
       }
@@ -196,7 +196,7 @@ function prepareTestDirectories(): void {
 }
 
 function ensureCalibrationFileExists(): void {
-  if (process.env.TIDGI_E2E_IS_CALIBRATION === 'true') {
+  if (process.env.MEMELOOP_E2E_IS_CALIBRATION === 'true') {
     return;
   }
 
@@ -214,7 +214,7 @@ function ensureCalibrationFileExists(): void {
         '  pnpm run test:e2e:calibrate',
         '',
         'Then run your scenarios, for example:',
-        '  pnpm test:e2e --tags="@edit-workspace-save-http-api"',
+        '  pnpm test:e2e --tags="@smoke"',
         '',
         'AI agents: `pnpm test:e2e` does NOT run calibration.',
       ],

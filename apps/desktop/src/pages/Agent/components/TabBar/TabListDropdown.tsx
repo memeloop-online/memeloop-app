@@ -3,6 +3,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import AddIcon from '@mui/icons-material/Add';
 import ChatIcon from '@mui/icons-material/Chat';
 import CloseIcon from '@mui/icons-material/Close';
+import SettingsIcon from '@mui/icons-material/Settings';
 import SplitscreenIcon from '@mui/icons-material/Splitscreen';
 import TabIcon from '@mui/icons-material/Tab';
 import WebIcon from '@mui/icons-material/Web';
@@ -11,6 +12,7 @@ import { styled } from '@mui/material/styles';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { WindowNames } from '@services/windows/WindowProperties';
 import { useTabStore } from '../../store/tabStore';
 import { TabItem, TabType } from '../../types/tab';
 
@@ -233,6 +235,18 @@ export const TabListDropdown: React.FC = () => {
           data-testid='new-tab-button'
         >
           <AddIcon fontSize='small' />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title={t('Preference.Title', { ns: 'translation' })}>
+        <IconButton
+          id='open-preferences-button'
+          data-testid='open-preferences-button'
+          size='small'
+          onClick={() => {
+            void window.service.window.open(WindowNames.preferences);
+          }}
+        >
+          <SettingsIcon fontSize='small' />
         </IconButton>
       </Tooltip>
 

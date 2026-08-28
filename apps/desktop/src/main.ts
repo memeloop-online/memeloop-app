@@ -33,7 +33,6 @@ import type { IDeviceNetworkService } from '@services/deviceNetwork/interface';
 import { createDesktopOrchestrationClient } from '@services/deviceNetwork/orchestration';
 import type { IExternalAPIService } from '@services/externalAPI/interface';
 import { initializeObservables } from '@services/libs/initializeObservables';
-import type { INativeService } from '@services/native/interface';
 import { reportErrorToGithubWithTemplates } from '@services/native/reportError';
 import type { IProviderRegistryService } from '@services/providerRegistry/interface';
 import type { IThemeService } from '@services/theme/interface';
@@ -117,10 +116,6 @@ const providerRegistryService = container.get<IProviderRegistryService>(
 const themeService = container.get<IThemeService>(
   serviceIdentifier.ThemeService,
 );
-const nativeService = container.get<INativeService>(
-  serviceIdentifier.NativeService,
-);
-
 let beforeQuitCleanupPromise: Promise<void> | undefined;
 let shouldSkipBeforeQuitInterception = false;
 
@@ -211,18 +206,13 @@ const commonInit = async (): Promise<void> => {
     externalAPIService.initialize(),
   ]);
 
-  // if user want a tidgi mini window, we create a new window for that
-  // handle workspace name + tiddler name in uri https://www.electronjs.org/docs/latest/tutorial/launch-app-from-url-in-another-app
-  // Use different protocol for test mode to avoid conflicts with production
+  // Use a different protocol for test mode to avoid conflicts with production.
   deepLinkService.initializeDeepLink(MEMELOOP_PROTOCOL_SCHEME);
 
   await windowService.open(WindowNames.main);
 
   // Initialize services that depend on windows being created
-  await Promise.all([
-    themeService.initialize(),
-    nativeService.initialize(),
-  ]);
+  await themeService.initialize();
 
   initializeObservables();
 

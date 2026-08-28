@@ -135,7 +135,7 @@ export interface AIResponseContext extends BaseToolContext {
  */
 export interface UserMessageContext extends BaseToolContext {
   /** User message content */
-  content: { text: string; file?: File; wikiTiddlers?: Array<{ workspaceName: string; tiddlerTitle: string }> };
+  content: { text: string; file?: File };
   /** Generated message ID */
   messageId: string;
   /** Timestamp for the message */

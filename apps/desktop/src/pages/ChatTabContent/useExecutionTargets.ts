@@ -1,5 +1,5 @@
 import type { AgentExecutionTarget, SetExecutionTargetOptions } from '@memeloop/react-ui/chat';
-import { type AgentAttachmentInput, type ChatMessage, type Device, type RemoteAgentExecutionSnapshot, type RemoteAgentExecutionTarget, type WikiTiddlerAttachment } from 'memeloop';
+import { type AgentAttachmentInput, type ChatMessage, type Device, type RemoteAgentExecutionSnapshot, type RemoteAgentExecutionTarget } from 'memeloop';
 import type { DeviceConnectionGrant } from 'memeloop/device-network';
 import { nanoid } from 'nanoid';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -138,9 +138,6 @@ export function useExecutionTargets({
         const attachments = request.attachment?.kind === 'committed'
           ? [request.attachment.reference]
           : undefined;
-        const metadata = request.wikiTiddlers && request.wikiTiddlers.length > 0
-          ? { wikiTiddlers: request.wikiTiddlers.map(tiddler => ({ ...tiddler })) }
-          : undefined;
         const response = await fenceLocalCall(
           window.service.agentInstance.executeAgentTurn({
             conversationId: provenance.conversationId,
@@ -148,9 +145,9 @@ export function useExecutionTargets({
             requestId: provenance.requestId,
             turnId: provenance.turnId,
             message: request.message,
-            ...(attachments === undefined && metadata === undefined
+            ...(attachments === undefined
               ? {}
-              : { userMessage: { content: request.message, attachments, metadata } }),
+              : { userMessage: { content: request.message, attachments } }),
           }),
           signal,
         );
@@ -256,7 +253,6 @@ export function useExecutionTargets({
   const sendMessage = useCallback(async (
     text: string,
     file?: File,
-    wikiTiddlers?: WikiTiddlerAttachment[],
   ) => {
     const context = requireOperationContext();
     const provenance = context.coordinator.prepareProvenance({
@@ -280,7 +276,6 @@ export function useExecutionTargets({
       provenance,
       message: text,
       ...(attachment === undefined ? {} : { attachment }),
-      ...(wikiTiddlers === undefined ? {} : { wikiTiddlers }),
     });
     await refreshAfterRemoteMutation(context.target);
   }, [refreshAfterRemoteMutation, requireOperationContext, t]);

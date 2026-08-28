@@ -63,7 +63,6 @@ export default function Main(): React.JSX.Element {
           <Suspense fallback={<ContentLoading />}>
             <Switch>
               <Route path={`/${PageType.agent}`} component={subPages.Agent} />
-              <Route path={`/${PageType.guide}`} component={subPages.Guide} />
               <Route path='/' component={subPages.Agent} />
               <Route component={subPages.Agent} />
             </Switch>

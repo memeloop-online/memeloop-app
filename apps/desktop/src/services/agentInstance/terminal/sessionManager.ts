@@ -2,7 +2,7 @@
  * ITerminalSessionManager: start/manage long-running commands, stream stdout/stderr,
  * stdin write, interaction detection (timeout + regex prompt), process lifecycle, session list.
  *
- * Implementation is adapted from memeloop-cli's terminal module, but packaged for TidGi Desktop.
+ * Implementation is adapted from memeloop-cli's terminal module for the standalone App.
  */
 
 import { type ChildProcess, spawn } from 'node:child_process';

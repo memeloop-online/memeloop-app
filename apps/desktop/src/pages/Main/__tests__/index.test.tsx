@@ -6,13 +6,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 
-import { PageType } from '@/constants/pageTypes';
 import { lightTheme } from '@services/theme/defaultTheme';
 import Main from '../index';
 
 vi.mock('../subPages', () => ({
   subPages: {
-    Guide: () => <div data-testid='guide-page'>Guide Page Content</div>,
     Agent: () => <div data-testid='agent-page'>Agent Page Content</div>,
   },
 }));
@@ -43,7 +41,7 @@ describe('Main Page', () => {
   });
 
   it('falls back to the agent page for removed TidGi routes', async () => {
-    renderMain(`/${PageType.help}`);
+    renderMain('/legacy-workspace');
 
     expect(await screen.findByTestId('agent-page')).toBeInTheDocument();
     expect(screen.queryByTestId('main-sidebar')).not.toBeInTheDocument();

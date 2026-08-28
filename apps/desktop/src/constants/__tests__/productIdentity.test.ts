@@ -36,7 +36,6 @@ describe('MemeLoop Desktop product identity', () => {
   it('keeps the Forge installer contract free of TidGi host identities', () => {
     const forgeSource = fs.readFileSync(path.resolve(process.cwd(), 'forge.config.ts'), 'utf8');
     const updaterSource = fs.readFileSync(path.resolve(process.cwd(), 'src', 'services', 'updater', 'index.ts'), 'utf8');
-    const urlsSource = fs.readFileSync(path.resolve(process.cwd(), 'src', 'constants', 'urls.ts'), 'utf8');
 
     expect(forgeSource).toContain('MEMELOOP_EXECUTABLE_NAME');
     expect(forgeSource).toContain('name: MEMELOOP_EXECUTABLE_NAME');
@@ -49,7 +48,6 @@ describe('MemeLoop Desktop product identity', () => {
     expect(forgeSource).not.toContain("schemes: ['tidgi']");
     expect(forgeSource).not.toContain('x-scheme-handler/tidgi');
     expect(updaterSource).not.toContain('tiddly-gittly/TidGi-Desktop');
-    expect(urlsSource).not.toContain('tiddly-gittly/TidGi-Desktop');
   });
 
   it('bootstraps product identity before importing settings, logging or database modules', () => {

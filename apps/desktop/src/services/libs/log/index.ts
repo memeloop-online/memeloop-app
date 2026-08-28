@@ -29,7 +29,7 @@ const logger = winston.createLogger({
   transports: [
     new winston.transports.Console(),
     new winston.transports.DailyRotateFile({
-      filename: 'TidGi-%DATE%.log',
+      filename: 'MemeLoop-%DATE%.log',
       datePattern: 'YYYY-MM-DD',
       zippedArchive: false,
       maxSize: '20mb',
@@ -44,20 +44,19 @@ const logger = winston.createLogger({
 export { logger };
 
 /**
- * Store for labeled loggers (e.g., per-wiki loggers)
+ * Store for runtime-labeled loggers.
  */
 const labeledLoggers = new Map<string, winston.Logger>();
 
 /**
- * Get or create a logger for a specific label (e.g., wiki name)
+ * Get or create a logger for a specific runtime label.
  * Each labeled logger writes to its own log file
- * @param label The label for the logger (e.g., wiki workspace name)
+ * @param label The label for the logger.
  * @returns A winston logger instance for the specified label
  */
 export function getLoggerForLabel(label: string): winston.Logger {
-  // Special case: if label is 'TidGi', return the main logger to avoid file write conflicts
-  // This allows main window console logs to merge into the same TidGi-*.log file
-  if (label === 'TidGi') {
+  // Merge the main runtime label into the primary rotating file.
+  if (label === 'MemeLoop') {
     return logger;
   }
 

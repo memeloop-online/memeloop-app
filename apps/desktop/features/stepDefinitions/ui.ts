@@ -1,9 +1,7 @@
 import { DataTable, Then, When } from '@cucumber/cucumber';
 import { backOff } from 'exponential-backoff';
-import fs from 'fs';
-import path from 'path';
 import { parseDataTableRows } from '../supports/dataTable';
-import { getWikiTestRootPath } from '../supports/paths';
+import { getScenarioFilesPath } from '../supports/paths';
 import { PLAYWRIGHT_SHORT_TIMEOUT, PLAYWRIGHT_TIMEOUT } from '../supports/timeouts';
 import type { ApplicationWorld } from './application';
 
@@ -37,7 +35,7 @@ When(
         await this.appLaunchPromise;
       } catch (error) {
         throw new Error(
-          `Failed to launch TidGi application: ${error as Error}. You should run \`pnpm run test:prepare-e2e\` before running the tests to ensure the app is built, and build with binaries like "dugite" and "tiddlywiki", see scripts/afterPack.js for more details.`,
+          `Failed to launch MemeLoop application: ${error as Error}. Run \`pnpm run test:prepare-e2e\` first to build the packaged test application.`,
           { cause: error },
         );
       } finally {
@@ -56,69 +54,14 @@ When(
     await currentWindow?.waitForLoadState('domcontentloaded', {
       timeout: PLAYWRIGHT_TIMEOUT,
     });
-    // Short networkidle gives workspace-creation and other startup IPC time to finish
-    // without blocking on long-lived connections. 3s is intentionally different from
+    // A short network-idle grace period lets startup IPC settle without
+    // blocking on long-lived agent/network connections. It is intentionally different from
     // PLAYWRIGHT_TIMEOUT — this is just a grace period, not a hard requirement.
     try {
       await currentWindow?.waitForLoadState('networkidle', { timeout: 3000 });
     } catch {
       // Ignore – DOM is already ready.
     }
-
-    const scenarioLogsDirectory = path.resolve(
-      process.cwd(),
-      'test-artifacts',
-      this.scenarioSlug,
-      'userData-test',
-      'logs',
-    );
-    const readyMarker = '[test-id-ALL_WORKSPACE_VIEW_INITIALIZED] All workspace views initialized';
-
-    await backOff(
-      async () => {
-        if (!fs.existsSync(scenarioLogsDirectory)) {
-          throw new Error(
-            `Logs directory not found yet: ${scenarioLogsDirectory}`,
-          );
-        }
-
-        const logFiles = fs
-          .readdirSync(scenarioLogsDirectory)
-          .filter((fileName) => fileName.endsWith('.log'));
-        if (logFiles.length === 0) {
-          throw new Error('No log files available yet');
-        }
-
-        const hasReadyMarker = logFiles.some((fileName) => {
-          try {
-            const content = fs.readFileSync(
-              path.join(scenarioLogsDirectory, fileName),
-              'utf8',
-            );
-            return content.includes(readyMarker);
-          } catch {
-            return false;
-          }
-        });
-
-        if (!hasReadyMarker) {
-          throw new Error(
-            'Workspace initialization marker not found in logs yet',
-          );
-        }
-      },
-      {
-        numOfAttempts: 25,
-        startingDelay: 200,
-        timeMultiple: 1,
-        maxDelay: 200,
-        delayFirstAttempt: true,
-      },
-    ).catch(() => {
-      // The marker is useful when startup fully settles before the step returns,
-      // but packaged test boot can still finish that async tail slightly later.
-      // Subsequent selector-based assertions remain the authoritative readiness check.
-    });
   },
 );
 
@@ -523,7 +466,7 @@ When(
     }
 
     // Replace {tmpDir} placeholder with actual test root path
-    const actualText = text.replace('{tmpDir}', getWikiTestRootPath(this));
+    const actualText = text.replace('{tmpDir}', getScenarioFilesPath(this));
 
     try {
       await currentWindow.waitForSelector(selector, {
@@ -571,7 +514,7 @@ When(
       const elementComment = descriptions[index];
 
       // Replace {tmpDir} placeholder with actual test root path
-      const actualText = text.replace('{tmpDir}', getWikiTestRootPath(this));
+      const actualText = text.replace('{tmpDir}', getScenarioFilesPath(this));
 
       try {
         await currentWindow.waitForSelector(selector, {

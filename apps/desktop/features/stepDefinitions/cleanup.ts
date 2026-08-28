@@ -2,7 +2,6 @@ import { After, Before } from '@cucumber/cucumber';
 import fs from 'fs-extra';
 import path from 'path';
 import { makeSlugPath } from '../supports/paths';
-import { clearAISettings } from './agent';
 import { ApplicationWorld } from './application';
 
 Before(async function(this: ApplicationWorld, { pickle }) {
@@ -21,15 +20,11 @@ Before(async function(this: ApplicationWorld, { pickle }) {
   // Create necessary directories for this scenario
   await fs.ensureDir(logsDirectory);
   await fs.ensureDir(screenshotsDirectory);
-
-  if (pickle.tags.some((tag) => tag.name === '@ai-setting')) {
-    await clearAISettings(scenarioRoot);
-  }
 });
 
-After(async function(this: ApplicationWorld, { pickle }) {
+After(async function(this: ApplicationWorld) {
   // IMPORTANT: Close app FIRST before cleaning up files
-  // This releases file locks so wiki folders can be deleted
+  // This releases database and log file handles before the harness exits.
   if (this.app) {
     try {
       // Close all application windows before closing the app.
@@ -93,16 +88,4 @@ After(async function(this: ApplicationWorld, { pickle }) {
       this.currentWindow = undefined;
     }
   }
-
-  const scenarioRoot = path.resolve(
-    process.cwd(),
-    'test-artifacts',
-    this.scenarioSlug,
-  );
-
-  // Clean up settings and test data AFTER app is closed
-  if (pickle.tags.some((tag) => tag.name === '@ai-setting')) {
-    await clearAISettings(scenarioRoot);
-  }
-  // Scenario-specific logs are already in the right place, no need to move them
 });

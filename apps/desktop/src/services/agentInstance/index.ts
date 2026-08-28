@@ -1199,7 +1199,6 @@ export class AgentInstanceService implements IAgentInstanceService {
     content: {
       text: string;
       attachment?: AttachmentReference;
-      wikiTiddlers?: Array<{ workspaceName: string; tiddlerTitle: string }>;
     },
   ): Promise<void> {
     try {
@@ -1373,25 +1372,16 @@ export class AgentInstanceService implements IAgentInstanceService {
     content: {
       text: string;
       attachment?: AttachmentReference;
-      wikiTiddlers?: Array<{ workspaceName: string; tiddlerTitle: string }>;
     },
   ): Promise<Partial<ChatMessage> & { messageId: string; turnId: string; content: string }> {
     const attachments: AttachmentReference[] = [];
-    const metadata: Record<string, unknown> = {};
     if (content.attachment) attachments.push(content.attachment);
-    if (content.wikiTiddlers?.length) {
-      // Keep the host selection as structured provenance. Wiki content is read
-      // through the worker's explicit wiki/tool port; it is never flattened
-      // into a second host-side prompt assembly pipeline.
-      metadata.wikiTiddlers = content.wikiTiddlers.map(tiddler => ({ ...tiddler }));
-    }
     return {
       messageId: turnId,
       turnId,
       conversationId,
       content: content.text,
       ...(attachments.length > 0 ? { attachments } : {}),
-      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     };
   }
 

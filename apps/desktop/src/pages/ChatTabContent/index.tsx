@@ -178,12 +178,7 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
     executionTargets,
     activeExecutionTargetId,
     setExecutionTarget,
-    sendMessage: input =>
-      sendToExecutionTarget(
-        input.text,
-        input.file,
-        input.wikiTiddlers ? [...input.wikiTiddlers] : undefined,
-      ),
+    sendMessage: input => sendToExecutionTarget(input.text, input.file),
     cancel: cancelSelectedTarget,
     deleteTurn: deleteSelectedTurn,
     retryTurn: retrySelectedTurn,

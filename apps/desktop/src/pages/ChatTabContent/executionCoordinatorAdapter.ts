@@ -318,22 +318,18 @@ export function createDesktopExecutionCoordinator(
       request.attachment,
       callOptions.signal,
     );
-    const metadata = request.wikiTiddlers && request.wikiTiddlers.length > 0
-      ? { wikiTiddlers: request.wikiTiddlers.map(tiddler => ({ ...tiddler })) }
-      : undefined;
     const accepted = await clientFor(peerId).runTurn({
       conversationId: provenance.conversationId,
       definitionId: provenance.definitionId,
       turnId: provenance.turnId,
       requestId: provenance.requestId,
       message: request.message,
-      ...(attachment === undefined && metadata === undefined
+      ...(attachment === undefined
         ? {}
         : {
           userMessage: {
             content: request.message,
             ...(attachment === undefined ? {} : { attachments: [attachment] }),
-            ...(metadata === undefined ? {} : { metadata }),
           },
         }),
     }, { signal: callOptions.signal });

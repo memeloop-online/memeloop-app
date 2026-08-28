@@ -10,7 +10,7 @@ interface UsePreferenceGotoTabOptions {
 /**
  * Read `preferenceGotoTab` from window metadata and scroll to the matching section reference.
  *
- * Used by Preferences and EditWorkspace so both windows share the same deep-link
+ * Used by preferences entry points so every window shares the same deep-link
  * scroll behavior instead of duplicating the effect.
  */
 export function usePreferenceGotoTab(

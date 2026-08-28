@@ -72,3 +72,4 @@ tsconfig.test.json.tsbuildinfo
 /test-artifacts-ci
 test-artifacts-ci.zip
 /.pnpm-store
+/.calibration.json

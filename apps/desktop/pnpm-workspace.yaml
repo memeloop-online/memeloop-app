@@ -1,5 +1,4 @@
-packages:
-  - packages/*
+packages: []
 
 overrides:
   prebuild-install: latest
@@ -36,7 +35,6 @@ onlyBuiltDependencies:
   - electron
   - electron-winstaller
   - esbuild
-  - registry-js
   - unrs-resolver
 
 nodeLinker: hoisted
@@ -52,7 +50,6 @@ allowBuilds:
   puppeteer: false
   # protobufjs only reports optional CLI generation hints; it produces no runtime files.
   protobufjs: false
-  registry-js: true
   unrs-resolver: true
 
 # pnpm 11 blocks exotic subdependencies by default. Allow them for @reforged/maker-appimage git deps.
@@ -74,7 +71,6 @@ minimumReleaseAgeExclude:
   - eslint-plugin-unicorn@65.0.1
   - git-sync-js@2.4.0
   - typescript-eslint@8.61.0
-  - tidgi-shared@0.1.6
   - electron-ipc-cat@2.6.0
   - vite-plugin-electron-utility-process@1.0.2
   - '@ai-sdk/anthropic@4.0.19'

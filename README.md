@@ -32,8 +32,9 @@ test and packaging-gate update.
 ## Quick Start
 
 The root pnpm workspace manages Mobile. Desktop remains an independent nested
-workspace because it also owns `packages/tidgi-shared`; always install Desktop
-from `apps/desktop` so each lockfile has a single, non-overlapping scope.
+workspace so Electron's native dependency graph and lockfile stay isolated
+from Expo. Always install Desktop from `apps/desktop` so each lockfile has a
+single, non-overlapping scope.
 
 ```bash
 # Desktop

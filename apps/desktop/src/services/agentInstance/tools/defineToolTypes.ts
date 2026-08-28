@@ -31,7 +31,7 @@ export interface ToolDefinition<
 
   /**
    * Optional schemas for LLM-callable tools.
-   * Each key is the tool name (e.g., 'wiki-search'), value is the parameter schema.
+   * Each key is the tool name (e.g., 'web-fetch'), value is the parameter schema.
    * The schema's title meta will be used as the tool name in prompts.
    */
   llmToolSchemas?: TLLMToolSchemas;

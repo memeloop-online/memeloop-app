@@ -81,7 +81,7 @@ async function connectAndListTools(config: ModelContextProtocolParameter, agentI
     // Use /* @vite-ignore */ so Vite/Vitest don't try to resolve the path at build time.
     const { Client } = await import(/* @vite-ignore */ '@modelcontextprotocol/sdk/client/index.js');
 
-    const client = new Client({ name: 'TidGi-Agent', version: '1.0.0' }, { capabilities: {} });
+    const client = new Client({ name: 'MemeLoop-Agent', version: '1.0.0' }, { capabilities: {} });
 
     let transport: unknown;
 

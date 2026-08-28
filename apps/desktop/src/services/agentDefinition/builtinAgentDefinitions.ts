@@ -5,7 +5,7 @@ import type { AgentDefinition } from './interface';
 /**
  * The App does not own a fork of MemeLoop's prompts. Keeping the UI catalogue
  * as a projection of Core profiles makes prompt/tool fixes land in every host
- * and prevents the standalone App from advertising TidGi-only capabilities.
+ * and prevents the standalone App from advertising host-only capabilities.
  */
 export const DEFAULT_AGENT_DEFINITION_ID = 'memeloop:general-assistant';
 

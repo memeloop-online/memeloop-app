@@ -123,12 +123,12 @@ export interface ISectionDefinition extends ISectionDefinitionData {
   CustomSectionComponent?: React.ComponentType<ICustomSectionProps>;
 }
 
-// ─── Generic section definition for non-preference settings (e.g. workspace) ─
+// ─── Generic section definition for non-preference settings ─
 
 /**
  * A section definition whose items use plain string keys instead of IPreferences keys.
  * Structurally identical to ISectionDefinition at runtime — only the TS key constraint differs.
- * This lets workspace (and future) settings reuse the same renderer and sidebar.
+ * This lets future record-backed settings reuse the same renderer and sidebar.
  */
 export interface IGenericSectionDefinition {
   id: string;

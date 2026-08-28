@@ -130,13 +130,12 @@ export function createDesktopConversationClient(): AgentConversationClient {
       throwIfAborted(callOptions?.signal);
       return result;
     },
-    async sendMessage(conversationId, content, attachment, wikiTiddlers, options) {
+    async sendMessage(conversationId, content, attachment, _hostStructuredAttachments, options) {
       throwIfAborted(options?.signal);
       if (attachment?.kind === 'source') throw new Error('uncommitted_attachment_send_not_supported');
       await window.service.agentInstance.sendMsgToAgent(conversationId, {
         text: content,
         ...(attachment ? { attachment: attachment.reference } : {}),
-        ...(wikiTiddlers ? { wikiTiddlers } : {}),
       });
       throwIfAborted(options?.signal);
     },

@@ -538,6 +538,7 @@
     "System": "Système",
     "SystemDefaultTheme": "Thème par défaut du système",
     "TestNotification": "Tester les notifications",
+    "MemeLoopTestNotificationDescription": "<0>Si les notifications ne s’affichent pas, activez MemeLoop dans <1>Réglages système → Notifications</1>.</0>",
     "TestNotificationDescription": "<0>Si les notifications ne s'affichent pas, assurez-vous d'activer les notifications dans<1>Préférences macOS → Notifications → TidGi</1>.</0>",
     "Theme": "Thème",
     "TiddlyWiki": "TiddlyWiki",

@@ -1,5 +1,5 @@
 /**
- * Schema-driven renderer for record-backed settings (e.g. workspace config).
+ * Schema-driven renderer for record-backed settings.
  * Preferences uses SchemaRenderer.tsx with IPreferences; this covers generic keyed records.
  */
 import { Divider, List, Switch, TextField, Typography } from '@mui/material';

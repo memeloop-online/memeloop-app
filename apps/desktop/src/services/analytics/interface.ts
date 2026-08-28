@@ -3,22 +3,8 @@ import { ProxyPropertyType } from 'electron-ipc-cat/common';
 
 export type BuiltInAnalyticsEventName =
   | 'app.launched'
-  | 'deep_link.opened'
   | 'error.report_requested'
   | 'error.unhandled'
-  | 'settings.opened'
-  | 'tiddler.created'
-  | 'workspace.created'
-  | 'workspace.activated'
-  | 'workspace.opened_in_new_window'
-  | 'workspace.group.created'
-  | 'workspace.group.deleted'
-  | 'workspace.moved_to_group'
-  | 'workspace.moved_out_of_group'
-  | 'preferences.analytics_updated'
-  | 'sync.triggered'
-  | 'sync.completed'
-  | 'sync.failed'
   | 'theme.changed'
   | 'updater.check_started'
   | 'updater.update_available'
@@ -40,15 +26,14 @@ export interface IAnalyticsEventProperties {
 export interface IAnalyticsService {
   /**
    * Track a privacy-safe event. No-ops if analytics disabled or misconfigured.
-   * @param eventName Event name following taxonomy (e.g., 'app.launched', 'workspace.created')
+   * @param eventName Event name following the App taxonomy.
    * @param properties Optional properties (only primitives, no PII/content)
    */
   track(eventName: AnalyticsEventName, properties?: IAnalyticsEventProperties): Promise<void>;
 
   /**
    * Track a coarse plugin-defined event through a guarded API intended for renderer code
-   * and TiddlyWiki plugins. The final event name is emitted as `plugin.<pluginId>.<eventName>`.
-   * This exists so plugin authors do not need to depend on TidGi core event taxonomy.
+   * and host plugins. The final event name is emitted as `plugin.<pluginId>.<eventName>`.
    */
   trackPluginEvent(pluginId: string, eventName: string, properties?: IAnalyticsEventProperties): Promise<void>;
 

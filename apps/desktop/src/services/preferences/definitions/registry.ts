@@ -1,4 +1,3 @@
-import type { HunspellLanguages } from '@/constants/hunspellLanguages';
 import { z } from 'zod';
 import { aiAgentSection } from './aiAgent';
 import { aiModelsSection } from './aiModels';
@@ -75,7 +74,7 @@ export function getAllPreferenceItems(): PreferenceItem[] {
 
 /**
  * Build the unified Zod schema from all section definitions.
- * Fields not covered by definitions (like keyboardShortcuts, spellcheckLanguages)
+ * Fields not covered by definitions (such as internal notification/analytics state)
  * are added here as extra fields.
  */
 export function buildZodSchema(): z.ZodObject<Record<string, z.ZodType>> {
@@ -84,10 +83,6 @@ export function buildZodSchema(): z.ZodObject<Record<string, z.ZodType>> {
     shape[item.key] = item.zod;
   }
   // Extra fields not managed by section definitions but part of IPreferences
-  shape.keyboardShortcuts = z.record(z.string(), z.string());
-  shape.spellcheckLanguages = z.array(
-    z.string() as z.ZodType<HunspellLanguages>,
-  );
   shape.pauseNotifications = z.string().optional();
   // Schedule fields rendered by custom TimePicker component
   shape.pauseNotificationsBySchedule = z.boolean();
@@ -95,38 +90,12 @@ export function buildZodSchema(): z.ZodObject<Record<string, z.ZodType>> {
   shape.pauseNotificationsByScheduleTo = z.string();
   // Language is managed by a custom selector
   shape.language = z.string();
-  // Memeloop node server port
   // Service settings not currently rendered by a built-in preference item.
   shape.analyticsEnabled = z.boolean();
   shape.analyticsHost = z.string();
   shape.analyticsHostname = z.string();
   shape.analyticsSiteId = z.string();
-  shape.mcpServerEnabled = z.boolean();
-  shape.mcpServerPort = z.number().int().min(1).max(65_535);
-  shape.mcpServerRequireToken = z.boolean();
-  shape.mcpServerToken = z.string();
-  // Internal defaults retained until the preference model itself is split.
-  // They are intentionally not rendered by MemeLoop App.
-  shape.aiGenerateBackupTitle = z.boolean();
-  shape.aiGenerateBackupTitleTimeout = z.number();
-  shape.disableAntiAntiLeech = z.boolean();
-  shape.disableAntiAntiLeechForUrls = z.array(z.string());
   shape.externalAPIDebug = z.boolean();
-  shape.hibernateUnusedWorkspacesAtLaunch = z.boolean();
-  shape.hideMenuBar = z.boolean();
-  shape.ignoreCertificateErrors = z.boolean();
-  shape.rememberLastPageVisited = z.boolean();
-  shape.shareWorkspaceBrowsingData = z.boolean();
-  shape.spellcheck = z.boolean();
-  shape.swipeToNavigate = z.boolean();
-  shape.syncBeforeShutdown = z.boolean();
-  shape.syncDebounceInterval = z.number();
-  shape.syncOnlyWhenNoDraft = z.boolean();
-  shape.tidgiMiniWindow = z.boolean();
-  shape.tidgiMiniWindowAlwaysOnTop = z.boolean();
-  shape.tidgiMiniWindowFixedWorkspaceId = z.string().optional();
-  shape.tidgiMiniWindowShowTitleBar = z.boolean();
-  shape.tidgiMiniWindowSyncWorkspaceWithMainWindow = z.boolean();
   return z.object(shape);
 }
 

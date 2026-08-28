@@ -26,15 +26,10 @@ const RestartButton = styled(Button)<{ time: number }>`
 `;
 const anchorOrigin = { vertical: 'bottom', horizontal: 'center' } as const;
 
-export enum RestartSnackbarType {
-  App = 'App',
-  Wiki = 'Wiki',
-}
-
 export function useRestartSnackbar(
-  configs?: { restartType?: RestartSnackbarType; waitBeforeCountDown?: number; waitBeforeRestart?: number; workspace?: { id: string } },
+  configs?: { waitBeforeCountDown?: number; waitBeforeRestart?: number },
 ): [() => void, React.JSX.Element] {
-  const { waitBeforeCountDown = 1000, waitBeforeRestart = 10_000, restartType = RestartSnackbarType.App, workspace } = configs ?? {};
+  const { waitBeforeCountDown = 1000, waitBeforeRestart = 10_000 } = configs ?? {};
   const { t } = useTranslation();
   const [opened, openedSetter] = useState(false);
   const [inCountDown, inCountDownSetter] = useState(false);
@@ -43,17 +38,8 @@ export function useRestartSnackbar(
   const handleCloseAndRestart = useCallback(async () => {
     openedSetter(false);
     inCountDownSetter(false);
-    switch (restartType) {
-      case RestartSnackbarType.App: {
-        await window.service.window.requestRestart();
-        break;
-      }
-      case RestartSnackbarType.Wiki: {
-        throw new Error('Wiki restart is only available from the TidGi host adapter');
-        break;
-      }
-    }
-  }, [restartType, workspace]);
+    await window.service.window.requestRestart();
+  }, []);
 
   const handleCancelRestart = useCallback(() => {
     openedSetter(false);
@@ -112,7 +98,7 @@ export function useRestartSnackbar(
               size='small'
               onClick={handleCloseAndRestart}
             >
-              {restartType === RestartSnackbarType.App ? t('Dialog.RestartAppNow') : t('Dialog.RestartWikiNow')}
+              {t('Dialog.RestartAppNow')}
             </RestartButton>
             <Tooltip title={<span>{t('Dialog.Later')}</span>}>
               <IconButton size='small' aria-label='close' color='inherit' onClick={handleCancelRestart}>

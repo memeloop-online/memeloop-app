@@ -49,7 +49,7 @@ export interface IChatTab extends ITab {
   type: TabType.CHAT;
   agentId?: string;
   agentDefId?: string;
-  /** Initial message to send when tab is created (e.g., from wiki selection) */
+  /** Initial message to send when the tab is created. */
   initialMessage?: string;
 }
 

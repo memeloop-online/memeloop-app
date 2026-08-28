@@ -29,7 +29,7 @@ const WebFetchToolSchema = z.object({
   title: 'web-fetch',
   description: 'Fetch content from a URL. Returns the page text (HTML tags stripped by default). Useful for referencing external documentation or web resources.',
   examples: [
-    { url: 'https://tiddlywiki.com/#HelloThere', extractText: true },
+    { url: 'https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API', extractText: true },
   ],
 });
 
@@ -88,7 +88,7 @@ async function executeWebFetch(parameters: z.infer<typeof WebFetchToolSchema>, m
   try {
     const response = await net.fetch(url, {
       headers: {
-        'User-Agent': 'TidGi-Desktop/1.0 (AI Agent Web Fetch)',
+        'User-Agent': 'MemeLoop-App/1.0 (AI Agent Web Fetch)',
         Accept: 'text/html,application/xhtml+xml,text/plain,*/*',
       },
     });

@@ -41,7 +41,7 @@ const AskQuestionToolSchema = z.object({
   description:
     "Pause and ask the user a clarifying question. Supports single-select (radio buttons), multi-select (checkboxes), or text-only input. The user's answer is sent as the next message.",
   examples: [
-    { question: 'Which wiki workspace?', inputType: 'single-select', options: [{ label: 'My Wiki' }, { label: 'Work Wiki' }], allowFreeform: true },
+    { question: 'Which project should I update?', inputType: 'single-select', options: [{ label: 'Desktop' }, { label: 'Mobile' }], allowFreeform: true },
     { question: 'Which tags to apply?', inputType: 'multi-select', options: [{ label: 'journal' }, { label: 'important' }, { label: 'todo' }] },
     { question: 'Describe the changes you want:', inputType: 'text' },
   ],

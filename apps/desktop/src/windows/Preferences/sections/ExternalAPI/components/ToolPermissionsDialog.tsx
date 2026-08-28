@@ -30,22 +30,12 @@ interface ToolPermissionsDialogProps {
 }
 
 const KNOWN_TOOLS = [
-  'wiki-search',
-  'wiki-operation',
-  'wiki-backlinks',
-  'wiki-toc',
-  'wiki-recent',
-  'wiki-list-tiddlers',
-  'wiki-get-errors',
-  'wiki-update-embeddings',
   'zx-script',
   'web-fetch',
   'spawn-agent',
   'alarm-clock',
   'ask-question',
   'summary',
-  'git-search-commits',
-  'git-read-commit-file',
 ];
 
 export function ToolPermissionsDialog({

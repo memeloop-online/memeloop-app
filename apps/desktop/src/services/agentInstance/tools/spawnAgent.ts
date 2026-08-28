@@ -29,7 +29,7 @@ const SpawnAgentToolSchema = z.object({
   }),
   context: z.string().optional().meta({
     title: 'Additional context',
-    description: 'Extra context to pass to the sub-agent (e.g., relevant tiddler contents, search results).',
+    description: 'Extra context to pass to the sub-agent (for example relevant files or search results).',
   }),
   agentDefinitionId: z.string().optional().meta({
     title: 'Agent definition ID',
@@ -40,8 +40,8 @@ const SpawnAgentToolSchema = z.object({
   description:
     'Delegate a sub-task to a new agent instance. The sub-agent runs independently with its own conversation, tools, and context. Use this for complex tasks that benefit from focused, isolated processing. The sub-agent result will be returned to you.',
   examples: [
-    { task: 'Search for all tiddlers tagged "Project" and create a summary note.' },
-    { task: 'Analyze the backlinks of the "JavaScript" tiddler and suggest related topics.', context: 'The user is building a programming knowledge base.' },
+    { task: 'Review the project files and create a concise architecture summary.' },
+    { task: 'Analyze the failing test logs and suggest likely causes.', context: 'The failure started after a dependency update.' },
   ],
 });
 

@@ -111,9 +111,8 @@ export async function streamFromProvider(
 
     // Pass memeloop's messages directly. The core has already built the correct
     // prompt structure (including agent-specific system prompts and tool
-    // descriptions); merging system messages here can leak tools such as
-    // wiki-operation into the first system prompt and break per-agent prompt
-    // isolation.
+    // descriptions); merging system messages here can leak host-only tools
+    // into the first system prompt and break per-agent prompt isolation.
     const chatResult = await llmProvider.chat({
       providerId: provider,
       modelId: model,

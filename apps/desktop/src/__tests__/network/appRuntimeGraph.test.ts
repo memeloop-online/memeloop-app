@@ -32,6 +32,13 @@ function isForbiddenRuntimePath(file: string): boolean {
   return forbiddenRuntimePrefixes.some(prefix => file.startsWith(prefix));
 }
 
+function directoryHasFiles(directory: string): boolean {
+  return fs.existsSync(directory) && fs.readdirSync(directory, { recursive: true }).some(entry => {
+    const candidate = path.join(directory, String(entry));
+    return fs.existsSync(candidate) && fs.statSync(candidate).isFile();
+  });
+}
+
 function resolveLocalImport(specifier: string, importer: string): string | undefined {
   let base: string;
   if (specifier.startsWith('@services/')) {
@@ -127,7 +134,7 @@ describe('MemeLoop App production import graph', () => {
       /serviceIdentifier\.(?:Authentication|Git|GitServer|HtmlWiki|MemeloopNode|MenuService|Sync|View|Wiki|WikiEmbedding|WikiGitWorkspace|Workspace|WorkspaceView)\b/,
     );
     expect(reachableSource).not.toMatch(/WikiBackground|WIKI_EMBED|\/wiki\/:id/);
-    expect(relativeGraph).not.toContain('services/native/externalApp.ts');
+    expect(directoryHasFiles(path.join(sourceRoot, 'services/native/externalApp'))).toBe(false);
     expect(fs.readFileSync(path.join(sourceRoot, 'services/native/reportError.ts'), 'utf8')).not.toContain('TidGi-Desktop');
   });
 
@@ -236,25 +243,16 @@ describe('MemeLoop App production import graph', () => {
   it('keeps native IPC and preference actions fail-closed', () => {
     const source = fs.readFileSync(path.join(sourceRoot, 'services/native/interface.ts'), 'utf8');
     const descriptor = source.slice(source.indexOf('export const NativeServiceIPCDescriptor'));
-    for (
-      const exposed of [
-        'executeShortcutCallback:',
-        'getKeyboardShortcuts:',
-        'log:',
-        'logFor:',
-        'openPath:',
-        'openURI:',
-        'pickDirectory:',
-        'pickFile:',
-      ]
-    ) {
+    for (const exposed of ['log:', 'logFor:', 'openPath:', 'openURI:', 'pickDirectory:', 'pickFile:']) {
       expect(descriptor).toContain(exposed);
     }
     for (
       const privilegedMethod of [
         'copyPath:',
         'executeZxScript$:',
+        'executeShortcutCallback:',
         'generateMcpToken:',
+        'getKeyboardShortcuts:',
         'movePath:',
         'openInEditor:',
         'openInGitGuiApp:',
@@ -270,6 +268,48 @@ describe('MemeLoop App production import graph', () => {
     expect(actions).not.toContain('window.service[serviceName]');
     expect(actions).not.toContain('tryDispatch');
     expect(actions).toContain('is not available in MemeLoop App');
+  });
+
+  it('does not retain inherited host packages, storage keys, or native contracts', () => {
+    const packageJson = JSON.parse(fs.readFileSync(path.join(desktopRoot, 'package.json'), 'utf8')) as {
+      dependencies: Record<string, string>;
+      scripts: Record<string, string>;
+    };
+    for (const removedDependency of ['registry-js', 'sqlite-vec', 'tidgi-shared']) {
+      expect(packageJson.dependencies).not.toHaveProperty(removedDependency);
+    }
+    expect(directoryHasFiles(path.join(desktopRoot, 'packages/tidgi-shared'))).toBe(false);
+    expect(fs.existsSync(path.join(sourceRoot, 'constants/oauthConfig.ts'))).toBe(false);
+    expect(fs.existsSync(path.join(sourceRoot, 'helpers/testKeyboardShortcuts.ts'))).toBe(false);
+    expect(fs.existsSync(path.join(sourceRoot, 'windows/About.tsx'))).toBe(false);
+
+    const nativeSource = fs.readFileSync(path.join(sourceRoot, 'services/native/index.ts'), 'utf8');
+    const windowSource = fs.readFileSync(path.join(sourceRoot, 'services/windows/interface.ts'), 'utf8');
+    const preferenceSource = fs.readFileSync(path.join(sourceRoot, 'services/preferences/interface.ts'), 'utf8');
+    for (
+      const removedSurface of [
+        'copyPath',
+        'formatFileUrlToAbsolutePath',
+        'openInEditor',
+        'openInGitGuiApp',
+        'registerKeyboardShortcut',
+        'showElectronMessageBoxSync',
+        'startProcessMonitoring',
+      ]
+    ) {
+      expect(nativeSource).not.toContain(removedSurface);
+    }
+    expect(windowSource).not.toMatch(/TidGi|workspaceID|MiniWindow/u);
+    expect(preferenceSource).not.toMatch(/keyboardShortcuts|McpServer|syncBeforeShutdown|TidgiMiniWindow/u);
+    expect(Object.values(packageJson.scripts).join('\n')).not.toContain('TIDGI_');
+
+    const databaseDescriptor = fs.readFileSync(path.join(sourceRoot, 'services/database/interface.ts'), 'utf8')
+      .split('export const DatabaseServiceIPCDescriptor')[1];
+    expect(databaseDescriptor).toContain('getDatabaseInfo:');
+    expect(databaseDescriptor).toContain('getDatabasePath:');
+    expect(databaseDescriptor).toContain('deleteDatabase:');
+    expect(databaseDescriptor).not.toContain('getDatabase:');
+    expect(databaseDescriptor).not.toContain('closeAllDatabases:');
   });
 
   it('boots and disposes an explicitly owned prompt/tool runtime', () => {

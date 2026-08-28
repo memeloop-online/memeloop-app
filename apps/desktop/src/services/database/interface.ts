@@ -25,13 +25,6 @@ export interface ISettingFile {
 }
 
 /**
- * Database initialization options
- */
-export interface DatabaseInitOptions {
-  enableVectorSearch?: boolean;
-}
-
-/**
  * Own application settings and per-feature SQLite stores.
  */
 export interface IDatabaseService {
@@ -61,12 +54,12 @@ export interface IDatabaseService {
   /**
    * Initialize database for specific key
    */
-  initializeDatabase(key: string, options?: DatabaseInitOptions): Promise<void>;
+  initializeDatabase(key: string): Promise<void>;
 
   /**
    * Get database connection for specific key
    */
-  getDatabase(key: string, options?: DatabaseInitOptions, isRetry?: boolean): Promise<DataSource>;
+  getDatabase(key: string, isRetry?: boolean): Promise<DataSource>;
 
   /**
    * Close database connection
@@ -98,11 +91,6 @@ export interface IDatabaseService {
 export const DatabaseServiceIPCDescriptor = {
   channel: DatabaseChannel.name,
   properties: {
-    getDataBasePath: ProxyPropertyType.Function,
-    initializeForApp: ProxyPropertyType.Function,
-    getDatabase: ProxyPropertyType.Function,
-    closeAppDatabase: ProxyPropertyType.Function,
-    closeAllDatabases: ProxyPropertyType.Function,
     getDatabaseInfo: ProxyPropertyType.Function,
     getDatabasePath: ProxyPropertyType.Function,
     deleteDatabase: ProxyPropertyType.Function,

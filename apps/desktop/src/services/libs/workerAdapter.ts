@@ -3,7 +3,7 @@
  * Replaces threads.js with native worker_threads API
  *
  * Note: Service registration for workers will be handled by electron-ipc-cat/worker in the future
- * This file contains TidGi-specific worker proxy functionality (e.g., git worker)
+ * This file contains the typed worker proxy used by the isolated agent runtime.
  */
 
 import { cloneDeep } from 'lodash';

@@ -870,7 +870,7 @@ export class DeviceNetworkService implements IDeviceNetworkService {
     try {
       return await this.runtimeOptions.buildCapabilities?.() ?? emptyCapabilities;
     } catch (error) {
-      logger.warn('DeviceNetworkService failed to collect wiki capabilities', { error });
+      logger.warn('DeviceNetworkService failed to collect runtime capabilities', { error });
     }
     return emptyCapabilities;
   }

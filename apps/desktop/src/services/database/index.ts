@@ -5,7 +5,6 @@ import { injectable } from 'inversify';
 import { debounce } from 'lodash';
 import path from 'path';
 import * as rotateFs from 'rotating-file-stream';
-import * as sqliteVec from 'sqlite-vec';
 import { DataSource } from 'typeorm';
 
 import { CACHE_DATABASE_FOLDER } from '@/constants/appPaths';
@@ -14,7 +13,7 @@ import { DEBOUNCE_SAVE_SETTING_BACKUP_FILE, DEBOUNCE_SAVE_SETTING_FILE } from '@
 import { SQLITE_BINARY_PATH } from '@/constants/paths';
 import { logger } from '@services/libs/log';
 import { BaseDataSourceOptions } from 'typeorm/data-source/BaseDataSourceOptions.js';
-import type { DatabaseInitOptions, IDatabaseService, ISettingFile } from './interface';
+import type { IDatabaseService, ISettingFile } from './interface';
 import { AgentDefinitionEntity, AgentInstanceEntity, AgentInstanceMessageEntity, RemoteScheduledTaskProjectionEntity, ScheduledTaskEntity } from './schema/agent';
 import { AgentBrowserTabEntity } from './schema/agentBrowser';
 import { ExternalAPILogEntity } from './schema/externalAPILog';
@@ -96,7 +95,7 @@ export class DatabaseService implements IDatabaseService {
   /**
    * Register schema config for a specific key prefix
    */
-  public registerSchema(keyPrefix: string, config: SchemaConfig): void {
+  private registerSchema(keyPrefix: string, config: SchemaConfig): void {
     this.schemaRegistry.set(keyPrefix, config);
     logger.debug(`Schema registered for prefix: ${keyPrefix}`);
   }
@@ -115,7 +114,7 @@ export class DatabaseService implements IDatabaseService {
   /**
    * Initialize database for a given key
    */
-  public async initializeDatabase(key: string, options: DatabaseInitOptions = {}): Promise<void> {
+  public async initializeDatabase(key: string): Promise<void> {
     const databasePath = this.getDatabasePathSync(key);
 
     // Skip if database already exists (except in test environment where we always use fresh in-memory DB)
@@ -151,19 +150,6 @@ export class DatabaseService implements IDatabaseService {
 
       await dataSource.initialize();
 
-      // Load sqlite-vec extension for embedding databases if enabled
-      if (options.enableVectorSearch) {
-        try {
-          logger.info(`Attempting to load sqlite-vec extension for database key: ${key}`);
-          await this.loadSqliteVecExtension(dataSource);
-        } catch (error) {
-          logger.warn(`sqlite-vec extension failed to load during initialization for key: ${key}, continuing without vector search functionality`, {
-            error,
-          });
-          // Don't throw - allow the database to work without vector functionality
-        }
-      }
-
       if (schemaConfig.migrationsRun) {
         await dataSource.runMigrations();
       }
@@ -179,7 +165,7 @@ export class DatabaseService implements IDatabaseService {
   /**
    * Get database connection for a given key
    */
-  public async getDatabase(key: string, options: DatabaseInitOptions = {}, isRetry = false): Promise<DataSource> {
+  public async getDatabase(key: string, isRetry = false): Promise<DataSource> {
     if (!this.dataSources.has(key)) {
       try {
         const schemaConfig = this.getSchemaConfigForKey(key);
@@ -204,17 +190,6 @@ export class DatabaseService implements IDatabaseService {
 
         await dataSource.initialize();
 
-        // Load sqlite-vec extension if vector search is enabled
-        if (options.enableVectorSearch) {
-          try {
-            await this.loadSqliteVecExtension(dataSource);
-          } catch (error) {
-            logger.warn(`sqlite-vec extension failed to load for key: ${key}, continuing without vector search functionality`, {
-              error,
-            });
-          }
-        }
-
         this.dataSources.set(key, dataSource);
         logger.debug(`Database connection established for key: ${key}`);
 
@@ -226,7 +201,7 @@ export class DatabaseService implements IDatabaseService {
           try {
             // Try to fix database lock issue
             await this.fixDatabaseLock(key);
-            return await this.getDatabase(key, {}, true);
+            return await this.getDatabase(key, true);
           } catch (retryError) {
             logger.error(`Failed to retry getting database for key: ${key}`, { error: retryError });
           }
@@ -385,12 +360,6 @@ export class DatabaseService implements IDatabaseService {
       return this.schemaRegistry.get(key)!;
     }
 
-    // Special handling for wiki databases: extract prefix, e.g. "wiki-123" => "wiki"
-    const prefix = key.split('-')[0];
-    if (prefix === 'wiki' && this.schemaRegistry.has(prefix)) {
-      return this.schemaRegistry.get(prefix)!;
-    }
-
     // If no schema config found, return default config
     logger.warn(`No schema config found for key: ${key}, using default config`);
     return {
@@ -430,41 +399,6 @@ export class DatabaseService implements IDatabaseService {
     void this.debouncedStoreSettingsToFile();
     // Make infrequent backup of setting file, preventing re-install/upgrade from corrupting the file.
     this.debouncedStoreSettingsToBackupFile();
-  }
-
-  /**
-   * Load sqlite-vec extension for vector operations
-   */
-  private async loadSqliteVecExtension(dataSource: DataSource): Promise<void> {
-    try {
-      // Get the underlying better-sqlite3 database instance
-      const driver = dataSource.driver as { databaseConnection?: Database };
-      const database = driver.databaseConnection;
-
-      if (!database) {
-        throw new Error('Could not get underlying SQLite database connection');
-      }
-
-      // Load sqlite-vec extension
-      logger.debug('Loading sqlite-vec extension...');
-      sqliteVec.load(database);
-
-      // Test that sqlite-vec is working
-      const result: unknown = await dataSource.query('SELECT vec_version() as version');
-      const version = Array.isArray(result) && result.length > 0 && result[0] && typeof result[0] === 'object' && 'version' in result[0]
-        ? String((result[0] as { version: unknown }).version)
-        : 'unknown';
-      logger.info(`sqlite-vec loaded successfully, version: ${version}`);
-
-      // The vec0 virtual tables will be created dynamically by WikiEmbeddingService
-      // based on the dimensions needed
-    } catch (error) {
-      logger.error('Failed to load sqlite-vec extension:', {
-        error,
-        sqliteVecAvailable: typeof sqliteVec !== 'undefined',
-      });
-      throw new Error(`sqlite-vec extension failed to load: ${(error as Error).message}`, { cause: error });
-    }
   }
 
   public setSettingImmediately<K extends keyof ISettingFile>(key: K, value: ISettingFile[K]) {

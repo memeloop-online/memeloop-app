@@ -537,6 +537,7 @@
     "System": "システム",
     "SystemDefaultTheme": "システムデフォルトのテーマカラー",
     "TestNotification": "テスト通知機能",
+    "MemeLoopTestNotificationDescription": "<0>通知が表示されない場合は、<1>システム設定 → 通知</1>で MemeLoop の通知を有効にしてください。</0>",
     "TestNotificationDescription": "<0>通知が表示されない場合は、<1>macOSの環境設定 → 通知 → TidGi</1>で通知が有効になっていることを確認してください</0>",
     "Theme": "テーマカラー",
     "TiddlyWiki": "太微（TiddlyWiki）",

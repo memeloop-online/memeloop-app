@@ -95,21 +95,6 @@ describe('Preferences - All Sections Rendering', () => {
       writable: true,
     });
 
-    Object.defineProperty(window.service.native, 'registerKeyboardShortcut', {
-      value: vi.fn().mockResolvedValue(undefined),
-      writable: true,
-    });
-
-    Object.defineProperty(window.service.native, 'unregisterKeyboardShortcut', {
-      value: vi.fn().mockResolvedValue(undefined),
-      writable: true,
-    });
-
-    Object.defineProperty(window.service.native, 'quit', {
-      value: vi.fn().mockResolvedValue(undefined),
-      writable: true,
-    });
-
     // database may not exist in the mock; ensure it's an object first
     if (!('database' in window.service)) {
       (window.service as Record<string, unknown>).database = {};

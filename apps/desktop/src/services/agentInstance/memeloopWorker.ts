@@ -434,7 +434,7 @@ function emitCustomUpdate(
 const conversationCancellation = new Set<string>();
 
 const llmProvider = {
-  name: 'tidgi-memeloop-worker',
+  name: 'memeloop-app-worker',
   model: undefined,
   chat: async function*(request: unknown) {
     const request_ = request as {
@@ -452,7 +452,7 @@ const llmProvider = {
   },
 };
 
-let localNodeId = `tidgi-desktop-${nanoid(8)}`;
+let localNodeId = `memeloop-app-${nanoid(8)}`;
 const terminalManager = new TerminalSessionManager();
 
 let runtime: NodeRuntimeResult['runtime'] | undefined;
@@ -670,7 +670,7 @@ async function ensureDesktopNodeStarted(requestedPort?: number): Promise<void> {
   desktopNodeStartPromise = (async () => {
     let stage = 'init';
     try {
-      const environmentPort = parseInt(process.env.TIDGI_MEMELOOP_PORT ?? '', 10);
+      const environmentPort = parseInt(process.env.MEMELOOP_WORKER_PORT ?? '', 10);
       const configuredHost = requireHostConfig();
       stage = 'resolve-port';
       const port = typeof requestedPort === 'number' && Number.isFinite(requestedPort) && requestedPort > 0

@@ -36,12 +36,12 @@ export class AppWindow implements IWindowService {
     else this.windows.delete(windowName);
   }
 
-  public async open<N extends WindowNames>(windowName: N, meta?: WindowMeta[N], config?: IWindowOpenConfig<N>): Promise<undefined>;
-  public async open<N extends WindowNames>(windowName: N, meta: WindowMeta[N] | undefined, config: IWindowOpenConfig<N> | undefined, returnWindow: true): Promise<BrowserWindow>;
+  public async open<N extends WindowNames>(windowName: N, meta?: WindowMeta[N], config?: IWindowOpenConfig): Promise<undefined>;
+  public async open<N extends WindowNames>(windowName: N, meta: WindowMeta[N] | undefined, config: IWindowOpenConfig | undefined, returnWindow: true): Promise<BrowserWindow>;
   public async open<N extends WindowNames>(
     windowName: N,
     meta: WindowMeta[N] = {} as WindowMeta[N],
-    config?: IWindowOpenConfig<N>,
+    config?: IWindowOpenConfig,
     returnWindow?: boolean,
   ): Promise<BrowserWindow | undefined> {
     if (!APP_WINDOW_NAMES.has(windowName)) {
@@ -182,28 +182,5 @@ export class AppWindow implements IWindowService {
     if (key === 'alwaysOnTop' && typeof value === 'boolean') {
       await this.updateWindowProperties(WindowNames.main, { alwaysOnTop: value });
     }
-  }
-
-  public async clearStorageData(): Promise<void> {
-    await this.windows.get(WindowNames.main)?.webContents.session.clearStorageData();
-  }
-
-  public async isTidgiMiniWindowOpen(): Promise<boolean> {
-    return false;
-  }
-  public isTidgiMiniWindowExists(): boolean {
-    return false;
-  }
-  public async initializeTidgiMiniWindow(): Promise<void> {
-    throw new Error('TidGi mini window is not available in MemeLoop App');
-  }
-  public async openTidgiMiniWindow(): Promise<void> {
-    throw new Error('TidGi mini window is not available in MemeLoop App');
-  }
-  public async closeTidgiMiniWindow(): Promise<void> {
-    throw new Error('TidGi mini window is not available in MemeLoop App');
-  }
-  public async toggleTidgiMiniWindow(): Promise<void> {
-    throw new Error('TidGi mini window is not available in MemeLoop App');
   }
 }
