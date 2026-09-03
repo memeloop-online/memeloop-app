@@ -45,9 +45,10 @@ After(async function(this: ApplicationWorld) {
                 }, 1000)
               ),
             ]);
-          } catch {
-            // Window close failed or timed out, ignore and continue
-            // Force close will happen at app level
+          } catch (error) {
+            // Window close failed or timed out; force close will happen at app
+            // level, while this diagnostic keeps the scenario failure visible.
+            console.debug('Window close failed during scenario cleanup', error);
           }
         }),
       );
@@ -62,11 +63,14 @@ After(async function(this: ApplicationWorld) {
             }, 1000)
           ),
         ]);
-      } catch {
-        // App close failed or timed out, force close immediately
+      } catch (error) {
+        // App close failed or timed out; force close immediately.
+        console.debug('App close failed during scenario cleanup', error);
       }
-    } catch {
-      // Any error in the try block, continue to force close
+    } catch (error) {
+      // Any error in the graceful-close block still falls through to force
+      // close, but report it for test diagnostics.
+      console.debug('Graceful app cleanup failed', error);
     } finally {
       // ALWAYS force close, regardless of success/failure above
       // This ensures resources are freed even if graceful close hangs
@@ -78,8 +82,9 @@ After(async function(this: ApplicationWorld) {
             new Promise((resolve) => setTimeout(resolve, 500)), // 500ms max for force close
           ]);
         }
-      } catch {
-        // Even force close can fail, but we don't care - move on
+      } catch (error) {
+        // Even force close can fail; references are still cleared below.
+        console.debug('Force app cleanup failed', error);
       }
 
       // Clear references immediately

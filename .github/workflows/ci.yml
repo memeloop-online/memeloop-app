@@ -42,9 +42,7 @@ jobs:
             apps/desktop/pnpm-lock.yaml
 
       - name: Verify repository toolchain contracts
-        run: |
-          node scripts/verifyPackageManagerContract.mjs
-          node scripts/verifyViteQueryImports.mjs
+        run: pnpm run check:repository-contracts
 
       - name: Install native build dependencies
         run: |
@@ -105,8 +103,8 @@ jobs:
         run: |
           set -euo pipefail
           test_files=(
+            src/__tests__/network/appRuntimeGraph.test.ts
             src/__tests__/network/legacyNetworkSurface.test.ts
-            src/services/sshRemote/__tests__/bootstrap.test.ts
           )
           for test_file in "${test_files[@]}"; do
             test -f "$test_file" || {

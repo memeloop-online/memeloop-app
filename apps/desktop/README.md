@@ -4,7 +4,8 @@ MemeLoop Desktop is the dedicated Electron host for the decentralized MemeLoop
 Agent network. It provides local and remote Agent conversations, Device/PeerId
 discovery, signed pairing, Cloud relay coordination, model/provider settings,
 long-conversation navigation, tool approval, and SSH onboarding for remote
-compute nodes.
+compute nodes. Onboarding invokes the installed `memeloop-cli` release through
+its `MEMELOOP_CLI_VERSION` and requires Node.js 24+ on the remote host.
 
 This application deliberately does not include TidGi's Wiki/workspace, Git
 backup, BrowserView, FRP/PIN node, or second-identity runtimes. TiddlyWiki host

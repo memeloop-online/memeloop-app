@@ -95,7 +95,7 @@ jobs:
         run: git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
       - name: Rebuild native modules for Electron (non-Windows)
         if: matrix.platform != 'win'
         run: |
@@ -130,13 +130,37 @@ jobs:
           ANALYZE: ${{ matrix.platform == 'linux' && matrix.arch == 'x64' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify packaged runtime resources
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "mac" ]; then
+            ARCHIVE="out/MemeLoop Desktop-darwin-${{ matrix.arch }}/MemeLoop Desktop.app/Contents/Resources/app.asar"
+          elif [ "${{ matrix.platform }}" = "win" ]; then
+            ARCHIVE="out/MemeLoop Desktop-win32-${{ matrix.arch }}/resources/app.asar"
+          else
+            ARCHIVE="out/MemeLoop Desktop-linux-${{ matrix.arch }}/resources/app.asar"
+          fi
+          pnpm run test:package-runtime -- "$ARCHIVE"
+
+      - name: Verify packaged startup (macOS)
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          pnpm run test:package-startup -- "out/MemeLoop Desktop-darwin-${{ matrix.arch }}/MemeLoop Desktop.app/Contents/MacOS/memeloop-desktop"
+
+      - name: Verify packaged startup (Windows x64)
+        if: matrix.platform == 'win' && matrix.arch == 'x64'
+        shell: bash
+        run: |
+          pnpm run test:package-startup -- "out/MemeLoop Desktop-win32-x64/memeloop-desktop.exe"
+
       # Repackage macOS ZIP using ditto to preserve symlinks (cross-zip doesn't preserve symlinks properly on CI) To prevent dugite git binary symlink dereference issues
       - name: Repackage macOS ZIP with ditto
         if: matrix.platform == 'mac'
         run: |
           cd out/make/zip/darwin/${{ matrix.arch }}
           ZIP_FILE=$(ls *.zip | head -1)
-          APP_NAME="TidGi.app"
+          APP_NAME="MemeLoop Desktop.app"
           # Extract the original zip
           unzip -q "$ZIP_FILE" -d temp_extract
           # Remove the original zip

@@ -34,7 +34,7 @@ jobs:
         run: git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Rebuild native modules for Electron
         run: pnpm exec electron-rebuild -f -w better-sqlite3,nsfw
@@ -91,7 +91,7 @@ jobs:
         run: git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Rebuild native modules for Electron (Linux)
         if: runner.os == 'Linux'
@@ -125,12 +125,27 @@ jobs:
         shell: bash
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
-            test -f "out/TidGi-win32-x64/tidgi.exe" || { echo "ERROR: Packaged executable not found at out/TidGi-win32-x64/tidgi.exe"; exit 1; }
-            echo "Verified: out/TidGi-win32-x64/tidgi.exe exists"
+            test -f "out/MemeLoop Desktop-win32-x64/memeloop-desktop.exe" || { echo "ERROR: Packaged executable not found at out/MemeLoop Desktop-win32-x64/memeloop-desktop.exe"; exit 1; }
+            echo "Verified: out/MemeLoop Desktop-win32-x64/memeloop-desktop.exe exists"
           else
-            test -f "out/TidGi-linux-x64/tidgi" || { echo "ERROR: Packaged executable not found at out/TidGi-linux-x64/tidgi"; exit 1; }
-            echo "Verified: out/TidGi-linux-x64/tidgi exists"
+            test -f "out/MemeLoop Desktop-linux-x64/memeloop-desktop" || { echo "ERROR: Packaged executable not found at out/MemeLoop Desktop-linux-x64/memeloop-desktop"; exit 1; }
+            echo "Verified: out/MemeLoop Desktop-linux-x64/memeloop-desktop exists"
           fi
+
+      - name: Verify packaged runtime resources
+        run: pnpm run test:package-runtime
+
+      - name: Verify packaged startup (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 2560x1440x24" pnpm run test:package-startup
+        env:
+          CI: true
+
+      - name: Verify packaged startup (Windows)
+        if: runner.os == 'Windows'
+        run: pnpm run test:package-startup
+        env:
+          CI: true
 
       - name: Calibrate E2E timeouts (Linux)
         if: runner.os == 'Linux'
@@ -209,7 +224,7 @@ jobs:
         run: git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       # Linux: electron-rebuild without MSVC
       - name: Rebuild native modules for Electron (Linux)
@@ -250,20 +265,35 @@ jobs:
         run: |
           echo "=== out/ directory ==="
           ls -la out/ 2>/dev/null || echo "out/ does not exist"
-          echo "=== out/TidGi-*-x64/ ==="
-          ls -laR out/TidGi-*-x64/ 2>/dev/null || echo "No TidGi-*-x64 directory"
+          echo "=== out/MemeLoop Desktop-*-x64/ ==="
+          ls -laR "out/MemeLoop Desktop-"*-x64/ 2>/dev/null || echo "No MemeLoop Desktop-*-x64 directory"
 
       # Assert packaged executable exists so failures stop at packaging, not at E2E runtime
       - name: Verify packaged executable exists
         shell: bash
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
-            test -f "out/TidGi-win32-x64/tidgi.exe" || { echo "ERROR: Packaged executable not found at out/TidGi-win32-x64/tidgi.exe"; exit 1; }
-            echo "Verified: out/TidGi-win32-x64/tidgi.exe exists"
+            test -f "out/MemeLoop Desktop-win32-x64/memeloop-desktop.exe" || { echo "ERROR: Packaged executable not found at out/MemeLoop Desktop-win32-x64/memeloop-desktop.exe"; exit 1; }
+            echo "Verified: out/MemeLoop Desktop-win32-x64/memeloop-desktop.exe exists"
           else
-            test -f "out/TidGi-linux-x64/tidgi" || { echo "ERROR: Packaged executable not found at out/TidGi-linux-x64/tidgi"; exit 1; }
-            echo "Verified: out/TidGi-linux-x64/tidgi exists"
+            test -f "out/MemeLoop Desktop-linux-x64/memeloop-desktop" || { echo "ERROR: Packaged executable not found at out/MemeLoop Desktop-linux-x64/memeloop-desktop"; exit 1; }
+            echo "Verified: out/MemeLoop Desktop-linux-x64/memeloop-desktop exists"
           fi
+
+      - name: Verify packaged runtime resources
+        run: pnpm run test:package-runtime
+
+      - name: Verify packaged startup (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 2560x1440x24" pnpm run test:package-startup
+        env:
+          CI: true
+
+      - name: Verify packaged startup (Windows)
+        if: runner.os == 'Windows'
+        run: pnpm run test:package-startup
+        env:
+          CI: true
 
       - name: Download E2E calibration
         uses: actions/download-artifact@v4

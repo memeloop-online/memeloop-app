@@ -59,8 +59,9 @@ When(
     // PLAYWRIGHT_TIMEOUT — this is just a grace period, not a hard requirement.
     try {
       await currentWindow?.waitForLoadState('networkidle', { timeout: 3000 });
-    } catch {
-      // Ignore – DOM is already ready.
+    } catch (error) {
+      // DOM is already ready, but retain the network-idle timeout diagnostic.
+      console.debug('Network-idle wait timed out after DOM was ready', error);
     }
   },
 );
@@ -228,8 +229,10 @@ Then(
                 );
               }
             }
-          } catch {
-            // Element not found is expected
+          } catch (error) {
+            // Element lookup failures are expected for transiently removed
+            // nodes, but retain a diagnostic for unexpected locator errors.
+            console.debug(`Unable to inspect hidden-state selector "${selector}"`, error);
           }
         }
         if (errors.length > 0) {
@@ -438,7 +441,11 @@ When(
         await locator
           .nth(index)
           .scrollIntoViewIfNeeded()
-          .catch(() => {});
+          .catch((error: unknown) => {
+            // Scrolling is best-effort; the click below still has a forced
+            // action, but retain the diagnostic instead of hiding the failure.
+            console.debug(`Unable to scroll ${elementComment} at index ${index}`, error);
+          });
         await locator.nth(index).click({ force: true, timeout: 3000 });
         // Brief pause for the UI to settle after each close
         await new Promise((resolve) => setTimeout(resolve, 300));

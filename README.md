@@ -21,13 +21,14 @@ Desktop and mobile consume the published MemeLoop packages from npm:
 |---------|---------|
 | `memeloop` | `0.2.9` |
 | `@memeloop/libp2p` | `0.2.5` |
-| `memeloop-cli` | `0.2.7` (desktop) |
+| `memeloop-cli` | installed Desktop release (manifest-pinned) |
 | `@memeloop/react-ui` | `0.1.7` |
 
-Desktop SSH onboarding always installs the reviewed, exact
-`memeloop-cli@0.2.7` release. The dependency range remains compatible with
-patch releases, but changing the bootstrap version requires an explicit code,
-test and packaging-gate update.
+Desktop SSH onboarding reads the installed CLI's `MEMELOOP_CLI_VERSION` and
+passes that exact release to `memeloop remote bootstrap`. Strict host-key
+checking is the default; accepting a new key is an explicit first-connection
+choice in the onboarding window. The remote host must provide Node.js 24+ and
+npm.
 
 ## Quick Start
 

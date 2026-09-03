@@ -95,8 +95,10 @@ export function destroyLogger(): void {
       try {
         // May cause `TypeError: Cannot read properties of undefined (reading 'length') at DerivedLogger.remove`
         logger.remove(t);
-      } catch {
-        // Ignore because without logger we can't even log the error
+      } catch (error) {
+        // The logger transport is unavailable, so use the process console as
+        // the final diagnostic sink during teardown.
+        console.debug('Failed to remove primary logger transport', error);
       }
     }
   });
@@ -107,8 +109,10 @@ export function destroyLogger(): void {
       if (t) {
         try {
           labeledLogger.remove(t);
-        } catch {
-          // Ignore because without logger we can't even log the error
+        } catch (error) {
+          // The logger transport is unavailable, so use the process console as
+          // the final diagnostic sink during teardown.
+          console.debug(`Failed to remove labeled logger transport (${label})`, error);
         }
       }
     });

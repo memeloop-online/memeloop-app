@@ -76,9 +76,6 @@ export class ApplicationWorld {
   currentWindow: Page | undefined; // New state-managed current window
   scenarioName: string = 'default'; // Scenario name from Cucumber pickle
   scenarioSlug: string = 'default'; // Sanitized scenario name for file paths
-  providerConfig:
-    | import('@services/providerRegistry/interface').AIProviderConfig
-    | undefined; // Scenario-specific AI provider config
 
   // Helper method to check if window is visible
   async isWindowVisible(page: Page): Promise<boolean> {
@@ -264,8 +261,10 @@ async function closeMemeLoopApplication(world: ApplicationWorld): Promise<void> 
   if (world.appLaunchPromise) {
     try {
       await world.appLaunchPromise;
-    } catch {
-      // Ignore launch failure here; close path will clear world state.
+    } catch (error) {
+      // Close still runs after a failed launch, but retain the failure for
+      // scenario diagnostics instead of silently discarding it.
+      console.debug('Application launch failed before cleanup', error);
     }
   }
 
@@ -288,8 +287,8 @@ async function closeMemeLoopApplication(world: ApplicationWorld): Promise<void> 
           .close({ reason: 'Relaunch application in scenario' }),
         new Promise((resolve) => setTimeout(resolve, 500)),
       ]);
-    } catch {
-      // ignore
+    } catch (error) {
+      console.debug('Application context close failed during cleanup', error);
     }
   } finally {
     world.appLaunchPromise = undefined;
