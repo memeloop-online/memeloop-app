@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { defaultPackagedExecutablePath } from './packagedPaths';
+import { packagedStartupArgs } from './packagedStartupOptions';
 
 const executablePath = path.resolve(process.argv[2] ?? defaultPackagedExecutablePath());
 if (!fs.existsSync(executablePath)) throw new Error(`Packaged executable does not exist: ${executablePath}`);
@@ -155,10 +156,7 @@ const removeIsolatedDirectory = async (directory: string): Promise<void> => {
 
 const main = async (): Promise<void> => {
   try {
-    child = spawn(executablePath, [
-      `--user-data-dir=${isolatedUserDataDirectory}`,
-      `--test-scenario=${packagedTestScenario}`,
-    ], {
+    child = spawn(executablePath, packagedStartupArgs(isolatedUserDataDirectory, packagedTestScenario), {
       // Packaged E2E paths resolve below cwd/test-artifacts. Use a unique
       // scenario under the system temp directory, but never make the child cwd
       // a directory that this process must remove (Windows holds cwd handles).
