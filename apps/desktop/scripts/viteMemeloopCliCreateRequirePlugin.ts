@@ -2,7 +2,7 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 
-export const EXPECTED_MEMELOOP_CLI_VERSION = '0.2.7';
+export const EXPECTED_MEMELOOP_CLI_VERSION = '0.2.9';
 export const MEMELOOP_CLI_CREATE_REQUIRE_ENTRIES = ['index.js', 'runtime.js'] as const;
 export const MEMELOOP_CLI_CREATE_REQUIRE_SOURCE = 'createRequire(import.meta.url)';
 export const MEMELOOP_CLI_CREATE_REQUIRE_REPLACEMENT = 'createRequire(__filename)';

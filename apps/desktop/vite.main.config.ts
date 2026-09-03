@@ -7,7 +7,6 @@ import { utilityProcessPlugin } from 'vite-plugin-electron-utility-process';
 import { viteEtcd3ProtoPlugin } from './scripts/viteEtcd3ProtoPlugin';
 import { memeloopCliCreateRequirePlugin } from './scripts/viteMemeloopCliCreateRequirePlugin';
 import { viteMemeLoopSourceAliases } from './scripts/viteMemeLoopSourceAliases';
-import { memeLoopNodeWorkerPlugin } from './scripts/viteNodeWorkerPlugin';
 
 // Dynamically read TypeORM's optional peer dependencies to avoid hardcoding
 const typeormPackageJson = fs.readJsonSync(path.resolve(__dirname, 'node_modules/typeorm/package.json')) as Record<string, unknown>;
@@ -33,9 +32,8 @@ export default defineConfig({
     ...(process.env.ANALYZE === 'true'
       ? [analyzer({ analyzerMode: 'static', openAnalyzer: false, fileName: 'bundle-analyzer-main' })]
       : []),
-    // The agent runtime uses a Node worker plus an Electron UtilityProcess for
+    // The agent runtime is isolated in an Electron UtilityProcess for
     // process-level crash isolation.
-    memeLoopNodeWorkerPlugin(),
     utilityProcessPlugin(),
     swc.vite({
       jsc: {

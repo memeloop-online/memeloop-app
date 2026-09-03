@@ -10,7 +10,7 @@ if (!fs.existsSync(executablePath)) throw new Error(`Packaged executable does no
 const REQUIRED_READY_MARKERS = [
   '[test-id-ELECTRON_UNHANDLED_INITIALIZED]',
   'Database initialized for key: agent',
-  'MemeLoop worker initialized',
+  'MemeLoop UtilityProcess initialized',
   'DeviceNetworkService started',
   '[test-id-MEMELOOP_APP_READY]',
 ] as const;

@@ -52,7 +52,10 @@ const config: ForgeConfig = {
       // Vite emits UtilityProcess entries plus their shared chunks under
       // `.vite/build`. Unpack the complete directory: unpacking only the
       // entry file leaves its relative imports trapped inside app.asar.
-      unpack: '{**/.vite/build/**/*,**/.webpack/main/*.worker.*,**/.webpack/main/*Worker*,**/.webpack/main/native_modules/path.txt,**/{.**,**}/**/*.node}',
+      // `unpackDir` marks this directory and every descendant unpacked. It is
+      // more reliable than `unpack` for Vite's direct build chunks, whose
+      // parent directory is what @electron/asar pattern-matches.
+      unpackDir: '.vite/build',
     },
     extraResource: ['localization'],
     // @ts-expect-error - mac config is valid

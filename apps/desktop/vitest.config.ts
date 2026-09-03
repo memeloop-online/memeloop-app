@@ -7,9 +7,6 @@ export default defineConfig({
   // SWC performs the transform below; disable Vitest's default Oxc pass so
   // tests do not run two competing JSX/TS transforms.
   oxc: false,
-  // pnpm can expose this Vite plugin and Vitest's Vite type through different
-  // physical paths. They are the same runtime version, but private types make
-  // the two declarations nominally incompatible.
   plugins: [swc.vite({
     jsc: {
       transform: {
@@ -18,7 +15,7 @@ export default defineConfig({
         },
       },
     },
-  }) as never],
+  })],
 
   test: {
     // Test environment
@@ -80,7 +77,7 @@ export default defineConfig({
       { find: '@', replacement: path.resolve(__dirname, './src') },
       { find: '@services', replacement: path.resolve(__dirname, './src/services') },
       { find: /agentInstance\/memeloopWorkerFactory(\.ts)?$/, replacement: path.resolve(__dirname, './src/__tests__/__stubs__/memeloopWorkerFactoryStub.ts') },
-      { find: /\?nodeWorker$/, replacement: path.resolve(__dirname, './src/__tests__/__stubs__/memeloopWorkerFactoryStub.ts') },
+      { find: /\?utilityProcess(?:&.*)?$/, replacement: path.resolve(__dirname, './src/__tests__/__stubs__/memeloopWorkerFactoryStub.ts') },
       // Force React-family packages to resolve from memeloop-desktop.
       { find: /^react$/, replacement: path.resolve(__dirname, './node_modules/react') },
       { find: /^react\/(.*)/, replacement: path.resolve(__dirname, './node_modules/react/$1') },

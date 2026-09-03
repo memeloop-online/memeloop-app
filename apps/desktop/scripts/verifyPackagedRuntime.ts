@@ -12,7 +12,72 @@ if (!fs.existsSync(archivePath)) throw new Error(`Packaged app.asar does not exi
 const archiveEntries = new Set(
   listPackage(archivePath, { isPack: false }).map(entry => entry.replaceAll('\\', '/')),
 );
-const extractArchiveFile = (posixPath: string): Buffer => extractFile(archivePath, posixPath.split('/').join(path.sep));
+const unpackedArchiveEntries = new Set(
+  listPackage(archivePath, { isPack: true })
+    .filter(entry => entry.startsWith('unpack : '))
+    .map(entry => entry.slice('unpack : '.length).replaceAll('\\', '/')),
+);
+const unpackedRoot = `${archivePath}.unpacked`;
+const extractArchiveFile = (posixPath: string): Buffer => {
+  const normalizedPath = `/${posixPath.replaceAll('\\', '/')}`;
+  if (unpackedArchiveEntries.has(normalizedPath)) {
+    const unpackedPath = path.join(unpackedRoot, ...normalizedPath.slice(1).split('/'));
+    if (!fs.existsSync(unpackedPath)) {
+      throw new Error(`ASAR marks runtime file unpacked but it is missing: ${unpackedPath}`);
+    }
+    return fs.readFileSync(unpackedPath);
+  }
+  return extractFile(archivePath, normalizedPath.slice(1).split('/').join(path.sep));
+};
+
+const utilityProcessEntries = [...archiveEntries].filter(entry => {
+  const relativePath = entry.slice(1);
+  return /^\.vite\/build\/memeloopWorker(?:[-A-Za-z0-9_]*)?\.js$/u.test(relativePath);
+});
+if (utilityProcessEntries.length !== 1) {
+  throw new Error(
+    `Expected exactly one packaged UtilityProcess entry under .vite/build (found ${utilityProcessEntries.length}): ${utilityProcessEntries.join(', ')}`,
+  );
+}
+const [utilityProcessEntry] = utilityProcessEntries;
+if (!unpackedArchiveEntries.has(utilityProcessEntry)) {
+  throw new Error(`Packaged UtilityProcess entry must be marked unpacked: ${utilityProcessEntry}`);
+}
+const utilityProcessPath = path.join(unpackedRoot, ...utilityProcessEntry.slice(1).split('/'));
+if (!fs.existsSync(utilityProcessPath)) {
+  throw new Error(`Packaged UtilityProcess entry is not present in app.asar.unpacked: ${utilityProcessPath}`);
+}
+const utilityProcessBundle = extractArchiveFile(utilityProcessEntry.slice(1)).toString('utf8');
+// Rolldown minifies the workerAdapter export name, so checking the source
+// symbol is brittle. The entry must instead import that dedicated adapter
+// chunk and invoke one of its exports with the worker RPC service object.
+const workerAdapterImport = utilityProcessBundle.match(
+  /\b([A-Za-z_$][\w$]*)=require\(["']\.\/workerAdapter-[A-Za-z0-9_-]+\.js["']\)/u,
+);
+if (!workerAdapterImport?.[1]) {
+  throw new Error(`Packaged UtilityProcess entry does not import the worker RPC adapter: ${utilityProcessEntry}`);
+}
+const workerAdapterBinding = workerAdapterImport[1];
+const workerHandlerInvocation = new RegExp(
+  `\\b${workerAdapterBinding}\\.[A-Za-z_$][\\w$]*\\(\\{configureHost:`,
+  'u',
+);
+if (!workerHandlerInvocation.test(utilityProcessBundle)) {
+  throw new Error(`Packaged UtilityProcess entry does not invoke the worker RPC adapter: ${utilityProcessEntry}`);
+}
+const buildBundleEntries = [...archiveEntries].filter(entry => /^\/\.vite\/build\/[^/]+\.js$/u.test(entry));
+const missingUnpackedBuildEntries = buildBundleEntries.filter(entry => !unpackedArchiveEntries.has(entry));
+if (missingUnpackedBuildEntries.length > 0) {
+  throw new Error(
+    `All .vite/build JavaScript chunks must be unpacked for UtilityProcess relative imports: ${missingUnpackedBuildEntries.join(', ')}`,
+  );
+}
+for (const entry of buildBundleEntries) {
+  const unpackedPath = path.join(unpackedRoot, ...entry.slice(1).split('/'));
+  if (!fs.existsSync(unpackedPath)) {
+    throw new Error(`Packaged .vite/build chunk is marked unpacked but missing: ${unpackedPath}`);
+  }
+}
 for (const protoFile of REQUIRED_ETCD3_PROTO_FILES) {
   const relativePath = path.posix.join(...BUNDLED_ETCD3_PROTO_DIRECTORY, protoFile);
   const archiveEntry = `/${relativePath}`;
