@@ -125,6 +125,8 @@ describe('MemeLoop App production import graph', () => {
     expect(relativeGraph.filter(isForbiddenRuntimePath)).toEqual([]);
     expect(relativeGraph).toContain('services/windows/appWindow.ts');
     expect(relativeGraph).not.toContain('services/windows/index.ts');
+    expect(relativeGraph).toContain('services/sshRemote/index.ts');
+    expect(relativeGraph).toContain('windows/RemoteSetup/index.tsx');
 
     const reachableSource = [...graph]
       .filter(file => !file.endsWith('.json'))
@@ -133,8 +135,12 @@ describe('MemeLoop App production import graph', () => {
     expect(reachableSource).not.toMatch(
       /serviceIdentifier\.(?:Authentication|Git|GitServer|HtmlWiki|MemeloopNode|MenuService|Sync|View|Wiki|WikiEmbedding|WikiGitWorkspace|Workspace|WorkspaceView)\b/,
     );
+    expect(reachableSource).not.toContain('WorkerPeer');
+    expect(reachableSource).not.toContain('terminateWorker');
+    expect(reachableSource).not.toContain('node:worker_threads');
     expect(reachableSource).not.toMatch(/WikiBackground|WIKI_EMBED|\/wiki\/:id/);
     expect(directoryHasFiles(path.join(sourceRoot, 'services/native/externalApp'))).toBe(false);
+    expect(directoryHasFiles(path.join(sourceRoot, 'services/externalAPI'))).toBe(false);
     expect(fs.readFileSync(path.join(sourceRoot, 'services/native/reportError.ts'), 'utf8')).not.toContain('TidGi-Desktop');
   });
 
@@ -214,6 +220,7 @@ describe('MemeLoop App production import graph', () => {
       .filter(file => !file.endsWith('.json'))
       .map(file => fs.readFileSync(file, 'utf8'))
       .join('\n');
+    expect(reachableSource).not.toMatch(/(?:I?ExternalAPIService|ExternalAPIServiceIPCDescriptor|ExternalAPIChannel)\b/);
     for (
       const forbidden of [
         '--disable-web-security',

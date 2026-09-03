@@ -19,6 +19,12 @@ function sourceFiles(directory: string): string[] {
   });
 }
 
+function hasSourceFiles(pathname: string): boolean {
+  if (!fs.existsSync(pathname)) return false;
+  if (fs.statSync(pathname).isFile()) return true;
+  return sourceFiles(pathname).length > 0;
+}
+
 describe('legacy network production surface', () => {
   it('does not ship the superseded node discovery, PIN, FRP or manual socket paths', () => {
     const forbidden = [
@@ -37,12 +43,49 @@ describe('legacy network production surface', () => {
       'basicPromptConcat' + 'Handler',
       'delete' + 'Messages(',
       'deleteConversation' + 'Turn(',
+      'ExternalAPIService',
+      'IExternalAPIService',
+      'ExternalAPIServiceIPCDescriptor',
+      'ExternalAPIChannel',
+      'services/externalAPI',
     ];
     const violations = sourceFiles(sourceRoot).flatMap((file) => {
       const content = fs.readFileSync(file, 'utf8');
       return forbidden
         .filter((literal) => content.includes(literal))
         .map((literal) => `${path.relative(sourceRoot, file)}: ${literal}`);
+    });
+    expect(violations).toEqual([]);
+  });
+
+  it('does not retain retired workspace, sidebar, or alarm paths', () => {
+    const retiredPaths = [
+      'services/workspaces',
+      'services/workspacesView',
+      'services/wiki',
+      'services/wikiEmbedding',
+      'services/wikiGitWorkspace',
+      'pages/Agent/components/TabBar/VerticalTabBar.tsx',
+      'pages/Agent/components/TabBar/TabItem.tsx',
+      'pages/Agent/components/TabBar/TabContextMenu.tsx',
+    ];
+    expect(retiredPaths.filter(relativePath => hasSourceFiles(path.join(sourceRoot, relativePath)))).toEqual([]);
+
+    const forbiddenAlarmLiterals = [
+      'alarm-clock',
+      'AlarmClockParameterSchema',
+      'AlarmClockToolSchema',
+      'activeTimers',
+      'scheduleAlarmTimer',
+      'cancelAlarm',
+      'persistAlarm',
+      'getActiveAlarm',
+    ];
+    const violations = sourceFiles(sourceRoot).flatMap(file => {
+      const content = fs.readFileSync(file, 'utf8');
+      return forbiddenAlarmLiterals
+        .filter(literal => content.includes(literal))
+        .map(literal => `${path.relative(sourceRoot, file)}: ${literal}`);
     });
     expect(violations).toEqual([]);
   });
@@ -101,6 +144,40 @@ describe('legacy network production surface', () => {
     expect(agentService).not.toContain('projectSyncedMessages');
     expect(agentService).not.toContain("memeLoopHostIdentity?.peerId ?? 'local'");
     expect(agentService).toContain('memeloop_host_identity_not_configured');
+  });
+
+  it('launches the agent runtime through Electron UtilityProcess and mounts orchestration on v2', () => {
+    const factory = fs.readFileSync(
+      path.join(sourceRoot, 'services/agentInstance/memeloopWorkerFactory.ts'),
+      'utf8',
+    );
+    const agentService = fs.readFileSync(
+      path.join(sourceRoot, 'services/agentInstance/index.ts'),
+      'utf8',
+    );
+    const worker = fs.readFileSync(
+      path.join(sourceRoot, 'services/agentInstance/memeloopWorker.ts'),
+      'utf8',
+    );
+    const mainVite = fs.readFileSync(path.join(sourceRoot, '../vite.main.config.ts'), 'utf8');
+
+    expect(factory).toContain('memeloopWorker?utilityProcess');
+    expect(factory).not.toContain('?nodeWorker');
+    expect(mainVite).toContain('utilityProcessPlugin()');
+    expect(mainVite).not.toContain('memeLoopNodeWorkerPlugin');
+    expect(agentService).toContain('UtilityProcess');
+    expect(agentService).not.toContain('memeLoopNativeWorker');
+    expect(agentService).toContain('waitForElectronReady()');
+    expect(agentService).toContain('memeLoopStartupAbortController');
+    expect(agentService).toContain('memeLoopDisposePromise');
+    expect(agentService).toContain("runtimeProcess.on('error'");
+    expect(agentService).toContain("runtimeProcess.on('exit'");
+    expect(worker).toContain('getWorkerParentPort');
+    expect(worker).not.toContain('node:worker_threads');
+    expect(agentService).toContain('/v2/orchestration/resources');
+    expect(worker).toContain("path: '/v2/orchestration/resources'");
+    expect(agentService).not.toContain('/v1/orchestration/resources');
+    expect(worker).not.toContain("path: '/v1/orchestration/resources'");
   });
 
   it('delegates Cloud lifecycle to the shared coordinator with signed, resource-scoped grants', () => {

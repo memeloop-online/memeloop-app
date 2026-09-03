@@ -46,7 +46,7 @@ import {
 import { logger } from '@services/libs/log';
 
 import { createDesktopCloudConnectionCoordinator, signDesktopCloudHeartbeat } from './cloudCoordinator';
-import type { DeviceNetworkRuntimeOptions, IDeviceNetworkService } from './interface';
+import type { DeviceNetworkRpcOperationOptions, DeviceNetworkRuntimeOptions, IDeviceNetworkService } from './interface';
 
 const DEVICE_IDENTITY_KEY = 'deviceNetwork.identity.v1';
 const TRUSTED_DEVICES_KEY = 'deviceNetwork.trustedDevices.v2';
@@ -70,8 +70,6 @@ interface EncryptedIdentityRecord {
   createdAt: number;
 }
 
-type StoredTrustedDevices = unknown;
-
 interface TrustedDeviceStoreEnvelope {
   epoch: string;
   generation: number;
@@ -87,6 +85,27 @@ interface DesktopCloudConfiguration {
   cloudUrl: string;
   accessToken: string;
   client: CloudDeviceFetchClient;
+}
+
+type ElectronSettingsValue = Parameters<typeof settings.setSync>[1];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function toElectronSettingsValue(value: unknown): ElectronSettingsValue {
+  if (value === null || typeof value === 'boolean' || typeof value === 'string' || typeof value === 'number') {
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(toElectronSettingsValue);
+  if (isRecord(value)) {
+    const object: Record<string, ElectronSettingsValue> = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if (nestedValue !== undefined) object[key] = toElectronSettingsValue(nestedValue);
+    }
+    return object;
+  }
+  throw new TypeError(`Unsupported settings value type: ${typeof value}`);
 }
 
 type DesktopDeviceSyncOptions = {
@@ -136,16 +155,38 @@ function isDeviceRequestOptions(value: DeviceConnectionGrant | DesktopDeviceRequ
 }
 
 function isTrustedDeviceRecord(value: unknown): value is TrustedDeviceRecord {
-  const record = value as Record<string, unknown> | undefined;
-  return Boolean(
-    record &&
-      typeof record.peerId === 'string' &&
-      typeof record.publicKeyMultibase === 'string' &&
-      typeof record.deviceName === 'string' &&
-      typeof record.platform === 'string' &&
-      typeof record.trustMode === 'string' &&
-      typeof record.createdAt === 'number',
-  );
+  if (!isRecord(value)) return false;
+  const record = value;
+  return typeof record.peerId === 'string' &&
+    typeof record.publicKeyMultibase === 'string' &&
+    typeof record.deviceName === 'string' &&
+    typeof record.platform === 'string' &&
+    typeof record.trustMode === 'string' &&
+    typeof record.createdAt === 'number';
+}
+
+function parseTrustedDeviceRecords(value: unknown): TrustedDeviceRecord[] {
+  if (!Array.isArray(value)) return [];
+  const records: TrustedDeviceRecord[] = [];
+  for (const candidate of value) {
+    if (isTrustedDeviceRecord(candidate)) records.push(candidate);
+  }
+  return records;
+}
+
+function isEncryptedIdentityRecord(value: unknown): value is EncryptedIdentityRecord {
+  if (!isRecord(value)) return false;
+  return typeof value.peerId === 'string' &&
+    typeof value.publicKeyMultibase === 'string' &&
+    typeof value.encryptedPrivateKey === 'string' &&
+    typeof value.deviceName === 'string' &&
+    value.platform === 'desktop' &&
+    typeof value.createdAt === 'number' &&
+    Number.isFinite(value.createdAt);
+}
+
+function isEncryptedCloudConfigurationRecord(value: unknown): value is EncryptedCloudConfigurationRecord {
+  return isRecord(value) && typeof value.cloudUrl === 'string' && typeof value.encryptedAccessToken === 'string';
 }
 
 class ElectronSettingsDeviceTrustStore implements DeviceTrustStore {
@@ -212,22 +253,21 @@ class ElectronSettingsDeviceTrustStore implements DeviceTrustStore {
   }
 
   private loadEnvelope(): TrustedDeviceStoreEnvelope {
-    const stored = settings.getSync(TRUSTED_DEVICES_KEY) as StoredTrustedDevices;
-    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) {
+    const stored = settings.getSync(TRUSTED_DEVICES_KEY);
+    if (!isRecord(stored)) {
       return { epoch: this.epoch, generation: 0, records: [] };
     }
-    const candidate = stored as Partial<TrustedDeviceStoreEnvelope>;
     return {
-      epoch: typeof candidate.epoch === 'string' ? candidate.epoch : this.epoch,
-      generation: typeof candidate.generation === 'number' && Number.isSafeInteger(candidate.generation)
-        ? candidate.generation
+      epoch: typeof stored.epoch === 'string' ? stored.epoch : this.epoch,
+      generation: typeof stored.generation === 'number' && Number.isSafeInteger(stored.generation)
+        ? stored.generation
         : 0,
-      records: Array.isArray(candidate.records) ? candidate.records.filter(isTrustedDeviceRecord) : [],
+      records: parseTrustedDeviceRecords(stored.records),
     };
   }
 
   private saveEnvelope(envelope: TrustedDeviceStoreEnvelope): void {
-    settings.setSync(TRUSTED_DEVICES_KEY, envelope as unknown as Parameters<typeof settings.setSync>[1]);
+    settings.setSync(TRUSTED_DEVICES_KEY, toElectronSettingsValue(envelope));
   }
 
   private sort(records: TrustedDeviceRecord[]): TrustedDeviceRecord[] {
@@ -461,9 +501,7 @@ export class DeviceNetworkService implements IDeviceNetworkService {
       ? AbortSignal.any([requestOptions.signal, operationController.signal])
       : requestOptions.signal ?? operationController?.signal;
     const suppliedGrant = isDeviceRequestOptions(optionsOrGrant) ? optionsOrGrant.presentedGrant : optionsOrGrant;
-    const rpcParameters = parameters && typeof parameters === 'object' && !Array.isArray(parameters)
-      ? parameters as Record<string, unknown>
-      : {};
+    const rpcParameters = isRecord(parameters) ? parameters : {};
     const conversationId = typeof rpcParameters.conversationId === 'string' ? rpcParameters.conversationId : undefined;
     const definitionId = typeof rpcParameters.definitionId === 'string' ? rpcParameters.definitionId : undefined;
     signal?.throwIfAborted();
@@ -480,6 +518,20 @@ export class DeviceNetworkService implements IDeviceNetworkService {
       signal,
       presentedGrant: grant,
     });
+  }
+
+  /**
+   * Renderer-facing RPC entry point with an explicit operation fence. The
+   * operation id is consumed by this host adapter and never enters Core's
+   * portable DeviceNetworkService contract.
+   */
+  public sendRpcForOperation(
+    peerId: string,
+    method: string,
+    parameters: unknown,
+    options: DeviceNetworkRpcOperationOptions,
+  ): Promise<unknown> {
+    return this.sendRpc(peerId, method, parameters, options);
   }
 
   public async abortOperation(operationId: string): Promise<void> {
@@ -782,13 +834,13 @@ export class DeviceNetworkService implements IDeviceNetworkService {
       cloudUrl: config.cloudUrl,
       encryptedAccessToken: safeStorage.encryptString(config.accessToken).toString('base64'),
     };
-    settings.setSync(CLOUD_CONFIGURATION_KEY, record as unknown as Parameters<typeof settings.setSync>[1]);
+    settings.setSync(CLOUD_CONFIGURATION_KEY, toElectronSettingsValue(record));
   }
 
   private loadPersistedCloudConfiguration(): void {
     if (this.cloudConfig) return;
-    const stored = settings.getSync(CLOUD_CONFIGURATION_KEY) as unknown as EncryptedCloudConfigurationRecord | undefined;
-    if (!stored || typeof stored.cloudUrl !== 'string' || typeof stored.encryptedAccessToken !== 'string') return;
+    const stored = settings.getSync(CLOUD_CONFIGURATION_KEY);
+    if (!isEncryptedCloudConfigurationRecord(stored)) return;
     if (!safeStorage.isEncryptionAvailable()) {
       logger.warn('DeviceNetworkService cannot load Cloud credentials because safeStorage is unavailable');
       return;
@@ -809,8 +861,8 @@ export class DeviceNetworkService implements IDeviceNetworkService {
 
   private async ensureIdentity(): Promise<void> {
     if (this.identity) return;
-    const stored = settings.getSync(DEVICE_IDENTITY_KEY) as unknown as EncryptedIdentityRecord | undefined;
-    if (stored?.peerId && stored?.publicKeyMultibase && stored?.encryptedPrivateKey) {
+    const stored = settings.getSync(DEVICE_IDENTITY_KEY);
+    if (isEncryptedIdentityRecord(stored)) {
       const identity = this.tryLoadStoredIdentity(stored);
       if (identity) {
         this.identity = identity;
@@ -863,7 +915,7 @@ export class DeviceNetworkService implements IDeviceNetworkService {
       platform: 'desktop',
       createdAt: identity.createdAt,
     };
-    settings.setSync(DEVICE_IDENTITY_KEY, record as unknown as Parameters<typeof settings.setSync>[1]);
+    settings.setSync(DEVICE_IDENTITY_KEY, toElectronSettingsValue(record));
   }
 
   private async buildCapabilities(): Promise<DeviceCapabilities> {

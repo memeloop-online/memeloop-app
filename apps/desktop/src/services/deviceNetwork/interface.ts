@@ -6,9 +6,10 @@ import type {
   Device,
   DeviceCapabilities,
   DeviceCloudConnectionSnapshot,
+  DeviceConnectionGrant,
   DeviceNetworkService as CoreDeviceNetworkService,
   DeviceRpcHandler,
-  IAgentStorage,
+  FullAgentStorage,
   LocalDeviceIdentity,
   PairingSession,
   SyncResult,
@@ -19,7 +20,13 @@ export interface DeviceNetworkRuntimeOptions {
   buildCapabilities?: () => Promise<DeviceCapabilities>;
   orchestrationClient?: AgentOrchestrationClient;
   rpcHandler?: DeviceRpcHandler;
-  syncStorage?: IAgentStorage;
+  syncStorage?: FullAgentStorage;
+}
+
+/** Renderer-safe operation metadata; operation cancellation remains host-owned. */
+export interface DeviceNetworkRpcOperationOptions {
+  operationId: string;
+  presentedGrant?: DeviceConnectionGrant;
 }
 
 export interface IDeviceNetworkService extends CoreDeviceNetworkService {
@@ -34,6 +41,13 @@ export interface IDeviceNetworkService extends CoreDeviceNetworkService {
   devices$: BehaviorSubject<Device[]>;
   pairingSessions$: BehaviorSubject<PairingSession[]>;
   cloudStatus$: BehaviorSubject<DeviceCloudConnectionSnapshot>;
+  /** Exact IPC bridge for calls that participate in a host operation fence. */
+  sendRpcForOperation(
+    peerId: string,
+    method: string,
+    parameters: unknown,
+    options: DeviceNetworkRpcOperationOptions,
+  ): Promise<unknown>;
 }
 
 export const DeviceNetworkServiceIPCDescriptor = {
@@ -54,6 +68,7 @@ export const DeviceNetworkServiceIPCDescriptor = {
     syncCloudDevices: ProxyPropertyType.Function,
     getCloudStatus: ProxyPropertyType.Function,
     sendRpc: ProxyPropertyType.Function,
+    sendRpcForOperation: ProxyPropertyType.Function,
     abortOperation: ProxyPropertyType.Function,
     finishOperation: ProxyPropertyType.Function,
     syncWithDevice: ProxyPropertyType.Function,

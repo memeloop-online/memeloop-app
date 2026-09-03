@@ -27,6 +27,12 @@ const SideBar = styled('div')`
   &::-webkit-scrollbar {
     display: none;
   }
+
+  /* The fixed desktop rail would cover the form on narrow preference windows.
+     Search remains available as the compact navigation entry point there. */
+  @media (max-width: 720px) {
+    display: none;
+  }
 `;
 const ListItemIcon = styled(ListItemIconRaw)`
   color: ${({ theme }) => theme.palette.text.primary};

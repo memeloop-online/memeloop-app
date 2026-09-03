@@ -14,9 +14,7 @@ import type {
   IBooleanPreferenceItem,
   ICustomItem,
   IEnumPreferenceItem,
-  INumberPreferenceItem,
   ISectionDefinition,
-  IStringArrayPreferenceItem,
   IStringPreferenceItem,
   PlatformCondition,
   PreferenceItemDefinition,
@@ -129,45 +127,6 @@ function EnumItem({
   );
 }
 
-function NumberItem({
-  item,
-  preference,
-  onNeedsRestart,
-}: {
-  item: INumberPreferenceItem;
-  onNeedsRestart: () => void;
-  preference: IPreferences;
-}): React.JSX.Element {
-  const { t } = useTranslation(['translation', 'agent']);
-  const value = preference[item.key] as unknown as number;
-  return (
-    <ListItem
-      secondaryAction={
-        <TextField
-          type='number'
-          size='small'
-          value={value}
-          onChange={async (event) => {
-            const newValue = Number(event.target.value);
-            if (!Number.isNaN(newValue)) {
-              await window.service.preference.set(item.key, newValue as never);
-              if (item.needsRestart) {
-                onNeedsRestart();
-              }
-            }
-          }}
-          sx={{ width: 100 }}
-        />
-      }
-    >
-      <ListItemText
-        primary={t(item.titleKey, item.ns ? { ns: item.ns } : undefined)}
-        secondary={item.descriptionKey ? t(item.descriptionKey, item.ns ? { ns: item.ns } : undefined) : undefined}
-      />
-    </ListItem>
-  );
-}
-
 function StringItem({
   item,
   preference,
@@ -196,49 +155,6 @@ function StringItem({
           }
         }}
         sx={{ minWidth: 150 }}
-      />
-    </ListItem>
-  );
-}
-
-function StringArrayItem({
-  item,
-  preference,
-  onNeedsRestart,
-}: {
-  item: IStringArrayPreferenceItem;
-  onNeedsRestart: () => void;
-  preference: IPreferences;
-}): React.JSX.Element {
-  const { t } = useTranslation(['translation', 'agent']);
-  const value = (preference[item.key] as unknown as string[]) ?? [];
-  const [localValue, setLocalValue] = React.useState(value.join('\n'));
-  React.useEffect(() => {
-    setLocalValue(value.join('\n'));
-  }, [value.join('\n')]);
-
-  return (
-    <ListItem>
-      <ListItemText
-        primary={t(item.titleKey, item.ns ? { ns: item.ns } : undefined)}
-        secondary={item.descriptionKey ? t(item.descriptionKey, item.ns ? { ns: item.ns } : undefined) : undefined}
-      />
-      <TextField
-        size='small'
-        value={localValue}
-        multiline
-        minRows={2}
-        onChange={(event) => {
-          setLocalValue(event.target.value);
-        }}
-        onBlur={async () => {
-          const newArray = localValue.split('\n').map((s) => s.trim()).filter(Boolean);
-          await window.service.preference.set(item.key, newArray as never);
-          if (item.needsRestart) {
-            onNeedsRestart();
-          }
-        }}
-        sx={{ minWidth: 200 }}
       />
     </ListItem>
   );
@@ -338,12 +254,8 @@ export function ItemRenderer({
       return <BooleanItem item={item} preference={preference} onNeedsRestart={onNeedsRestart} />;
     case 'preference-enum':
       return <EnumItem item={item} preference={preference} onNeedsRestart={onNeedsRestart} />;
-    case 'preference-number':
-      return <NumberItem item={item} preference={preference} onNeedsRestart={onNeedsRestart} />;
     case 'preference-string':
       return <StringItem item={item} preference={preference} onNeedsRestart={onNeedsRestart} />;
-    case 'preference-string-array':
-      return <StringArrayItem item={item} preference={preference} onNeedsRestart={onNeedsRestart} />;
     case 'action':
       return <ActionItem item={item} />;
     case 'action-input':

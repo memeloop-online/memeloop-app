@@ -20,7 +20,7 @@ const APP_WINDOW_NAMES = new Set<WindowNames>([
 @injectable()
 export class AppWindow implements IWindowService {
   private readonly windows = new Map<WindowNames, BrowserWindow>();
-  private readonly metadata: Partial<WindowMeta> = {};
+  private readonly metadata: { [N in WindowNames]?: WindowMeta[N] } = {};
 
   constructor(
     @inject(serviceIdentifier.Preference) private readonly preferenceService: IPreferenceService,
@@ -40,7 +40,7 @@ export class AppWindow implements IWindowService {
   public async open<N extends WindowNames>(windowName: N, meta: WindowMeta[N] | undefined, config: IWindowOpenConfig | undefined, returnWindow: true): Promise<BrowserWindow>;
   public async open<N extends WindowNames>(
     windowName: N,
-    meta: WindowMeta[N] = {} as WindowMeta[N],
+    meta?: WindowMeta[N],
     config?: IWindowOpenConfig,
     returnWindow?: boolean,
   ): Promise<BrowserWindow | undefined> {
@@ -49,13 +49,13 @@ export class AppWindow implements IWindowService {
     }
     const existing = this.windows.get(windowName);
     if (existing && !existing.isDestroyed() && config?.multiple !== true) {
-      this.metadata[windowName] = meta as never;
+      this.metadata[windowName] = meta;
       if (existing.isMinimized()) existing.restore();
       if (!isTest) existing.show();
       return returnWindow ? existing : undefined;
     }
 
-    this.metadata[windowName] = meta as never;
+    this.metadata[windowName] = meta;
     const preferences = this.preferenceService.getPreferences();
     const options: BrowserWindowConstructorOptions = {
       ...windowDimension[windowName],
@@ -83,8 +83,11 @@ export class AppWindow implements IWindowService {
       if (this.windows.get(windowName) === window) this.windows.delete(windowName);
     });
     window.on('close', event => {
-      const currentMeta = this.metadata[windowName] as { preventClosingWindow?: boolean } | undefined;
-      if (currentMeta?.preventClosingWindow) {
+      const currentMeta = this.metadata[windowName];
+      const preventClosingWindow = currentMeta !== undefined &&
+        'preventClosingWindow' in currentMeta &&
+        currentMeta.preventClosingWindow === true;
+      if (preventClosingWindow) {
         event.preventDefault();
         window.hide();
       }
@@ -130,11 +133,17 @@ export class AppWindow implements IWindowService {
   }
 
   public async setWindowMeta<N extends WindowNames>(windowName: N, meta?: WindowMeta[N]): Promise<void> {
-    this.metadata[windowName] = meta as never;
+    this.metadata[windowName] = meta;
   }
 
   public async updateWindowMeta<N extends WindowNames>(windowName: N, meta?: WindowMeta[N]): Promise<void> {
-    this.metadata[windowName] = { ...(this.metadata[windowName]), ...meta } as never;
+    if (meta === undefined) return;
+    const current = this.metadata[windowName];
+    if (current === undefined) {
+      this.metadata[windowName] = meta;
+      return;
+    }
+    this.metadata[windowName] = { ...current, ...meta };
   }
 
   public async reload(windowName: WindowNames): Promise<void> {
