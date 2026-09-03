@@ -6,13 +6,17 @@ packages:
 overrides:
   '@electron/rebuild': 4.2.0
   'git-sync-js>fs-extra': 11.4.0
+  '@memeloop/libp2p': ^0.3.0
+  '@memeloop/react-ui': ^0.2.0
+  memeloop: ^0.3.0
+  memeloop-cli: ^0.3.0
   node-abi: 4.33.0
-  prebuild-install: latest
+  prebuild-install: 7.1.3
   node-addon-api: ^7.1.1
 
 peerDependencyRules:
   allowedVersions:
-    memeloop: '>=0.1.0 <0.3.0'
+    memeloop: '>=0.3.0 <0.4.0'
 
 allowBuilds:
   bufferutil: true
@@ -23,10 +27,10 @@ allowBuilds:
 # form the SDK 57 compatibility set selected by `expo install --check`. Keep
 # pnpm 11's release-age policy for every future version.
 minimumReleaseAgeExclude:
-  - '@memeloop/libp2p@0.2.5'
-  - '@memeloop/react-ui@0.1.7'
-  - memeloop-cli@0.2.7
-  - memeloop@0.2.9
+  - '@memeloop/libp2p@0.3.0'
+  - '@memeloop/react-ui@0.2.0'
+  - memeloop-cli@0.3.0
+  - memeloop@0.3.0
   - '@expo/cli@57.0.19'
   - '@expo/inline-modules@0.1.7'
   - '@expo/local-build-cache-provider@57.0.8'

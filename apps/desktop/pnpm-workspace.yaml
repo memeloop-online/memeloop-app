@@ -1,7 +1,7 @@
 packages: []
 
 overrides:
-  prebuild-install: latest
+  prebuild-install: 7.1.3
   node-addon-api: "^7.1.1"
   # git-sync-js permits fs-extra ^11.3.5. Pin the same version as Desktop's
   # direct dependency so pnpm's hoisted linker keeps jsonfile beside it.
@@ -21,7 +21,7 @@ patchedDependencies:
 
 peerDependencyRules:
   allowedVersions:
-    memeloop: ">=0.1.0 <0.3.0"
+    memeloop: ">=0.3.0 <0.4.0"
   ignoreMissing:
     - moment
     - moment-hijri
@@ -83,7 +83,7 @@ minimumReleaseAgeExclude:
   - ai@7.0.37
   - fs-extra@11.4.0
   - inversify@8.2.3
-  - '@memeloop/libp2p@0.2.5'
-  - '@memeloop/react-ui@0.1.7'
-  - memeloop-cli@0.2.7
-  - memeloop@0.2.9
+  - '@memeloop/libp2p@0.3.0'
+  - '@memeloop/react-ui@0.2.0'
+  - memeloop-cli@0.3.0
+  - memeloop@0.3.0

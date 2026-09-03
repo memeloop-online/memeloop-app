@@ -8,7 +8,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "check:repository-contracts": "node scripts/verifyPackageManagerContract.mjs && node scripts/verifyViteQueryImports.mjs",
+    "check:repository-contracts": "node scripts/verifyPackageManagerContract.mjs && node scripts/verifyViteQueryImports.mjs && node scripts/verifyNoLegacyProviderCompat.mjs && node scripts/verifyCanonicalAgentContracts.mjs",
     "check": "pnpm --dir apps/desktop run check && pnpm --filter @memeloop/mobile run typecheck",
     "lint": "pnpm --dir apps/desktop run lint --max-warnings 0 && pnpm --filter @memeloop/mobile run lint",
     "test:unit": "pnpm --dir apps/desktop run test:unit && pnpm --filter @memeloop/mobile run test"
