@@ -22,8 +22,10 @@ export class SystemPreference implements ISystemPreferenceService {
         // return our custom setting enum, to be cross-platform
         const loginItemSettings = app.getLoginItemSettings();
         const { openAtLogin } = loginItemSettings;
-        // openAsHidden may be present on some platforms; access it safely without using `any`.
-        const openAsHidden = (loginItemSettings as unknown as { openAsHidden?: boolean }).openAsHidden === true;
+        // openAsHidden may be present on some platforms, but is omitted from
+        // Electron's cross-platform LoginItemSettings type.
+        const openAsHiddenValue = Reflect.get(loginItemSettings, 'openAsHidden');
+        const openAsHidden = typeof openAsHiddenValue === 'boolean' && openAsHiddenValue;
         if (openAtLogin && openAsHidden) return 'yes-hidden';
         if (openAtLogin) return 'yes';
         return 'no';

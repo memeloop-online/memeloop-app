@@ -5,7 +5,9 @@
 // `utilityProcessPlugin` for the implementation.
 declare module '*?utilityProcess' {
   import type { UtilityProcess } from 'electron';
-  export default function forkUtilityProcess(options?: Record<string, unknown>): UtilityProcess;
+  export default function forkUtilityProcess(
+    options?: Parameters<typeof UtilityProcess.fork>[2],
+  ): UtilityProcess;
 }
 
 // Electron Forge Vite Plugin 提供的全局变量

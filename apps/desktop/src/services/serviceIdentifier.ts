@@ -7,7 +7,6 @@ export default {
   Database: Symbol.for('Database'),
   DeepLink: Symbol.for('DeepLinkService'),
   DeviceNetwork: Symbol.for('DeviceNetworkService'),
-  ExternalAPI: Symbol.for('ExternalAPI'),
   ProviderRegistry: Symbol.for('ProviderRegistry'),
   NativeService: Symbol.for('NativeService'),
   NotificationService: Symbol.for('NotificationService'),

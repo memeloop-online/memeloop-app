@@ -31,7 +31,6 @@ import type { IDatabaseService } from '@services/database/interface';
 import type { IDeepLinkService } from '@services/deepLink/interface';
 import type { IDeviceNetworkService } from '@services/deviceNetwork/interface';
 import { createDesktopOrchestrationClient } from '@services/deviceNetwork/orchestration';
-import type { IExternalAPIService } from '@services/externalAPI/interface';
 import { initializeObservables } from '@services/libs/initializeObservables';
 import { reportErrorToGithubWithTemplates } from '@services/native/reportError';
 import type { IProviderRegistryService } from '@services/providerRegistry/interface';
@@ -94,9 +93,6 @@ const deviceNetworkService = container.get<IDeviceNetworkService>(
 const agentInstanceService = container.get<IAgentInstanceService>(
   serviceIdentifier.AgentInstance,
 );
-const externalAPIService = container.get<IExternalAPIService>(
-  serviceIdentifier.ExternalAPI,
-);
 const preferenceService = container.get<IPreferenceService>(
   serviceIdentifier.Preference,
 );
@@ -127,9 +123,9 @@ const runBeforeQuitCleanup = async (): Promise<void> => {
         serviceIdentifier.AgentInstance,
       ) as AgentInstanceService;
       await agentInstanceService.disposeMemeLoopWorker();
-      logger.info('App before-quit - MemeLoop worker disposed');
+      logger.info('App before-quit - MemeLoop UtilityProcess disposed');
     } catch (error) {
-      logger.error('App before-quit - MemeLoop worker dispose failed', {
+      logger.error('App before-quit - MemeLoop UtilityProcess dispose failed', {
         error,
       });
     }
@@ -203,7 +199,6 @@ const commonInit = async (): Promise<void> => {
   await Promise.all([
     agentDefinitionService.initialize(),
     providerRegistryService.initialize(),
-    externalAPIService.initialize(),
   ]);
 
   // Use a different protocol for test mode to avoid conflicts with production.

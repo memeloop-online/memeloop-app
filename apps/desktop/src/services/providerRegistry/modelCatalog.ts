@@ -1,86 +1,146 @@
-import { EMBEDDED_MODEL_CATALOG, type ModelCatalog, type ModelCatalogModel, type ModelCatalogProvider } from 'memeloop/model-catalog';
+import { EMBEDDED_MODEL_CATALOG, type ModelCatalog, type ModelCatalogProvider, type ProviderAccountConfig, type ProviderModelRoute } from 'memeloop';
 
-import defaultProvidersConfig from './defaultProviders';
-import type { AIProviderConfig, ModelFeature, ModelInfo } from './interface';
-
-const providerClassOverrides: Readonly<Record<string, string>> = {
-  anthropic: 'anthropic',
-  deepseek: 'deepseek',
-  ollama: 'ollama',
-  openai: 'openai',
-};
-
-function catalogFeatures(model: ModelCatalogModel): ModelFeature[] {
-  const features = new Set<ModelFeature>(['language']);
-  if (model.reasoning) features.add('reasoning');
-  if (model.toolCall) features.add('toolCalling');
-  if (
-    model.attachment ||
-    model.modalities?.input.some(modality => modality === 'image')
-  ) {
-    features.add('vision');
-  }
-  if (model.modalities?.output.some(modality => modality === 'image')) {
-    features.add('imageGeneration');
-  }
-  return [...features];
-}
-
-function toModelInfo(model: ModelCatalogModel): ModelInfo {
-  return {
-    name: model.id,
-    caption: model.name,
-    features: catalogFeatures(model),
-    contextWindowSize: model.limit?.context ?? model.limit?.input,
-    maxOutputTokens: model.limit?.output,
-    metadata: {
-      source: 'models.dev',
-      attachment: model.attachment,
-      structuredOutput: model.structuredOutput,
-      temperature: model.temperature,
-      releaseDate: model.releaseDate,
-      lastUpdated: model.lastUpdated,
-      status: model.status,
-      modalities: model.modalities,
+/**
+ * App-owned accounts which are not published by models.dev.  The catalog
+ * remains the source of truth for every published provider; these two local
+ * accounts only describe host features (cloud and ComfyUI) that cannot be
+ * discovered from the upstream catalog.
+ */
+const APP_SPECIFIC_PROVIDER_ACCOUNTS: readonly ProviderAccountConfig[] = [
+  {
+    providerId: 'memeloop',
+    providerType: 'memeloop',
+    baseUrl: 'https://api.memeloop.dev',
+    enabled: false,
+    models: [
+      {
+        modelId: 'memeloop-default',
+        wireModelId: 'memeloop-default',
+        apiMode: 'chat-completions',
+      },
+      {
+        modelId: 'memeloop-embedding',
+        wireModelId: 'memeloop-embedding',
+        apiMode: 'chat-completions',
+      },
+    ],
+    catalogProvider: {
+      id: 'memeloop',
+      name: 'MemeLoop',
+      api: 'https://api.memeloop.dev',
+      env: [],
+      models: [
+        {
+          id: 'memeloop-default',
+          name: 'Memeloop Default',
+          attachment: false,
+          reasoning: true,
+          toolCall: true,
+        },
+        {
+          id: 'memeloop-embedding',
+          name: 'Memeloop Embedding',
+          attachment: false,
+          reasoning: false,
+          toolCall: false,
+        },
+      ],
     },
+  },
+  {
+    providerId: 'comfyui',
+    providerType: 'comfyui',
+    baseUrl: 'http://localhost:8188',
+    enabled: false,
+    models: [
+      {
+        modelId: 'flux',
+        wireModelId: 'flux',
+        apiMode: 'chat-completions',
+      },
+    ],
+    catalogProvider: {
+      id: 'comfyui',
+      name: 'ComfyUI',
+      api: 'http://localhost:8188',
+      env: [],
+      models: [
+        {
+          id: 'flux',
+          name: 'Flux',
+          attachment: false,
+          reasoning: false,
+          toolCall: false,
+          modalities: { input: ['text'], output: ['image'] },
+        },
+      ],
+    },
+  },
+];
+
+const KNOWN_PROVIDER_TYPES = new Set([
+  'openai',
+  'anthropic',
+  'google',
+  'deepseek',
+  'groq',
+  'mistral',
+  'cohere',
+  'xai',
+  'togetherai',
+  'perplexity',
+  'azure',
+  'google-vertex',
+  'ollama',
+]);
+
+function routeForCatalogModel(model: ModelCatalogProvider['models'][number]): ProviderModelRoute {
+  const maxOutputTokens = model.limit?.output;
+  return {
+    modelId: model.id,
+    wireModelId: model.id,
+    apiMode: 'chat-completions',
+    ...(typeof maxOutputTokens === 'number' && maxOutputTokens > 0
+      ? { requestDefaults: { maxOutputTokens } }
+      : {}),
   };
 }
 
-function toProviderConfig(provider: ModelCatalogProvider): AIProviderConfig {
-  const legacyPreset = defaultProvidersConfig.providers.find(
-    candidate => candidate.provider === provider.id,
-  ) as AIProviderConfig | undefined;
-  const providerClass = legacyPreset?.providerClass ??
-    providerClassOverrides[provider.id] ??
-    'openAICompatible';
-  return {
-    ...legacyPreset,
-    provider: provider.id,
-    providerClass,
-    baseURL: legacyPreset?.baseURL ?? provider.api,
-    enabled: legacyPreset?.enabled ?? false,
-    isPreset: true,
-    showBaseURLField: legacyPreset?.showBaseURLField ??
-      providerClass === 'openAICompatible',
-    models: provider.models.map(toModelInfo),
-  };
+function providerTypeForCatalogProvider(provider: ModelCatalogProvider): string {
+  return KNOWN_PROVIDER_TYPES.has(provider.id) ? provider.id : provider.id;
 }
 
 /**
- * Convert the portable Core catalog to the host's existing provider editor
- * contract. App-specific providers are retained, while catalog-backed models
- * always come from the current Core snapshot instead of a copied list.
+ * Project one exact Core catalog provider into the canonical account contract.
+ * Catalog metadata is embedded unchanged; routes are the only executable
+ * model declarations and therefore carry the logical/wire id pair explicitly.
  */
-export function providerConfigsFromModelCatalog(
-  catalog: ModelCatalog,
-): AIProviderConfig[] {
-  const fromCatalog = catalog.providers.map(toProviderConfig);
-  const catalogProviderIds = new Set(fromCatalog.map(provider => provider.provider));
-  const appSpecific = (defaultProvidersConfig.providers as AIProviderConfig[])
-    .filter(provider => !catalogProviderIds.has(provider.provider));
-  return [...fromCatalog, ...appSpecific].sort((left, right) => left.provider.localeCompare(right.provider));
+function accountForCatalogProvider(provider: ModelCatalogProvider): ProviderAccountConfig {
+  return {
+    providerId: provider.id,
+    providerType: providerTypeForCatalogProvider(provider),
+    ...(provider.api ? { baseUrl: provider.api } : {}),
+    enabled: false,
+    models: provider.models.map(routeForCatalogModel),
+    catalogProvider: provider,
+  };
 }
 
-export function embeddedOfficialProviderConfigs(): AIProviderConfig[] {
-  return providerConfigsFromModelCatalog(EMBEDDED_MODEL_CATALOG);
+/** Return canonical accounts for the current Core catalog plus app-owned accounts. */
+export function providerAccountsFromModelCatalog(
+  catalog: ModelCatalog,
+): readonly ProviderAccountConfig[] {
+  const catalogAccounts = catalog.providers.map(accountForCatalogProvider);
+  const catalogProviderIds = new Set(catalogAccounts.map(account => account.providerId));
+  const appSpecificAccounts = APP_SPECIFIC_PROVIDER_ACCOUNTS.filter(
+    account => !catalogProviderIds.has(account.providerId),
+  );
+  return Object.freeze(
+    [...catalogAccounts, ...appSpecificAccounts]
+      .sort((left, right) => left.providerId.localeCompare(right.providerId)),
+  );
+}
+
+export function embeddedOfficialProviderAccounts(): readonly ProviderAccountConfig[] {
+  return providerAccountsFromModelCatalog(EMBEDDED_MODEL_CATALOG);
 }

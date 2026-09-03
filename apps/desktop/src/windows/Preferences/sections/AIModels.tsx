@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import TuneIcon from '@mui/icons-material/Tune';
@@ -6,18 +6,40 @@ import { Button, List } from '@mui/material';
 
 import { ListItemText } from '@/components/ListItem';
 import type { ICustomSectionProps } from '@services/preferences/definitions/types';
-import { AIProviderConfig, ModelInfo } from '@services/providerRegistry/interface';
+import type { ModelAssignments, ProviderAccountConfig } from 'memeloop';
 import { ListItemVertical, Paper, SectionTitle } from '../PreferenceComponents';
 import { AIModelParametersDialog } from './ExternalAPI/components/AIModelParametersDialog';
-import { ModelSelector } from './ExternalAPI/components/ModelSelector';
+import { modelFeaturesForRoute } from './ExternalAPI/components/modelCatalogFeatures';
+import { createModelOption, type ModelOption, ModelSelector } from './ExternalAPI/components/ModelSelector';
 import { useAIConfigManagement } from './ExternalAPI/useAIConfigManagement';
+
+function optionsForPurpose(accounts: readonly ProviderAccountConfig[], purpose: keyof ModelAssignments): ModelOption[] {
+  return accounts.flatMap(account =>
+    account.models.flatMap(route => {
+      const features = modelFeaturesForRoute(account, route);
+      const feature = purpose === 'embedding'
+        ? 'embedding'
+        : purpose === 'speech'
+        ? 'speech'
+        : purpose === 'imageGeneration'
+        ? 'imageGeneration'
+        : purpose === 'transcriptions'
+        ? 'transcriptions'
+        : undefined;
+      const supported = purpose === 'free' ||
+        (purpose === 'default' && features.includes('language')) ||
+        (feature !== undefined && features.includes(feature));
+      return supported ? [createModelOption(account, route)] : [];
+    })
+  );
+}
 
 export function AIModels(props: ICustomSectionProps): React.JSX.Element {
   const { t } = useTranslation('agent');
   const {
     loading,
     config,
-    providers,
+    providerAccounts,
     handleModelChange,
     handleEmbeddingModelChange,
     handleSpeechModelChange,
@@ -26,202 +48,96 @@ export function AIModels(props: ICustomSectionProps): React.JSX.Element {
     handleFreeModelChange,
     handleConfigChange,
   } = useAIConfigManagement();
-
   const [parametersDialogOpen, setParametersDialogOpen] = useState(false);
 
-  const openParametersDialog = () => {
-    setParametersDialogOpen(true);
-  };
+  const options = useMemo(() => ({
+    default: optionsForPurpose(providerAccounts, 'default'),
+    embedding: optionsForPurpose(providerAccounts, 'embedding'),
+    speech: optionsForPurpose(providerAccounts, 'speech'),
+    imageGeneration: optionsForPurpose(providerAccounts, 'imageGeneration'),
+    transcriptions: optionsForPurpose(providerAccounts, 'transcriptions'),
+    free: optionsForPurpose(providerAccounts, 'free'),
+  }), [providerAccounts]);
 
-  const closeParametersDialog = () => {
-    setParametersDialogOpen(false);
-  };
-
-  const handleModelClear = async () => {
+  const clearPurpose = async (purpose: keyof ModelAssignments) => {
     if (!config) return;
-    try {
-      await window.service.externalAPI.deleteFieldFromDefaultAIConfig('default');
-      await handleConfigChange({ ...config, default: undefined });
-    } catch (error) {
-      console.error('Failed to clear model configuration:', error);
-    }
+    const nextConfig: ModelAssignments = { ...config };
+    delete nextConfig[purpose];
+    await handleConfigChange(nextConfig);
   };
 
-  const handleEmbeddingModelClear = async () => {
-    if (!config) return;
-    await window.service.externalAPI.deleteFieldFromDefaultAIConfig('embedding');
-    await handleConfigChange({ ...config, embedding: undefined });
-  };
-
-  const handleSpeechModelClear = async () => {
-    if (!config) return;
-    await window.service.externalAPI.deleteFieldFromDefaultAIConfig('speech');
-    await handleConfigChange({ ...config, speech: undefined });
-  };
-
-  const handleImageGenerationModelClear = async () => {
-    if (!config) return;
-    await window.service.externalAPI.deleteFieldFromDefaultAIConfig('imageGeneration');
-    await handleConfigChange({ ...config, imageGeneration: undefined });
-  };
-
-  const handleTranscriptionsModelClear = async () => {
-    if (!config) return;
-    await window.service.externalAPI.deleteFieldFromDefaultAIConfig('transcriptions');
-    await handleConfigChange({ ...config, transcriptions: undefined });
-  };
-
-  const handleFreeModelClear = async () => {
-    if (!config) return;
-    await window.service.externalAPI.deleteFieldFromDefaultAIConfig('free');
-    await handleConfigChange({ ...config, free: undefined });
-  };
-
-  const defaultModelConfig = config?.default;
-  const embeddingConfig = config?.embedding;
-  const speechConfig = config?.speech;
-  const imageGenerationConfig = config?.imageGeneration;
-  const transcriptionsConfig = config?.transcriptions;
-  const freeModelConfig = config?.free;
+  const selector = (
+    purpose: keyof ModelAssignments,
+    title: string,
+    description: string,
+    onChange: (providerId: string, modelId: string) => Promise<void>,
+  ) => (
+    <ListItemVertical>
+      <ListItemText primary={title} secondary={description} />
+      <ModelSelector
+        selectedModel={config?.[purpose]}
+        modelOptions={options[purpose]}
+        onChange={(providerId, modelId) => {
+          void onChange(providerId, modelId);
+        }}
+        onClear={() => {
+          void clearPurpose(purpose);
+        }}
+      />
+    </ListItemVertical>
+  );
 
   return (
     <>
-      <SectionTitle ref={props.sectionRef}>
-        {t('Preference.AIModels')}
-      </SectionTitle>
+      <SectionTitle ref={props.sectionRef}>{t('Preference.AIModels')}</SectionTitle>
       <Paper elevation={0}>
         <List dense disablePadding>
           {loading ? <ListItemVertical>{t('Loading')}</ListItemVertical> : (
-            <>
-              {providers.length > 0 && (
-                <>
-                  <ListItemVertical>
-                    <ListItemText
-                      primary={t('Preference.DefaultAIModelSelection')}
-                      secondary={t('Preference.DefaultAIModelSelectionDescription')}
-                    />
-                    <ModelSelector
-                      selectedModel={defaultModelConfig}
-                      modelOptions={providers.flatMap((provider) =>
-                        provider.models
-                          .filter((model) => Array.isArray(model.features) && model.features.includes('language'))
-                          .map((model) => [provider, model] as [AIProviderConfig, ModelInfo])
-                      )}
-                      onChange={handleModelChange}
-                      onClear={handleModelClear}
-                    />
-                  </ListItemVertical>
+            providerAccounts.length > 0 && config && (
+              <>
+                {selector('default', t('Preference.DefaultAIModelSelection'), t('Preference.DefaultAIModelSelectionDescription'), handleModelChange)}
+                {selector('embedding', t('Preference.DefaultEmbeddingModelSelection'), t('Preference.DefaultEmbeddingModelSelectionDescription'), handleEmbeddingModelChange)}
+                {selector('speech', t('Preference.DefaultSpeechModelSelection'), t('Preference.DefaultSpeechModelSelectionDescription'), handleSpeechModelChange)}
+                {selector(
+                  'imageGeneration',
+                  t('Preference.DefaultImageGenerationModelSelection'),
+                  t('Preference.DefaultImageGenerationModelSelectionDescription'),
+                  handleImageGenerationModelChange,
+                )}
+                {selector(
+                  'transcriptions',
+                  t('Preference.DefaultTranscriptionsModelSelection'),
+                  t('Preference.DefaultTranscriptionsModelSelectionDescription'),
+                  handleTranscriptionsModelChange,
+                )}
+                {selector('free', t('Preference.DefaultFreeModelSelection'), t('Preference.DefaultFreeModelSelectionDescription'), handleFreeModelChange)}
 
-                  <ListItemVertical>
-                    <ListItemText
-                      primary={t('Preference.DefaultEmbeddingModelSelection')}
-                      secondary={t('Preference.DefaultEmbeddingModelSelectionDescription')}
-                    />
-                    <ModelSelector
-                      selectedModel={embeddingConfig}
-                      modelOptions={providers.flatMap((provider) =>
-                        provider.models
-                          .filter((model) => Array.isArray(model.features) && model.features.includes('embedding'))
-                          .map((model) => [provider, model] as [AIProviderConfig, ModelInfo])
-                      )}
-                      onChange={handleEmbeddingModelChange}
-                      onClear={handleEmbeddingModelClear}
-                    />
-                  </ListItemVertical>
-
-                  <ListItemVertical>
-                    <ListItemText
-                      primary={t('Preference.DefaultSpeechModelSelection')}
-                      secondary={t('Preference.DefaultSpeechModelSelectionDescription')}
-                    />
-                    <ModelSelector
-                      selectedModel={speechConfig}
-                      modelOptions={providers.flatMap((provider) =>
-                        provider.models
-                          .filter((model) => Array.isArray(model.features) && model.features.includes('speech'))
-                          .map((model) => [provider, model] as [AIProviderConfig, ModelInfo])
-                      )}
-                      onChange={handleSpeechModelChange}
-                      onClear={handleSpeechModelClear}
-                    />
-                  </ListItemVertical>
-
-                  <ListItemVertical>
-                    <ListItemText
-                      primary={t('Preference.DefaultImageGenerationModelSelection')}
-                      secondary={t('Preference.DefaultImageGenerationModelSelectionDescription')}
-                    />
-                    <ModelSelector
-                      selectedModel={imageGenerationConfig}
-                      modelOptions={providers.flatMap((provider) =>
-                        provider.models
-                          .filter((model) => Array.isArray(model.features) && model.features.includes('imageGeneration'))
-                          .map((model) => [provider, model] as [AIProviderConfig, ModelInfo])
-                      )}
-                      onChange={handleImageGenerationModelChange}
-                      onClear={handleImageGenerationModelClear}
-                    />
-                  </ListItemVertical>
-
-                  <ListItemVertical>
-                    <ListItemText
-                      primary={t('Preference.DefaultTranscriptionsModelSelection')}
-                      secondary={t('Preference.DefaultTranscriptionsModelSelectionDescription')}
-                    />
-                    <ModelSelector
-                      selectedModel={transcriptionsConfig}
-                      modelOptions={providers.flatMap((provider) =>
-                        provider.models
-                          .filter((model) => Array.isArray(model.features) && model.features.includes('transcriptions'))
-                          .map((model) => [provider, model] as [AIProviderConfig, ModelInfo])
-                      )}
-                      onChange={handleTranscriptionsModelChange}
-                      onClear={handleTranscriptionsModelClear}
-                    />
-                  </ListItemVertical>
-
-                  <ListItemVertical>
-                    <ListItemText
-                      primary={t('Preference.DefaultFreeModelSelection')}
-                      secondary={t('Preference.DefaultFreeModelSelectionDescription')}
-                    />
-                    <ModelSelector
-                      selectedModel={freeModelConfig}
-                      modelOptions={providers.flatMap((provider) =>
-                        provider.models
-                          .filter((model) => Array.isArray(model.features) && model.features.includes('free'))
-                          .map((model) => [provider, model] as [AIProviderConfig, ModelInfo])
-                      )}
-                      onChange={handleFreeModelChange}
-                      onClear={handleFreeModelClear}
-                    />
-                  </ListItemVertical>
-
-                  <ListItemVertical>
-                    <ListItemText
-                      primary={t('Preference.ModelParameters')}
-                      secondary={t('Preference.ModelParametersDescription')}
-                    />
-                    <Button
-                      variant='outlined'
-                      startIcon={<TuneIcon />}
-                      onClick={openParametersDialog}
-                      sx={{ alignSelf: 'flex-start' }}
-                    >
-                      {t('Preference.ConfigureModelParameters')}
-                    </Button>
-                    <AIModelParametersDialog
-                      open={parametersDialogOpen}
-                      onClose={closeParametersDialog}
-                      config={config}
-                      onSave={async (newConfig) => {
-                        await handleConfigChange(newConfig);
-                      }}
-                    />
-                  </ListItemVertical>
-                </>
-              )}
-            </>
+                <ListItemVertical>
+                  <ListItemText
+                    primary={t('Preference.ModelParameters')}
+                    secondary={t('Preference.ModelParametersDescription')}
+                  />
+                  <Button
+                    variant='outlined'
+                    startIcon={<TuneIcon />}
+                    onClick={() => {
+                      setParametersDialogOpen(true);
+                    }}
+                    sx={{ alignSelf: 'flex-start' }}
+                  >
+                    {t('Preference.ConfigureModelParameters')}
+                  </Button>
+                  <AIModelParametersDialog
+                    open={parametersDialogOpen}
+                    onClose={() => {
+                      setParametersDialogOpen(false);
+                    }}
+                    config={config}
+                    onSave={handleConfigChange}
+                  />
+                </ListItemVertical>
+              </>
+            )
           )}
         </List>
       </Paper>

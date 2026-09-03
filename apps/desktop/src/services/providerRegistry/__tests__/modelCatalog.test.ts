@@ -1,7 +1,6 @@
-import { describe, expect, it } from 'vitest';
-
 import type { ModelCatalog } from 'memeloop/model-catalog';
-import { providerConfigsFromModelCatalog } from '../modelCatalog';
+import { describe, expect, it } from 'vitest';
+import { providerAccountsFromModelCatalog } from '../modelCatalog';
 
 const catalog: ModelCatalog = {
   schemaVersion: 1,
@@ -14,69 +13,46 @@ const catalog: ModelCatalog = {
       name: 'OpenAI',
       api: 'https://api.openai.com/v1',
       env: ['OPENAI_API_KEY'],
-      models: [
-        {
-          id: 'gpt-test',
-          name: 'GPT Test',
-          attachment: true,
-          reasoning: true,
-          toolCall: true,
-          structuredOutput: true,
-          modalities: { input: ['text', 'image'], output: ['text'] },
-          limit: { context: 1_000_000, output: 128_000 },
-        },
-      ],
+      models: [{
+        id: 'gpt-test',
+        name: 'GPT Test',
+        attachment: true,
+        reasoning: true,
+        toolCall: true,
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        limit: { context: 1_000_000, output: 128_000 },
+      }],
     },
     {
       id: 'new-compatible-provider',
       name: 'New Provider',
       api: 'https://new.example/v1',
       env: ['NEW_API_KEY'],
-      models: [
-        {
-          id: 'new-model',
-          name: 'New Model',
-          attachment: false,
-          reasoning: false,
-          toolCall: false,
-        },
-      ],
+      models: [{ id: 'new-model', name: 'New Model', attachment: false, reasoning: false, toolCall: false }],
     },
   ],
 };
 
 describe('portable Core model catalog adapter', () => {
-  it('maps current catalog capabilities and limits without a copied model list', () => {
-    const providers = providerConfigsFromModelCatalog(catalog);
-    const openAI = providers.find(provider => provider.provider === 'openai');
+  it('maps catalog providers to canonical accounts and routes', () => {
+    const accounts = providerAccountsFromModelCatalog(catalog);
+    const openAI = accounts.find(account => account.providerId === 'openai');
+    expect(openAI).toMatchObject({ providerId: 'openai', providerType: 'openai', baseUrl: 'https://api.openai.com/v1', enabled: false });
+    expect(openAI?.models).toEqual([{ modelId: 'gpt-test', wireModelId: 'gpt-test', apiMode: 'chat-completions', requestDefaults: { maxOutputTokens: 128_000 } }]);
+    expect(openAI?.catalogProvider?.models[0].name).toBe('GPT Test');
+  });
 
-    expect(openAI).toMatchObject({
-      providerClass: 'openai',
-      isPreset: true,
+  it('keeps discovered providers as canonical accounts', () => {
+    const account = providerAccountsFromModelCatalog(catalog).find(candidate => candidate.providerId === 'new-compatible-provider');
+    expect(account).toMatchObject({
+      providerId: 'new-compatible-provider',
+      providerType: 'new-compatible-provider',
+      baseUrl: 'https://new.example/v1',
+      models: [{ modelId: 'new-model' }],
     });
-    expect(openAI?.models).toEqual([
-      expect.objectContaining({
-        name: 'gpt-test',
-        caption: 'GPT Test',
-        features: ['language', 'reasoning', 'toolCalling', 'vision'],
-        contextWindowSize: 1_000_000,
-        maxOutputTokens: 128_000,
-      }),
-    ]);
   });
 
-  it('makes newly discovered HTTP providers available as OpenAI-compatible presets', () => {
-    expect(providerConfigsFromModelCatalog(catalog)).toContainEqual(
-      expect.objectContaining({
-        provider: 'new-compatible-provider',
-        providerClass: 'openAICompatible',
-        baseURL: 'https://new.example/v1',
-        showBaseURLField: true,
-      }),
-    );
-  });
-
-  it('retains MemeLoop-specific providers absent from models.dev', () => {
-    expect(providerConfigsFromModelCatalog(catalog).some(provider => provider.provider === 'memeloop')).toBe(true);
+  it('retains MemeLoop-specific accounts absent from the catalog', () => {
+    expect(providerAccountsFromModelCatalog(catalog).some(account => account.providerId === 'memeloop')).toBe(true);
   });
 });

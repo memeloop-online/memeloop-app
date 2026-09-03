@@ -1,172 +1,116 @@
 import { Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, FormControlLabel, InputLabel, MenuItem, Select, Switch, TextField } from '@mui/material';
-import { AIProviderConfig } from '@services/providerRegistry/interface';
+import type { ProviderAccountConfig } from 'memeloop';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 interface ProviderFormDialogProps {
   open: boolean;
-  provider: AIProviderConfig | null;
+  provider: ProviderAccountConfig | null;
   onClose: () => void;
-  onSave: (provider: Partial<AIProviderConfig>) => Promise<void>;
+  onSave: (account: ProviderAccountConfig, apiKey?: string) => Promise<void>;
 }
 
-const PROVIDER_CLASSES = [
-  'openai',
-  'openAICompatible',
-  'anthropic',
-  'deepseek',
-  'ollama',
-  'comfyui',
-  'custom',
-];
+const PROVIDER_TYPES = ['openai', 'openAICompatible', 'anthropic', 'deepseek', 'ollama', 'comfyui', 'custom'];
 
-export function ProviderFormDialog({
-  open,
-  provider,
-  onClose,
-  onSave,
-}: ProviderFormDialogProps): React.JSX.Element {
+interface FormState {
+  providerId: string;
+  providerType: string;
+  baseUrl: string;
+  apiKey: string;
+  enabled: boolean;
+}
+
+export function ProviderFormDialog({ open, provider, onClose, onSave }: ProviderFormDialogProps): React.JSX.Element {
   const { t } = useTranslation('agent');
-  const [formData, setFormData] = useState({
-    provider: '',
-    baseURL: '',
-    apiKey: '',
-    providerClass: 'openAICompatible',
-    enabled: true,
-  });
+  const [formData, setFormData] = useState<FormState>({ providerId: '', providerType: 'openAICompatible', baseUrl: '', apiKey: '', enabled: true });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (provider) {
-      setFormData({
-        provider: provider.provider,
-        baseURL: provider.baseURL || '',
-        apiKey: provider.apiKey || '',
-        providerClass: provider.providerClass || 'openAICompatible',
-        enabled: provider.enabled !== false,
-      });
-    } else {
-      setFormData({
-        provider: '',
-        baseURL: '',
-        apiKey: '',
-        providerClass: 'openAICompatible',
-        enabled: true,
-      });
-    }
-  }, [provider, open]);
-
-  const handleChange = (
-    field: keyof typeof formData,
-    value: string | boolean,
-  ) => {
-    setFormData((previous) => ({ ...previous, [field]: value }));
-  };
+    setFormData({
+      providerId: provider?.providerId ?? '',
+      providerType: provider?.providerType ?? 'openAICompatible',
+      baseUrl: provider?.baseUrl ?? '',
+      apiKey: '',
+      enabled: provider?.enabled !== false,
+    });
+  }, [open, provider]);
 
   const handleSubmit = async () => {
-    if (!formData.provider.trim()) {
-      return;
-    }
-
+    if (!formData.providerId.trim()) return;
     setSaving(true);
     try {
-      await onSave({
-        provider: formData.provider,
-        baseURL: formData.baseURL || undefined,
-        apiKey: formData.apiKey || undefined,
-        providerClass: formData.providerClass,
+      const account: ProviderAccountConfig = {
+        ...(provider ?? { models: [] }),
+        providerId: formData.providerId.trim(),
+        providerType: formData.providerType,
+        ...(formData.baseUrl.trim() ? { baseUrl: formData.baseUrl.trim() } : {}),
         enabled: formData.enabled,
-        models: provider?.models || [],
-        isPreset: false,
-      });
+      };
+      await onSave(account, formData.apiKey || undefined);
+      onClose();
     } finally {
       setSaving(false);
     }
   };
 
+  const showBaseUrl = formData.providerType === 'openAICompatible' || formData.providerType === 'openai' || formData.providerType === 'ollama' ||
+    formData.providerType === 'comfyui';
   const isEditing = provider !== null;
-  const showBaseURLField = formData.providerClass === 'openAICompatible' ||
-    formData.providerClass === 'ollama' ||
-    formData.providerClass === 'comfyui';
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth='sm' fullWidth>
-      <DialogTitle>
-        {isEditing
-          ? t('Preference.EditProvider')
-          : t('Preference.AddCustomProvider')}
-      </DialogTitle>
+      <DialogTitle>{isEditing ? t('Preference.EditProvider') : t('Preference.AddCustomProvider')}</DialogTitle>
       <DialogContent>
         <TextField
           label={t('Preference.ProviderName')}
-          value={formData.provider}
-          onChange={(event) => {
-            handleChange('provider', event.target.value);
+          value={formData.providerId}
+          onChange={event => {
+            setFormData(previous => ({ ...previous, providerId: event.target.value }));
           }}
           fullWidth
           margin='normal'
           disabled={isEditing}
           required
-          placeholder='my-custom-provider'
-          helperText={isEditing
-            ? t('Preference.ProviderNameCannotBeChanged')
-            : t('Preference.ProviderNameHelp')}
         />
-
         <FormControl fullWidth margin='normal'>
           <InputLabel>{t('Preference.ProviderClass')}</InputLabel>
           <Select
-            value={formData.providerClass}
-            onChange={(event) => {
-              handleChange('providerClass', event.target.value);
+            value={formData.providerType}
+            onChange={event => {
+              setFormData(previous => ({ ...previous, providerType: event.target.value }));
             }}
             label={t('Preference.ProviderClass')}
           >
-            {PROVIDER_CLASSES.map((cls) => (
-              <MenuItem key={cls} value={cls}>
-                {cls}
-              </MenuItem>
-            ))}
+            {PROVIDER_TYPES.map(providerType => <MenuItem key={providerType} value={providerType}>{providerType}</MenuItem>)}
           </Select>
         </FormControl>
-
-        {showBaseURLField && (
+        {showBaseUrl && (
           <TextField
             label={t('Preference.BaseURL')}
-            value={formData.baseURL}
-            onChange={(event) => {
-              handleChange('baseURL', event.target.value);
+            value={formData.baseUrl}
+            onChange={event => {
+              setFormData(previous => ({ ...previous, baseUrl: event.target.value }));
             }}
             fullWidth
             margin='normal'
-            placeholder={formData.providerClass === 'ollama'
-              ? 'http://localhost:11434'
-              : formData.providerClass === 'comfyui'
-              ? 'http://localhost:8188'
-              : 'https://api.example.com/v1'}
-            helperText={t('Preference.BaseURLHelp')}
           />
         )}
-
         <TextField
           label={t('Preference.APIKey')}
           value={formData.apiKey}
-          onChange={(event) => {
-            handleChange('apiKey', event.target.value);
+          onChange={event => {
+            setFormData(previous => ({ ...previous, apiKey: event.target.value }));
           }}
           fullWidth
           margin='normal'
           type='password'
-          placeholder='sk-...'
-          helperText={t('Preference.APIKeyHelp')}
         />
-
         <FormControlLabel
           control={
             <Switch
               checked={formData.enabled}
-              onChange={(event) => {
-                handleChange('enabled', event.target.checked);
+              onChange={event => {
+                setFormData(previous => ({ ...previous, enabled: event.target.checked }));
               }}
             />
           }
@@ -175,13 +119,13 @@ export function ProviderFormDialog({
         />
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={saving}>
-          {t('Preference.Cancel')}
-        </Button>
+        <Button onClick={onClose} disabled={saving}>{t('Preference.Cancel')}</Button>
         <Button
-          onClick={handleSubmit}
+          onClick={() => {
+            void handleSubmit();
+          }}
           variant='contained'
-          disabled={saving || !formData.provider.trim()}
+          disabled={saving || !formData.providerId.trim()}
         >
           {saving ? t('Preference.Saving') : t('Preference.Save')}
         </Button>

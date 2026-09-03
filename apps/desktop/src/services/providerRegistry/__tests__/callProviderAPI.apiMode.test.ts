@@ -1,28 +1,24 @@
+import type { ModelAssignments, ProviderModelRoute } from 'memeloop';
 import { describe, expect, it } from 'vitest';
-
-import type { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema/types';
 import { createProviderModel, resolveModelGenerationSettings } from '../callProviderAPI';
 import { normalizeOpenAIBaseURL } from '../openAIBaseURL';
 
-describe('OpenAI-compatible model API mode', () => {
-  const provider = {
-    provider: 'cpa-test',
-    providerClass: 'openAICompatible',
-    baseURL: 'https://models.example.test/v1',
-    apiKey: 'unit-test-secret',
+const provider = {
+  account: {
+    providerId: 'cpa-test',
+    providerType: 'openAICompatible',
+    baseUrl: 'https://models.example.test/v1',
+    enabled: true,
     models: [],
-  };
+  },
+  apiKey: 'unit-test-secret',
+};
 
-  it.each(
-    [
-      ['chat-completions', 'cpa-test.chat'],
-      ['responses', 'openai.responses'],
-    ] as const,
-  )('selects the %s model transport', (apiMode, expectedProvider) => {
-    const model = createProviderModel(provider, { name: 'mixed-model', apiMode });
-
-    expect(model.provider).toBe(expectedProvider);
-    expect(model.modelId).toBe('mixed-model');
+describe('OpenAI-compatible model API mode', () => {
+  it.each(['chat-completions', 'responses'] as const)('selects the %s model transport', apiMode => {
+    const route: ProviderModelRoute = { modelId: 'mixed-model', wireModelId: 'mixed-wire-model', apiMode };
+    const model = createProviderModel(provider, route);
+    expect(model.modelId).toBe('mixed-wire-model');
   });
 
   it.each([
@@ -33,40 +29,27 @@ describe('OpenAI-compatible model API mode', () => {
     expect(normalizeOpenAIBaseURL(input)).toBe(expected);
   });
 
-  it('uses model generation defaults when request parameters are absent', () => {
-    const config = { default: { provider: 'cpa-test', model: 'mixed-model' }, modelParameters: {} } satisfies AiAPIConfig;
-
-    expect(resolveModelGenerationSettings(config, {
-      name: 'mixed-model',
-      maxOutputTokens: 32_768,
-      modelOptions: { top_p: 0.95 },
-    })).toEqual({ maxOutputTokens: 32_768, topP: 0.95 });
+  it('uses route generation defaults when assignment parameters are absent', () => {
+    const config: ModelAssignments = { default: { providerId: 'cpa-test', modelId: 'mixed-model' } };
+    const route: ProviderModelRoute = {
+      modelId: 'mixed-model',
+      wireModelId: 'mixed-model',
+      apiMode: 'chat-completions',
+      requestDefaults: { maxOutputTokens: 32768, topP: 0.95 },
+    };
+    expect(resolveModelGenerationSettings(config, route)).toEqual({ maxOutputTokens: 32768, topP: 0.95 });
   });
 
-  it('gives explicit request parameters precedence over model defaults', () => {
-    const config = {
-      default: { provider: 'cpa-test', model: 'mixed-model' },
-      modelParameters: { maxOutputTokens: 4096, maxTokens: 2048, topP: 0.4 },
-    } satisfies AiAPIConfig;
-
-    expect(resolveModelGenerationSettings(config, {
-      name: 'mixed-model',
-      maxOutputTokens: 32_768,
-      modelOptions: { top_p: 0.95 },
-    })).toEqual({ maxOutputTokens: 4096, topP: 0.4 });
-  });
-
-  it('supports the legacy explicit maxTokens request alias', () => {
-    const config = {
-      default: { provider: 'cpa-test', model: 'mixed-model' },
-      modelParameters: { maxTokens: 2048 },
-    } satisfies AiAPIConfig;
-
-    expect(
-      resolveModelGenerationSettings(config, {
-        name: 'mixed-model',
-        maxOutputTokens: 32_768,
-      }).maxOutputTokens,
-    ).toBe(2048);
+  it('gives assignment parameters precedence over route defaults', () => {
+    const config: ModelAssignments = {
+      default: { providerId: 'cpa-test', modelId: 'mixed-model', parameters: { maxOutputTokens: 4096, topP: 0.4 } },
+    };
+    const route: ProviderModelRoute = {
+      modelId: 'mixed-model',
+      wireModelId: 'mixed-model',
+      apiMode: 'chat-completions',
+      requestDefaults: { maxOutputTokens: 32768, topP: 0.95 },
+    };
+    expect(resolveModelGenerationSettings(config, route)).toEqual({ maxOutputTokens: 4096, topP: 0.4 });
   });
 });

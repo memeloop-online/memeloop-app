@@ -53,17 +53,20 @@ vi.mock('@services/libs/workerAdapter', async () => {
       subscribeToUpdates: () => new rxjs.Observable(() => undefined),
     }),
     handleWorkerMessages: () => undefined,
+    getWorkerParentPort: () => null,
   };
 });
 vi.mock('@services/agentInstance/memeloopWorkerFactory', () => ({
   default: () => ({
+    pid: 1,
+    kill: () => true,
     on: () => undefined,
     off: () => undefined,
     once: () => undefined,
     postMessage: () => undefined,
     addEventListener: () => undefined,
     removeEventListener: () => undefined,
-    terminate: () => undefined,
+    terminate: () => Promise.resolve(0),
   }),
 }));
 

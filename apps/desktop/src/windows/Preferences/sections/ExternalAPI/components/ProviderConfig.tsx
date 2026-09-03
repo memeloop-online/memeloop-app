@@ -1,119 +1,74 @@
 import AddIcon from '@mui/icons-material/Add';
 import { Alert, Box, Button, Snackbar, Tab, Tabs } from '@mui/material';
 import { styled } from '@mui/material/styles';
-import { debounce } from 'lodash';
-import { Dispatch, SetStateAction, SyntheticEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ProviderAccountConfig, ProviderModelRoute } from 'memeloop';
+import { Dispatch, SetStateAction, SyntheticEvent, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ListItemText } from '@/components/ListItem';
-import defaultProvidersConfig from '@services/providerRegistry/defaultProviders';
-import { AIProviderConfig, ModelFeature, ModelInfo } from '@services/providerRegistry/interface';
 import { createEmptyModelForm, createModelForm, DuplicateModelNameError, type ModelFormState, persistModelForm } from './modelForm';
 import { NewModelDialog } from './NewModelDialog';
 import { NewProviderForm } from './NewProviderForm';
-import { ProviderPanel } from './ProviderPanel';
+import { ProviderPanel, type ProviderPanelFormState } from './ProviderPanel';
 import { a11yProps, TabPanel } from './TabPanel';
 
 interface ProviderConfigProps {
-  providers: AIProviderConfig[];
-  setProviders: Dispatch<SetStateAction<AIProviderConfig[]>>;
-  changeDefaultModel?: (provider: string, model: string) => Promise<void>;
-  changeDefaultEmbeddingModel?: (provider: string, model: string) => Promise<void>;
-  changeDefaultSpeechModel?: (provider: string, model: string) => Promise<void>;
-  changeDefaultImageGenerationModel?: (provider: string, model: string) => Promise<void>;
-  changeDefaultTranscriptionsModel?: (provider: string, model: string) => Promise<void>;
-  changeDefaultFreeModel?: (provider: string, model: string) => Promise<void>;
+  providerAccounts: readonly ProviderAccountConfig[];
+  setProviderAccounts: Dispatch<SetStateAction<readonly ProviderAccountConfig[]>>;
 }
 
-// Add provider button styling
 const AddProviderButton = styled(Button)`
   margin-top: 16px;
   margin-bottom: 8px;
   width: 100%;
 `;
 
-interface ProviderFormState {
-  apiKey: string;
-  baseURL: string;
-  models: ModelInfo[];
+interface ProviderFormState extends ProviderPanelFormState {
   newModel: ModelFormState;
 }
 
-/**
- * Note: Auto-fill default models logic has been moved to the backend (ExternalAPIService)
- * The backend will automatically fill in default models when a new model is added to a provider
- * Frontend doesn't need to handle this anymore, just listen to the Observable changes
- */
+const DEFAULT_PROVIDER_TYPES = ['openai', 'openAICompatible', 'anthropic', 'deepseek', 'ollama', 'comfyui', 'custom'];
 
-export function ProviderConfig({
-  providers,
-  setProviders,
-  changeDefaultModel: _changeDefaultModel,
-  changeDefaultEmbeddingModel: _changeDefaultEmbeddingModel,
-  changeDefaultSpeechModel: _changeDefaultSpeechModel,
-  changeDefaultImageGenerationModel: _changeDefaultImageGenerationModel,
-  changeDefaultTranscriptionsModel: _changeDefaultTranscriptionsModel,
-  changeDefaultFreeModel: _changeDefaultFreeModel,
-}: ProviderConfigProps) {
+function accountWithModels(account: ProviderAccountConfig, models: readonly ProviderModelRoute[]): ProviderAccountConfig {
+  return { ...account, models };
+}
+
+export function ProviderConfig({ providerAccounts, setProviderAccounts }: ProviderConfigProps) {
   const { t } = useTranslation('agent');
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
-  const [snackbarOpen, setSnackbarOpen] = useState(false);
-  const [snackbarMessage, setSnackbarMessage] = useState('');
-  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'info'>('success');
-
   const [showAddProviderForm, setShowAddProviderForm] = useState(false);
-  const [newProviderForm, setNewProviderForm] = useState({
-    provider: '',
-    providerClass: 'openAICompatible',
-    baseURL: '',
-  });
-
-  const [availableDefaultProviders, setAvailableDefaultProviders] = useState<AIProviderConfig[]>([]);
-  const [officialProviders, setOfficialProviders] = useState<AIProviderConfig[]>(
-    () => defaultProvidersConfig.providers as AIProviderConfig[],
-  );
+  const [newProviderForm, setNewProviderForm] = useState({ providerId: '', providerType: 'openAICompatible', baseUrl: '' });
+  const [officialProviders, setOfficialProviders] = useState<readonly ProviderAccountConfig[]>([]);
   const [selectedDefaultProvider, setSelectedDefaultProvider] = useState('');
-
-  const [providerForms, setProviderForms] = useState<Record<string, ProviderFormState | undefined>>({});
+  const [providerForms, setProviderForms] = useState<Record<string, ProviderFormState>>({});
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
-  const [editingModelName, setEditingModelName] = useState<string | null>(null);
-  const [currentProvider, setCurrentProvider] = useState<string | null>(null);
+  const [editingModelId, setEditingModelId] = useState<string | null>(null);
+  const [currentProviderId, setCurrentProviderId] = useState<string | null>(null);
   const [selectedDefaultModel, setSelectedDefaultModel] = useState('');
-  const [availableDefaultModels, setAvailableDefaultModels] = useState<ModelInfo[]>([]);
+  const [availableDefaultModels, setAvailableDefaultModels] = useState<readonly ProviderModelRoute[]>([]);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
 
-  // Track if we're currently updating from user input to prevent Observable overwrite
-  const isUserInputting = useRef<Record<string, boolean>>({});
-
-  // Update local providers and initialize form states
   useEffect(() => {
-    const forms: Record<string, ProviderFormState> = {};
-    providers.forEach(provider => {
-      // Only update form if user is not currently inputting for this provider
-      if (!isUserInputting.current[provider.provider]) {
-        forms[provider.provider] = {
-          apiKey: provider.apiKey || '',
-          baseURL: provider.baseURL || '',
-          models: [...provider.models],
-          newModel: createEmptyModelForm(),
+    setProviderForms(previous => {
+      const next: Record<string, ProviderFormState> = {};
+      providerAccounts.forEach(account => {
+        const current = previous[account.providerId];
+        next[account.providerId] = {
+          apiKey: current?.apiKey ?? '',
+          baseUrl: account.baseUrl ?? current?.baseUrl ?? '',
+          models: account.models,
+          newModel: current?.newModel ?? createEmptyModelForm(),
         };
-      }
+      });
+      return next;
     });
-    if (Object.keys(forms).length > 0) {
-      setProviderForms(previous => ({ ...previous, ...forms }));
-    }
-  }, [providers]);
+  }, [providerAccounts]);
 
-  // Runtime suggestions come from Core's build-time + refreshed models.dev
-  // catalog. A network failure leaves the embedded/static fallback usable.
   useEffect(() => {
     let disposed = false;
-    const getOfficialAIProviders = window.service.externalAPI.getOfficialAIProviders;
-    // Unit-test and staged preload shims may lag the main-process descriptor;
-    // the build snapshot above remains a complete offline fallback.
-    if (typeof getOfficialAIProviders !== 'function') return;
-    void getOfficialAIProviders(true)
-      .then(next => {
-        if (!disposed) setOfficialProviders(next);
+    void window.service.externalAPI.getOfficialProviderAccounts(true)
+      .then(accounts => {
+        if (!disposed) setOfficialProviders(accounts);
       })
       .catch((error: unknown) => {
         void window.service.native.log('warn', 'Failed to refresh official model catalog', { error });
@@ -123,85 +78,52 @@ export function ProviderConfig({
     };
   }, []);
 
-  // Update available default providers
-  useEffect(() => {
-    const currentProviderNames = new Set(providers.map(p => p.provider));
-    const filteredDefaultProviders = officialProviders.filter(
-      p => !currentProviderNames.has(p.provider),
-    );
-    setAvailableDefaultProviders(filteredDefaultProviders);
-  }, [officialProviders, providers]);
+  const availableDefaultProviders = useMemo(() => {
+    const configured = new Set(providerAccounts.map(account => account.providerId));
+    return officialProviders.filter(account => !configured.has(account.providerId));
+  }, [officialProviders, providerAccounts]);
 
-  const showMessage = (message: string, severity: 'success' | 'error' | 'info') => {
-    setSnackbarMessage(message);
-    setSnackbarSeverity(severity);
-    setSnackbarOpen(true);
-  };
-
-  const handleSnackbarClose = (_event?: SyntheticEvent | Event, reason?: string) => {
-    if (reason === 'clickaway') return;
-    setSnackbarOpen(false);
-  };
-
-  const providerClasses = useMemo(() => {
-    const classes = new Set<string>();
-    officialProviders.forEach(p => {
-      if (p.providerClass) classes.add(p.providerClass);
-    });
-    return Array.from(classes);
+  const providerTypes = useMemo(() => {
+    const values = new Set(DEFAULT_PROVIDER_TYPES);
+    officialProviders.forEach(account => values.add(account.providerType));
+    return Array.from(values);
   }, [officialProviders]);
 
-  const handleTabChange = (_event: SyntheticEvent, newValue: number) => {
-    setSelectedTabIndex(newValue);
+  const showMessage = (message: string, severity: 'success' | 'error') => {
+    setSnackbar({ open: true, message, severity });
+  };
+  const currentAccount = currentProviderId ? providerAccounts.find(account => account.providerId === currentProviderId) : undefined;
+
+  const replaceAccount = (updatedAccount: ProviderAccountConfig) => {
+    setProviderAccounts(previous => previous.map(account => account.providerId === updatedAccount.providerId ? updatedAccount : account));
   };
 
-  // Debounced save function
-
-  const debouncedSave = useCallback(
-    debounce(async (providerName: string, field: keyof AIProviderConfig, value: string) => {
-      try {
-        await window.service.externalAPI.updateProvider(providerName, { [field]: value });
-        showMessage(t('Preference.SettingsSaved'), 'success');
-        // Clear inputting flag after save
-        isUserInputting.current[providerName] = false;
-      } catch (error) {
-        void window.service.native.log('error', 'Failed to update provider', { function: 'ProviderConfig.debouncedSave', error });
-        showMessage(t('Preference.FailedToSaveSettings'), 'error');
-        isUserInputting.current[providerName] = false;
-      }
-    }, 1000),
-    [t],
-  );
-
-  const handleFormChange = async (providerName: string, field: keyof AIProviderConfig, value: string) => {
-    // Mark that user is inputting for this provider
-    isUserInputting.current[providerName] = true;
-
-    // Update local form state immediately for responsive UI
-    setProviderForms(previous => {
-      const currentForm = previous[providerName];
-      if (!currentForm) return previous;
-
-      return {
-        ...previous,
-        [providerName]: {
-          ...currentForm,
-          [field]: value,
-        },
-      };
-    });
-
-    // Debounced save to backend
-    void debouncedSave(providerName, field, value);
+  const updateAccount = async (account: ProviderAccountConfig, apiKey?: string) => {
+    await window.service.externalAPI.updateProvider(account, apiKey);
+    replaceAccount(account);
   };
 
-  const handleProviderEnabledChange = async (providerName: string, enabled: boolean) => {
+  const handleProviderFieldChange = async (providerId: string, field: 'apiKey' | 'baseUrl', value: string) => {
+    const account = providerAccounts.find(candidate => candidate.providerId === providerId);
+    if (!account) return;
+    setProviderForms(previous => ({ ...previous, [providerId]: { ...previous[providerId], [field]: value } }));
+    const updatedAccount = field === 'baseUrl' ? { ...account, baseUrl: value || undefined } : account;
     try {
-      setProviders(previous => previous.map(p => p.provider === providerName ? { ...p, enabled } : p));
-      await window.service.externalAPI.updateProvider(providerName, { enabled });
+      await updateAccount(updatedAccount, field === 'apiKey' ? value : undefined);
+      showMessage(t('Preference.SettingsSaved'), 'success');
+    } catch (error) {
+      void window.service.native.log('error', 'Failed to update provider', { function: 'ProviderConfig.handleProviderFieldChange', error });
+      showMessage(t('Preference.FailedToSaveSettings'), 'error');
+    }
+  };
 
-      // existing logic: enabled flag saved and UI updated
-
+  const handleProviderEnabledChange = async (providerId: string, enabled: boolean) => {
+    const account = providerAccounts.find(candidate => candidate.providerId === providerId);
+    if (!account) return;
+    const updatedAccount = { ...account, enabled };
+    replaceAccount(updatedAccount);
+    try {
+      await window.service.externalAPI.updateProvider(updatedAccount);
       showMessage(enabled ? t('Preference.ProviderEnabled') : t('Preference.ProviderDisabled'), 'success');
     } catch (error) {
       void window.service.native.log('error', 'Failed to update provider status', { function: 'ProviderConfig.handleProviderEnabledChange', error });
@@ -209,203 +131,73 @@ export function ProviderConfig({
     }
   };
 
-  const openAddModelDialog = (providerName: string) => {
-    setCurrentProvider(providerName);
-    const provider = officialProviders.find(p => p.provider === providerName);
-    const currentModels = providerForms[providerName]?.models;
-    const currentModelNames = new Set(currentModels?.map(m => m.name));
-
-    if (provider) {
-      setAvailableDefaultModels(provider.models.filter(m => !currentModelNames.has(m.name)));
-    } else {
-      const localProvider = providers.find(p => p.provider === providerName);
-      if (localProvider) {
-        const similarProviders = officialProviders.filter(
-          p => p.providerClass === localProvider.providerClass,
-        );
-        const allModels: ModelInfo[] = [];
-        similarProviders.forEach(p => {
-          p.models.forEach(m => {
-            if (!currentModelNames.has(m.name)) allModels.push(m);
-          });
-        });
-        setAvailableDefaultModels(allModels);
-      } else {
-        setAvailableDefaultModels([]);
-      }
-    }
-
+  const openAddModelDialog = (providerId: string) => {
+    const account = providerAccounts.find(candidate => candidate.providerId === providerId);
+    if (!account) return;
+    const existingIds = new Set(account.models.map(route => route.modelId));
+    const suggestions = officialProviders.flatMap(candidate => candidate.models).filter(route => !existingIds.has(route.modelId));
+    setCurrentProviderId(providerId);
+    setEditingModelId(null);
     setSelectedDefaultModel('');
+    setAvailableDefaultModels(suggestions);
+    setProviderForms(previous => ({ ...previous, [providerId]: { ...previous[providerId], newModel: createEmptyModelForm() } }));
+    setModelDialogOpen(true);
+  };
+
+  const editModel = (providerId: string, modelId: string) => {
+    const account = providerAccounts.find(candidate => candidate.providerId === providerId);
+    const route = account?.models.find(candidate => candidate.modelId === modelId);
+    if (!account || !route) return;
+    setCurrentProviderId(providerId);
+    setEditingModelId(modelId);
+    setSelectedDefaultModel('');
+    setAvailableDefaultModels([]);
+    setProviderForms(previous => ({ ...previous, [providerId]: { ...previous[providerId], newModel: createModelForm(route) } }));
     setModelDialogOpen(true);
   };
 
   const closeModelDialog = () => {
     setModelDialogOpen(false);
-    setCurrentProvider(null);
-    setEditingModelName(null);
+    setCurrentProviderId(null);
+    setEditingModelId(null);
     setSelectedDefaultModel('');
   };
 
-  const handleModelFormChange = <K extends keyof ModelFormState>(providerName: string, field: K, value: ModelFormState[K]) => {
+  const handleModelFormChange = <K extends keyof ModelFormState>(field: K, value: ModelFormState[K]) => {
+    if (!currentProviderId) return;
     setProviderForms(previous => {
-      const currentForm = previous[providerName];
-      if (!currentForm) return previous;
-
-      return {
-        ...previous,
-        [providerName]: {
-          ...currentForm,
-          newModel: {
-            ...currentForm.newModel,
-            [field]: value,
-          },
-        },
-      };
+      const current = previous[currentProviderId];
+      if (!current) return previous;
+      return { ...previous, [currentProviderId]: { ...current, newModel: { ...current.newModel, [field]: value } } };
     });
-  };
-  const handleFeatureChange = (providerName: string, feature: ModelFeature, checked: boolean) => {
-    setProviderForms(previous => {
-      const currentForm = previous[providerName];
-      if (!currentForm) return previous;
-
-      const newFeatures = [...currentForm.newModel.features];
-
-      if (checked && !newFeatures.includes(feature)) {
-        newFeatures.push(feature);
-      } else if (!checked) {
-        const index = newFeatures.indexOf(feature);
-        if (index !== -1) {
-          newFeatures.splice(index, 1);
-        }
-      }
-
-      return {
-        ...previous,
-        [providerName]: {
-          ...currentForm,
-          newModel: {
-            ...currentForm.newModel,
-            features: newFeatures,
-          },
-        },
-      };
-    });
-  };
-
-  const handleEditModel = (providerName: string, modelName: string) => {
-    const provider = providers.find(p => p.provider === providerName);
-    if (!provider) return;
-
-    const model = provider.models.find(m => m.name === modelName);
-    if (!model) return;
-
-    // Fill form with existing model data
-    setProviderForms(previous => {
-      const currentForm = previous[providerName];
-      if (!currentForm) return previous;
-
-      return {
-        ...previous,
-        [providerName]: {
-          ...currentForm,
-          newModel: createModelForm(model),
-        },
-      };
-    });
-
-    setEditingModelName(modelName);
-    setCurrentProvider(providerName);
-    setSelectedDefaultModel('');
-    setModelDialogOpen(true);
   };
 
   const handleAddModel = async () => {
-    if (!currentProvider) return;
-
+    if (!currentProviderId) return;
+    const account = providerAccounts.find(candidate => candidate.providerId === currentProviderId);
+    const form = providerForms[currentProviderId]?.newModel;
+    if (!account || !form) return;
     try {
-      const form = providerForms[currentProvider];
-      if (!form) {
-        showMessage(t('Preference.FailedToAddModel'), 'error');
-        return;
-      }
-
-      const provider = providers.find(p => p.provider === currentProvider);
       const updatedModels = await persistModelForm({
-        providerName: currentProvider,
-        providerClass: provider?.providerClass,
-        models: form.models,
-        form: form.newModel,
-        editingModelName,
-        updateProvider: (providerName, config) => window.service.externalAPI.updateProvider(providerName, config),
+        account,
+        form,
+        editingModelId,
+        updateProvider: models => updateAccount(accountWithModels(account, models)),
       });
-
-      setProviderForms(previous => {
-        const currentForm = previous[currentProvider];
-        if (!currentForm) return previous;
-
-        return {
-          ...previous,
-          [currentProvider]: {
-            ...currentForm,
-            models: updatedModels,
-            newModel: createEmptyModelForm(),
-          },
-        };
-      });
-
-      if (provider) {
-        setProviders(previous => previous.map(p => p.provider === currentProvider ? { ...p, models: updatedModels } : p));
-
-        showMessage(editingModelName ? t('Preference.ModelUpdatedSuccessfully') : t('Preference.ModelAddedSuccessfully'), 'success');
-        closeModelDialog();
-      }
+      replaceAccount(accountWithModels(account, updatedModels));
+      showMessage(editingModelId ? t('Preference.ModelUpdatedSuccessfully') : t('Preference.ModelAddedSuccessfully'), 'success');
+      closeModelDialog();
     } catch (error) {
-      if (error instanceof DuplicateModelNameError) {
-        showMessage(t('Preference.ModelAlreadyExists'), 'error');
-        return;
-      }
-      void window.service.native.log('error', editingModelName ? 'Failed to update model' : 'Failed to add model', {
-        function: 'ProviderConfig.handleAddModel',
-        error,
-      });
-      const message = error instanceof Error && error.message
-        ? error.message
-        : editingModelName
-        ? t('Preference.FailedToUpdateModel')
-        : t('Preference.FailedToAddModel');
-      showMessage(message, 'error');
+      showMessage(error instanceof DuplicateModelNameError ? t('Preference.ModelAlreadyExists') : t('Preference.FailedToAddModel'), 'error');
     }
   };
 
-  const removeModel = async (providerName: string, modelName: string) => {
+  const removeModel = async (providerId: string, modelId: string) => {
+    const account = providerAccounts.find(candidate => candidate.providerId === providerId);
+    if (!account) return;
+    const updatedAccount = accountWithModels(account, account.models.filter(route => route.modelId !== modelId));
     try {
-      const form = providerForms[providerName];
-      if (!form) {
-        showMessage(t('Preference.FailedToRemoveModel'), 'error');
-        return;
-      }
-
-      const updatedModels = form.models.filter(m => m.name !== modelName);
-
-      setProviderForms(previous => {
-        const currentForm = previous[providerName];
-        if (!currentForm) return previous;
-
-        return {
-          ...previous,
-          [providerName]: {
-            ...currentForm,
-            models: updatedModels,
-          },
-        };
-      });
-
-      await window.service.externalAPI.updateProvider(providerName, {
-        models: updatedModels,
-      });
-
-      setProviders(previous => previous.map(p => p.provider === providerName ? { ...p, models: updatedModels } : p));
-
+      await updateAccount(updatedAccount);
       showMessage(t('Preference.ModelRemovedSuccessfully'), 'success');
     } catch (error) {
       void window.service.native.log('error', 'Failed to remove model', { function: 'ProviderConfig.removeModel', error });
@@ -414,138 +206,29 @@ export function ProviderConfig({
   };
 
   const handleAddProvider = async () => {
+    const providerId = newProviderForm.providerId.trim();
+    if (!providerId) {
+      showMessage(t('Preference.ProviderNameRequired'), 'error');
+      return;
+    }
+    if (providerAccounts.some(account => account.providerId === providerId)) {
+      showMessage(t('Preference.ProviderAlreadyExists'), 'error');
+      return;
+    }
+    const preset = availableDefaultProviders.find(account => account.providerId === selectedDefaultProvider);
+    const account: ProviderAccountConfig = {
+      providerId,
+      providerType: newProviderForm.providerType,
+      ...(newProviderForm.baseUrl.trim() ? { baseUrl: newProviderForm.baseUrl.trim() } : {}),
+      enabled: true,
+      models: preset?.models ?? [],
+    };
     try {
-      if (!newProviderForm.provider.trim()) {
-        showMessage(t('Preference.ProviderNameRequired'), 'error');
-        return;
-      }
-
-      if (providers.some(p => p.provider === newProviderForm.provider)) {
-        showMessage(t('Preference.ProviderAlreadyExists'), 'error');
-        return;
-      }
-
-      if (newProviderForm.providerClass === 'openAICompatible' && !newProviderForm.baseURL) {
-        showMessage(t('Preference.BaseURLRequired'), 'error');
-        return;
-      }
-
-      // Find selected default provider (user explicit choice) to get appropriate default models
-      let defaultModel: ModelInfo | undefined;
-      let embeddingModel: ModelInfo | undefined;
-      let speechModel: ModelInfo | undefined;
-      let imageGenerationModel: ModelInfo | undefined;
-      let transcriptionsModel: ModelInfo | undefined;
-      const selectedPresetProvider = availableDefaultProviders.find(p => p.provider === selectedDefaultProvider);
-
-      // Helper function to clone a model with new provider name
-      const cloneModelForProvider = (baseModel: ModelInfo, newProviderName: string): ModelInfo => {
-        const typedFeatures: ModelFeature[] = Array.isArray(baseModel.features) ? baseModel.features.map(f => f) : [];
-        return {
-          ...baseModel,
-          caption: `${baseModel.caption || baseModel.name} (${newProviderName})`,
-          features: typedFeatures,
-          parameters: baseModel.parameters ? { ...baseModel.parameters } : undefined,
-          metadata: baseModel.metadata ? { ...baseModel.metadata } : undefined,
-          modelOptions: baseModel.modelOptions ? { ...baseModel.modelOptions } : undefined,
-          supportsReasoningEffort: baseModel.supportsReasoningEffort
-            ? [...baseModel.supportsReasoningEffort]
-            : undefined,
-        };
-      };
-
-      // If the user selected a preset provider, use its first model as the default
-      if (selectedPresetProvider && selectedPresetProvider.models.length > 0) {
-        // Clone the first model from the similar provider
-        const baseModel = selectedPresetProvider.models[0];
-        defaultModel = cloneModelForProvider(baseModel, newProviderForm.provider);
-
-        // Look for an embedding model in the same provider
-        const baseEmbeddingModel = selectedPresetProvider.models.find(
-          model => Array.isArray(model.features) && model.features.includes('embedding'),
-        );
-        if (baseEmbeddingModel) {
-          embeddingModel = cloneModelForProvider(baseEmbeddingModel, newProviderForm.provider);
-        }
-
-        // Look for a speech model in the same provider
-        const baseSpeechModel = selectedPresetProvider.models.find(
-          model => Array.isArray(model.features) && model.features.includes('speech'),
-        );
-        if (baseSpeechModel) {
-          speechModel = cloneModelForProvider(baseSpeechModel, newProviderForm.provider);
-        }
-
-        // Look for an image generation model in the same provider
-        const baseImageGenerationModel = selectedPresetProvider.models.find(
-          model => Array.isArray(model.features) && model.features.includes('imageGeneration'),
-        );
-        if (baseImageGenerationModel) {
-          imageGenerationModel = cloneModelForProvider(baseImageGenerationModel, newProviderForm.provider);
-        }
-
-        // Look for a transcriptions model in the same provider
-        const baseTranscriptionsModel = selectedPresetProvider.models.find(
-          model => Array.isArray(model.features) && model.features.includes('transcriptions'),
-        );
-        if (baseTranscriptionsModel) {
-          transcriptionsModel = cloneModelForProvider(baseTranscriptionsModel, newProviderForm.provider);
-        }
-      }
-      // If no similar provider found, don't create default models
-
-      // Create new provider configuration with type checking using satisfies
-      const modelsToAdd: ModelInfo[] = [];
-      if (defaultModel) modelsToAdd.push(defaultModel);
-      if (embeddingModel && embeddingModel.name !== defaultModel?.name) {
-        modelsToAdd.push(embeddingModel);
-      }
-      if (speechModel && speechModel.name !== defaultModel?.name && speechModel.name !== embeddingModel?.name) {
-        modelsToAdd.push(speechModel);
-      }
-      if (
-        imageGenerationModel &&
-        imageGenerationModel.name !== defaultModel?.name &&
-        imageGenerationModel.name !== embeddingModel?.name &&
-        imageGenerationModel.name !== speechModel?.name
-      ) {
-        modelsToAdd.push(imageGenerationModel);
-      }
-      if (
-        transcriptionsModel &&
-        transcriptionsModel.name !== defaultModel?.name &&
-        transcriptionsModel.name !== embeddingModel?.name &&
-        transcriptionsModel.name !== speechModel?.name &&
-        transcriptionsModel.name !== imageGenerationModel?.name
-      ) {
-        modelsToAdd.push(transcriptionsModel);
-      }
-
-      const newProvider = {
-        provider: newProviderForm.provider,
-        providerClass: newProviderForm.providerClass,
-        baseURL: newProviderForm.baseURL,
-        models: modelsToAdd, // Add both default and embedding models if available
-        // If user selected a preset provider, mark new provider as preset
-        isPreset: Boolean(selectedPresetProvider),
-        enabled: true,
-      } satisfies AIProviderConfig;
-
-      await window.service.externalAPI.updateProvider(newProviderForm.provider, newProvider);
-      const updatedProviders = [...providers, newProvider];
-      setProviders(updatedProviders);
-      setProviderForms(previous => ({
-        ...previous,
-        [newProvider.provider]: {
-          apiKey: '',
-          baseURL: newProvider.baseURL || '',
-          models: newProvider.models,
-          newModel: createEmptyModelForm(),
-        },
-      }));
-      setSelectedTabIndex(updatedProviders.length - 1);
-      setNewProviderForm({ provider: '', providerClass: 'openAICompatible', baseURL: '' });
-
+      await window.service.externalAPI.updateProvider(account);
+      setProviderAccounts(previous => [...previous, account]);
+      setSelectedTabIndex(providerAccounts.length);
+      setNewProviderForm({ providerId: '', providerType: 'openAICompatible', baseUrl: '' });
+      setSelectedDefaultProvider('');
       setShowAddProviderForm(false);
       showMessage(t('Preference.ProviderAddedSuccessfully'), 'success');
     } catch (error) {
@@ -554,55 +237,29 @@ export function ProviderConfig({
     }
   };
 
-  const handleDeleteProvider = async (providerName: string) => {
+  const handleDeleteProvider = async (providerId: string) => {
+    if (!window.confirm(t('Preference.ConfirmDeleteProvider', { providerName: providerId }))) return;
     try {
-      if (!window.confirm(t('Preference.ConfirmDeleteProvider', { providerName }))) {
-        return;
-      }
-
-      // Remove provider from backend
-      await window.service.externalAPI.deleteProvider(providerName);
-
-      const updatedProviders = providers.filter(p => p.provider !== providerName);
-      setProviders(updatedProviders);
-
-      // Remove from local forms state
-      setProviderForms(previous => {
-        const { [providerName]: _, ...newForms } = previous;
-        return newForms;
-      });
-
-      // Adjust selected tab if needed
-      if (selectedTabIndex >= updatedProviders.length && updatedProviders.length > 0) {
-        setSelectedTabIndex(updatedProviders.length - 1);
-      } else if (updatedProviders.length === 0) {
-        setSelectedTabIndex(0);
-      }
-
-      showMessage(t('Preference.ProviderDeleted', { providerName }), 'success');
+      await window.service.externalAPI.deleteProvider(providerId);
+      const updated = providerAccounts.filter(account => account.providerId !== providerId);
+      setProviderAccounts(updated);
+      setSelectedTabIndex(index => Math.min(index, Math.max(0, updated.length - 1)));
+      showMessage(t('Preference.ProviderDeleted', { providerName: providerId }), 'success');
     } catch (error) {
-      void window.service.native.log('error', 'Failed to delete provider', {
-        function: 'ProviderConfig.handleDeleteProvider',
-        error,
-      });
-      showMessage(t('Preference.FailedToDeleteProvider', { providerName }), 'error');
+      void window.service.native.log('error', 'Failed to delete provider', { function: 'ProviderConfig.handleDeleteProvider', error });
+      showMessage(t('Preference.FailedToDeleteProvider', { providerName: providerId }), 'error');
     }
   };
 
-  const handleDefaultProviderSelect = (providerName: string) => {
-    setSelectedDefaultProvider(providerName);
-    if (!providerName) {
-      setNewProviderForm({ provider: '', providerClass: 'openAICompatible', baseURL: '' });
-      return;
-    }
-    const selectedProvider = availableDefaultProviders.find(p => p.provider === providerName);
-    if (selectedProvider) {
-      setNewProviderForm({
-        provider: selectedProvider.provider,
-        providerClass: selectedProvider.providerClass || 'openAICompatible',
-        baseURL: selectedProvider.baseURL || '',
-      });
-    }
+  const handleDefaultProviderSelect = (providerId: string) => {
+    setSelectedDefaultProvider(providerId);
+    const preset = availableDefaultProviders.find(account => account.providerId === providerId);
+    setNewProviderForm(previous => ({
+      ...previous,
+      providerId: preset?.providerId ?? '',
+      providerType: preset?.providerType ?? previous.providerType,
+      baseUrl: preset?.baseUrl ?? '',
+    }));
   };
 
   const addProviderSection = (
@@ -611,7 +268,7 @@ export function ProviderConfig({
         variant='outlined'
         startIcon={<AddIcon />}
         onClick={() => {
-          setShowAddProviderForm(!showAddProviderForm);
+          setShowAddProviderForm(value => !value);
         }}
         data-testid='add-new-provider-button'
       >
@@ -620,26 +277,25 @@ export function ProviderConfig({
       {showAddProviderForm && (
         <NewProviderForm
           formState={newProviderForm}
-          providerClasses={providerClasses}
+          providerTypes={providerTypes}
           availableDefaultProviders={availableDefaultProviders}
           selectedDefaultProvider={selectedDefaultProvider}
           onDefaultProviderSelect={handleDefaultProviderSelect}
           onChange={updates => {
             setNewProviderForm(previous => ({ ...previous, ...updates }));
           }}
-          onSubmit={handleAddProvider}
+          onSubmit={() => {
+            void handleAddProvider();
+          }}
         />
       )}
     </>
   );
 
-  if (providers.length === 0) {
+  if (providerAccounts.length === 0) {
     return (
       <Box sx={{ width: '100%' }}>
-        <ListItemText
-          primary={t('Preference.ProviderConfiguration')}
-          secondary={t('Preference.NoProvidersAvailable')}
-        />
+        <ListItemText primary={t('Preference.ProviderConfiguration')} secondary={t('Preference.NoProvidersAvailable')} />
         {addProviderSection}
       </Box>
     );
@@ -647,97 +303,87 @@ export function ProviderConfig({
 
   return (
     <Box sx={{ width: '100%' }}>
-      <ListItemText
-        primary={t('Preference.ProviderConfiguration')}
-        secondary={t('Preference.ProviderConfigurationDescription')}
-      />
+      <ListItemText primary={t('Preference.ProviderConfiguration')} secondary={t('Preference.ProviderConfigurationDescription')} />
       {addProviderSection}
       <Box sx={{ flexGrow: 1, bgcolor: 'background.paper', display: 'flex', width: '100%', marginTop: 2 }}>
         <Tabs
           orientation='vertical'
           variant='scrollable'
           value={selectedTabIndex}
-          onChange={handleTabChange}
-          aria-label='Provider configuration tabs'
-          sx={{
-            borderRight: 1,
-            borderColor: 'divider',
-            minWidth: 120,
-            '& .MuiTab-root': { alignItems: 'flex-start', textAlign: 'left', paddingLeft: 2 },
+          onChange={(_event: SyntheticEvent, value: number) => {
+            setSelectedTabIndex(value);
           }}
+          aria-label='Provider configuration tabs'
+          sx={{ borderRight: 1, borderColor: 'divider', minWidth: 120, '& .MuiTab-root': { alignItems: 'flex-start', textAlign: 'left', paddingLeft: 2 } }}
         >
-          {providers.map((provider, index) => (
+          {providerAccounts.map((account, index) => (
             <Tab
-              key={provider.provider}
-              label={provider.provider}
+              key={account.providerId}
+              label={account.catalogProvider?.name ?? account.providerId}
               {...a11yProps(index)}
-              sx={{
-                opacity: provider.enabled === false ? 0.6 : 1,
-                fontStyle: provider.enabled === false ? 'italic' : 'normal',
-              }}
+              sx={{ opacity: account.enabled === false ? 0.6 : 1, fontStyle: account.enabled === false ? 'italic' : 'normal' }}
             />
           ))}
         </Tabs>
-        {providers.map((provider, index) => {
-          const formState = providerForms[provider.provider];
-          if (!formState) {
-            return (
-              <TabPanel key={provider.provider} value={selectedTabIndex} index={index}>
-                Loading...
-              </TabPanel>
-            );
-          }
+        {providerAccounts.map((account, index) => {
+          const formState = providerForms[account.providerId];
           return (
-            <TabPanel key={provider.provider} value={selectedTabIndex} index={index}>
-              <ProviderPanel
-                provider={provider}
-                formState={formState}
-                onFormChange={(field, value) => handleFormChange(provider.provider, field as keyof AIProviderConfig, value)}
-                onEnabledChange={enabled => handleProviderEnabledChange(provider.provider, enabled)}
-                onRemoveModel={modelName => removeModel(provider.provider, modelName)}
-                onEditModel={modelName => {
-                  handleEditModel(provider.provider, modelName);
-                }}
-                onOpenAddModelDialog={() => {
-                  openAddModelDialog(provider.provider);
-                }}
-                onDeleteProvider={() => {
-                  void handleDeleteProvider(provider.provider);
-                }}
-              />
+            <TabPanel key={account.providerId} value={selectedTabIndex} index={index}>
+              {formState
+                ? (
+                  <ProviderPanel
+                    provider={account}
+                    formState={formState}
+                    onFormChange={(field, value) => {
+                      void handleProviderFieldChange(account.providerId, field, value);
+                    }}
+                    onEnabledChange={enabled => {
+                      void handleProviderEnabledChange(account.providerId, enabled);
+                    }}
+                    onRemoveModel={modelId => {
+                      void removeModel(account.providerId, modelId);
+                    }}
+                    onEditModel={modelId => {
+                      editModel(account.providerId, modelId);
+                    }}
+                    onOpenAddModelDialog={() => {
+                      openAddModelDialog(account.providerId);
+                    }}
+                    onDeleteProvider={() => {
+                      void handleDeleteProvider(account.providerId);
+                    }}
+                  />
+                )
+                : 'Loading...'}
             </TabPanel>
           );
         })}
       </Box>
+
       <NewModelDialog
         open={modelDialogOpen}
         onClose={closeModelDialog}
-        onAddModel={handleAddModel}
-        currentProvider={currentProvider}
-        providerClass={currentProvider ? providers.find(p => p.provider === currentProvider)?.providerClass : undefined}
-        newModelForm={currentProvider && providerForms[currentProvider]
-          ? providerForms[currentProvider].newModel
-          : createEmptyModelForm()}
+        onAddModel={() => {
+          void handleAddModel();
+        }}
+        currentProvider={currentProviderId}
+        providerClass={currentAccount?.providerType}
+        newModelForm={currentProviderId ? providerForms[currentProviderId]?.newModel ?? createEmptyModelForm() : createEmptyModelForm()}
         availableDefaultModels={availableDefaultModels}
         selectedDefaultModel={selectedDefaultModel}
         onSelectDefaultModel={setSelectedDefaultModel}
-        onModelFormChange={(field, value) => {
-          if (currentProvider) handleModelFormChange(currentProvider, field, value);
-        }}
-        onFeatureChange={(feature, checked) => {
-          if (currentProvider) handleFeatureChange(currentProvider, feature, checked);
-        }}
-        editMode={!!editingModelName}
+        onModelFormChange={handleModelFormChange}
+        editMode={Boolean(editingModelId)}
       />
       <Snackbar
-        open={snackbarOpen}
+        open={snackbar.open}
         autoHideDuration={2000}
-        onClose={handleSnackbarClose}
+        onClose={() => {
+          setSnackbar(previous => ({ ...previous, open: false }));
+        }}
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
-        <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: '100%' }}>
-          {snackbarMessage}
-        </Alert>
+        <Alert severity={snackbar.severity} sx={{ width: '100%' }}>{snackbar.message}</Alert>
       </Snackbar>
     </Box>
   );

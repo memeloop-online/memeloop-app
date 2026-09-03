@@ -90,10 +90,6 @@ export enum AgentChannel {
   browser = 'AgentBrowserChannel',
 }
 
-export enum ExternalAPIChannel {
-  name = 'ExternalAPIChannel',
-}
-
 export enum ProviderRegistryChannel {
   name = 'ProviderRegistryChannel',
 }

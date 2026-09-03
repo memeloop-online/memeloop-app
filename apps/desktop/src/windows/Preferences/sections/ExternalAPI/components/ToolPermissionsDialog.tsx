@@ -33,7 +33,7 @@ const KNOWN_TOOLS = [
   'zx-script',
   'web-fetch',
   'spawn-agent',
-  'alarm-clock',
+  'scheduledTasks',
   'ask-question',
   'summary',
 ];

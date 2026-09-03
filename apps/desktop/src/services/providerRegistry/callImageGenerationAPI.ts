@@ -1,9 +1,11 @@
 import { logger } from '@services/libs/log';
 import fs from 'fs-extra';
 
-import { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema';
-import { AuthenticationError, MissingAPIKeyError, MissingBaseURLError } from './errors';
-import type { AIImageGenerationResponse, AIProviderConfig } from './interface';
+import type { ModelAssignments } from 'memeloop';
+import { AuthenticationError, MissingBaseURLError } from './errors';
+import type { AIImageGenerationResponse } from './interface';
+import { providerClass, resolveProviderTransport } from './providerTransport';
+import type { ProviderRuntimeConfig } from './runtimeTypes';
 
 interface ImageGenerationOptions {
   /** Number of images to generate */
@@ -19,9 +21,9 @@ interface ImageGenerationOptions {
  */
 export async function generateImageFromProvider(
   prompt: string,
-  config: AiAPIConfig,
+  config: ModelAssignments,
   signal: AbortSignal,
-  providerConfig?: AIProviderConfig,
+  providerConfig?: ProviderRuntimeConfig,
   options: ImageGenerationOptions = {},
 ): Promise<AIImageGenerationResponse> {
   // Extract provider and model from config
@@ -30,56 +32,29 @@ export async function generateImageFromProvider(
   if (!imageConfig) {
     throw new Error('No image generation model or default model configured');
   }
-  const provider = imageConfig.provider;
-  const model = imageConfig.model;
+  const provider = imageConfig.providerId;
+  const model = imageConfig.modelId;
 
   logger.info(`Using AI image generation provider: ${provider}, model: ${model}`);
 
   try {
-    // Check if API key is required (not for local ComfyUI)
-    const isLocalComfyUI = providerConfig?.providerClass === 'comfyui' &&
-      providerConfig?.baseURL &&
-      (providerConfig.baseURL.includes('localhost') || providerConfig.baseURL.includes('127.0.0.1'));
-
-    if (!providerConfig?.apiKey && !isLocalComfyUI) {
-      throw new MissingAPIKeyError(provider);
+    const transport = resolveProviderTransport(providerConfig, provider, 'image');
+    if (providerClass(providerConfig, provider) === 'comfyui') {
+      return await generateImageFromComfyUI(
+        prompt,
+        config,
+        signal,
+        providerConfig,
+        options,
+        model,
+        transport.baseURL,
+      );
     }
-
-    // Get base URL and prepare headers
-    let baseURL = providerConfig?.baseURL || '';
-    const headers: Record<string, string> = {};
-
-    // Set up provider-specific configuration
-    switch (providerConfig?.providerClass || provider) {
-      case 'comfyui':
-        return await generateImageFromComfyUI(prompt, config, signal, providerConfig, options, model, baseURL);
-      case 'openai':
-        baseURL = 'https://api.openai.com/v1';
-        headers['Authorization'] = `Bearer ${providerConfig?.apiKey}`;
-        headers['Content-Type'] = 'application/json';
-        break;
-      case 'openAICompatible':
-        if (!providerConfig?.baseURL) {
-          throw new MissingBaseURLError(provider);
-        }
-        baseURL = providerConfig.baseURL;
-        headers['Content-Type'] = 'application/json';
-        if (providerConfig.apiKey) {
-          headers['Authorization'] = `Bearer ${providerConfig.apiKey}`;
-        }
-        break;
-      default:
-        // For other openai-compatible providers
-        if (!providerConfig?.baseURL) {
-          throw new MissingBaseURLError(provider);
-        }
-        baseURL = providerConfig.baseURL;
-        headers['Content-Type'] = 'application/json';
-        if (providerConfig.apiKey) {
-          headers['Authorization'] = `Bearer ${providerConfig.apiKey}`;
-        }
-        break;
-    }
+    const baseURL = transport.baseURL;
+    const headers: Record<string, string> = {
+      ...transport.headers,
+      'Content-Type': 'application/json',
+    };
 
     // Prepare request body for OpenAI-style APIs
     const requestBody: Record<string, unknown> = {
@@ -163,20 +138,21 @@ export async function generateImageFromProvider(
  */
 async function generateImageFromComfyUI(
   prompt: string,
-  _config: AiAPIConfig,
+  _config: ModelAssignments,
   signal: AbortSignal,
-  providerConfig: AIProviderConfig | undefined,
+  providerConfig: ProviderRuntimeConfig | undefined,
   _options: ImageGenerationOptions,
   model: string,
   baseURL: string,
 ): Promise<AIImageGenerationResponse> {
-  if (!providerConfig?.baseURL) {
+  if (!providerConfig?.account.baseUrl) {
     throw new MissingBaseURLError('comfyui');
   }
 
   // Get the workflow file path from model parameters
-  const modelInfo = providerConfig.models.find(m => m.name === model);
-  const workflowPath = modelInfo?.parameters?.workflowPath as string | undefined;
+  const route = providerConfig.account.models.find(candidate => candidate.modelId === model);
+  const workflowPathValue = route?.requestDefaults?.providerOptions?.comfyui?.workflowPath;
+  const workflowPath = typeof workflowPathValue === 'string' ? workflowPathValue : undefined;
 
   if (!workflowPath) {
     throw new Error(`ComfyUI model "${model}" requires a workflow file path in parameters.workflowPath`);

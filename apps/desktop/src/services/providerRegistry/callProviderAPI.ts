@@ -7,78 +7,84 @@ import { ModelMessage, streamText } from 'ai';
 import { createOllama } from 'ollama-ai-provider-v2';
 
 import { getFormattedContent } from '@/pages/ChatTabContent/components/types';
-import { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema';
+import type { ModelAssignments, ProviderModelRoute } from 'memeloop';
 import { MissingAPIKeyError, MissingBaseURLError } from './errors';
-import type { AIProviderConfig, ModelInfo } from './interface';
 import { normalizeOpenAIBaseURL } from './openAIBaseURL';
+import type { ProviderRuntimeConfig } from './runtimeTypes';
 
 type AIStreamResult = ReturnType<typeof streamText>;
 
-export function createProviderClient(providerConfig: { provider: string; providerClass?: string; baseURL?: string }, apiKey?: string) {
+export function createProviderClient(providerConfig: ProviderRuntimeConfig, provider: string) {
   // 首先检查 providerClass，如果没有则回退到基于名称的判断
-  const providerClass = providerConfig.providerClass || providerConfig.provider;
+  const providerClass = providerConfig.account.providerType || provider;
+  const baseURL = providerConfig.account.baseUrl;
+  const apiKey = providerConfig.apiKey;
 
   switch (providerClass) {
     case 'openai':
-      return createOpenAI({ apiKey, baseURL: providerConfig.baseURL && normalizeOpenAIBaseURL(providerConfig.baseURL) });
+      return createOpenAI({ apiKey, baseURL: baseURL && normalizeOpenAIBaseURL(baseURL) });
     case 'openAICompatible':
-      if (!providerConfig.baseURL) {
-        throw new MissingBaseURLError(providerConfig.provider);
+      if (!baseURL) {
+        throw new MissingBaseURLError(provider);
       }
       return createOpenAICompatible({
-        name: providerConfig.provider,
+        name: provider,
         apiKey,
-        baseURL: normalizeOpenAIBaseURL(providerConfig.baseURL),
+        baseURL: normalizeOpenAIBaseURL(baseURL),
       });
     case 'deepseek':
       return createDeepSeek({ apiKey });
     case 'anthropic':
       return createAnthropic({ apiKey });
     case 'ollama':
-      if (!providerConfig.baseURL) {
-        throw new MissingBaseURLError(providerConfig.provider);
+      if (!baseURL) {
+        throw new MissingBaseURLError(provider);
       }
       return createOllama({
-        baseURL: providerConfig.baseURL,
+        baseURL,
       });
     default:
-      throw new Error(`Unsupported AI provider: ${providerConfig.provider}`);
+      throw new Error(`Unsupported AI provider: ${provider}`);
   }
 }
 
-export function createProviderModel(providerConfig: AIProviderConfig, model: ModelInfo) {
-  const providerClass = providerConfig.providerClass || providerConfig.provider;
+export function createProviderModel(providerConfig: ProviderRuntimeConfig, model: ProviderModelRoute) {
+  const providerClass = providerConfig.account.providerType || providerConfig.account.providerId;
   if ((providerClass === 'openAICompatible' || providerClass === 'openai') && model.apiMode === 'responses') {
-    if (!providerConfig.baseURL && providerClass === 'openAICompatible') {
-      throw new MissingBaseURLError(providerConfig.provider);
+    if (!providerConfig.account.baseUrl && providerClass === 'openAICompatible') {
+      throw new MissingBaseURLError(providerConfig.account.providerId);
     }
     return createOpenAI({
       apiKey: providerConfig.apiKey,
-      baseURL: providerConfig.baseURL && normalizeOpenAIBaseURL(providerConfig.baseURL),
-    }).responses(model.name);
+      baseURL: providerConfig.account.baseUrl && normalizeOpenAIBaseURL(providerConfig.account.baseUrl),
+    }).responses(model.wireModelId);
   }
-  return createProviderClient(providerConfig, providerConfig.apiKey)(model.name);
+  return createProviderClient(providerConfig, providerConfig.account.providerId)(model.wireModelId);
 }
 
-export function resolveModelGenerationSettings(config: AiAPIConfig, model: ModelInfo): {
+export function resolveModelGenerationSettings(config: ModelAssignments, model: ProviderModelRoute | undefined): {
   maxOutputTokens?: number;
   topP?: number;
 } {
   return {
-    maxOutputTokens: config.modelParameters?.maxOutputTokens ?? config.modelParameters?.maxTokens ?? model.maxOutputTokens,
-    topP: config.modelParameters?.topP ?? model.modelOptions?.top_p,
+    maxOutputTokens: config.default?.parameters?.maxOutputTokens ?? model?.requestDefaults?.maxOutputTokens,
+    topP: config.default?.parameters?.topP ?? model?.requestDefaults?.topP,
   };
 }
 
 export function createProviderStreamOptions(
-  config: AiAPIConfig,
+  config: ModelAssignments,
   messages: Array<ModelMessage>,
   signal: AbortSignal,
-  providerConfig: AIProviderConfig,
+  providerConfig: ProviderRuntimeConfig,
 ) {
   const modelConfig = config.default;
-  if (!modelConfig?.model) throw new Error('No default model configured');
-  const selectedModel = providerConfig.models.find(candidate => candidate.name === modelConfig.model) ?? { name: modelConfig.model };
+  if (!modelConfig?.modelId) throw new Error('No default model configured');
+  const selectedModel = providerConfig.account.models.find(candidate => candidate.modelId === modelConfig.modelId) ?? {
+    modelId: modelConfig.modelId,
+    wireModelId: modelConfig.modelId,
+    apiMode: 'chat-completions' as const,
+  };
   const systemMessage = messages.find(message => message.role === 'system');
   const systemPrompt = (systemMessage ? getFormattedContent(systemMessage.content) : undefined) || 'You are a helpful assistant.';
   const nonSystemMessages = messages.filter(message => message.role !== 'system');
@@ -89,7 +95,7 @@ export function createProviderStreamOptions(
     model: createProviderModel(providerConfig, selectedModel),
     system: systemPrompt,
     messages: finalMessages,
-    temperature: config.modelParameters?.temperature ?? 0.7,
+    temperature: config.default?.parameters?.temperature ?? 0.7,
     maxOutputTokens,
     topP,
     abortSignal: signal,
@@ -97,28 +103,28 @@ export function createProviderStreamOptions(
 }
 
 export function streamFromProvider(
-  config: AiAPIConfig,
+  config: ModelAssignments,
   messages: Array<ModelMessage>,
   signal: AbortSignal,
-  providerConfig?: AIProviderConfig,
+  providerConfig?: ProviderRuntimeConfig,
 ): AIStreamResult {
   // Get default model configuration
   const modelConfig = config.default;
-  if (!modelConfig?.provider || !modelConfig?.model) {
+  if (!modelConfig?.providerId || !modelConfig?.modelId) {
     throw new Error('No default model configured');
   }
 
-  const provider = modelConfig.provider;
-  const model = modelConfig.model;
+  const provider = modelConfig.providerId;
+  const model = modelConfig.modelId;
 
   logger.info(`Using AI provider: ${provider}, model: ${model}`);
 
   try {
     // Check if API key is required
-    const isOllama = providerConfig?.providerClass === 'ollama';
-    const isLocalOpenAICompatible = providerConfig?.providerClass === 'openAICompatible' &&
-      providerConfig?.baseURL &&
-      (providerConfig.baseURL.includes('localhost') || providerConfig.baseURL.includes('127.0.0.1'));
+    const isOllama = providerConfig?.account.providerType === 'ollama';
+    const isLocalOpenAICompatible = providerConfig?.account.providerType === 'openAICompatible' &&
+      providerConfig.account.baseUrl &&
+      (providerConfig.account.baseUrl.includes('localhost') || providerConfig.account.baseUrl.includes('127.0.0.1'));
 
     if (!providerConfig?.apiKey && !isOllama && !isLocalOpenAICompatible) {
       // Ollama and local OpenAI-compatible servers don't require API key
