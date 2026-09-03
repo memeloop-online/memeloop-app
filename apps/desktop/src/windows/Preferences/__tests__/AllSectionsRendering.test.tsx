@@ -13,6 +13,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { lightTheme } from '@services/theme/defaultTheme';
+import type { ModelAssignments, ProviderAccountConfig } from 'memeloop';
 import { BehaviorSubject } from 'rxjs';
 
 import { defaultPreferences } from '@services/preferences/defaultPreferences';
@@ -54,6 +55,18 @@ describe('Preferences - All Sections Rendering', () => {
     Object.defineProperty(window.observables, 'systemPreference', {
       value: {
         systemPreference$: new BehaviorSubject({}).asObservable(),
+      },
+      writable: true,
+      configurable: true,
+    });
+
+    // Keep the renderer fixture aligned with the canonical ProviderRegistry IPC contract.
+    Object.defineProperty(window.observables, 'externalAPI', {
+      value: {
+        modelAssignments$: new BehaviorSubject<ModelAssignments>({
+          default: { modelId: 'test-model', providerId: 'test-provider' },
+        }),
+        providerAccounts$: new BehaviorSubject<readonly ProviderAccountConfig[]>([]),
       },
       writable: true,
       configurable: true,
