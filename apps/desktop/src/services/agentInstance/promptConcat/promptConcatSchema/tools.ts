@@ -1,9 +1,18 @@
 // Import parameter types from plugin files
 // Modifiers
-import type { DynamicPositionParameter, FullReplacementParameter } from '../modifiers';
+import type { DynamicPositionParameter } from '../modifiers/dynamicPosition';
+import type { FullReplacementParameter } from '../modifiers/fullReplacement';
 // LLM Tools
 import type { ModelContextProtocolParameter } from '@services/agentInstance/tools/modelContextProtocol';
-import type { ToolApprovalConfig } from '@services/agentInstance/tools/types';
+
+export type ToolApprovalMode = 'auto' | 'confirm';
+
+export interface ToolApprovalConfig {
+  mode: ToolApprovalMode;
+  allowPatterns?: string[];
+  denyPatterns?: string[];
+  timeoutMs?: number;
+}
 
 /**
  * Type definition for prompt concat plugin (both modifiers and LLM tools)

@@ -6,10 +6,11 @@ import { container } from '@services/container';
 import { t } from '@services/libs/i18n/placeholder';
 import { logger } from '@services/libs/log';
 import serviceIdentifier from '@services/serviceIdentifier';
+import { assertCanonicalChatMessageProjection, type ChatMessage, type ConversationMessageListProjection } from 'memeloop';
 import type { ToolDefinition } from 'memeloop/tools';
 import { z } from 'zod/v4';
-import type { AgentInstanceMessage, IAgentInstanceService } from '../interface';
-import type { ToolExecutionResult } from './defineToolTypes';
+import type { IAgentInstanceService } from '../interface';
+import type { ToolExecutionResult } from './toolExecutionResult';
 
 export const SpawnAgentParameterSchema = z.object({
   toolListPosition: z.object({
@@ -74,29 +75,46 @@ async function executeSpawnAgent(
     // Send message and wait for completion with timeout
     const resultPromise = new Promise<ToolExecutionResult>((resolve) => {
       let resolved = false;
-      let latestAssistantMessage: AgentInstanceMessage | undefined;
+      let latestAssistantTurnId: string | undefined;
       const subscription = agentInstanceService.subscribeToAgentUpdates(childAgent.id).subscribe({
         next: (update) => {
           if (resolved || !update) return;
-          if (update.message?.role === 'assistant') latestAssistantMessage = update.message;
+          if (update.message?.role === 'assistant') latestAssistantTurnId = update.message.turnId;
           const state = update.agent.status?.state;
           if (state === 'completed' || state === 'failed' || state === 'canceled') {
             resolved = true;
             subscription.unsubscribe();
             void (async () => {
-              // The live update is incremental. If the terminal notification
-              // did not carry the assistant row, fetch a one-row bounded tail.
-              const page = latestAssistantMessage
-                ? undefined
-                : await agentInstanceService.getAgentMessagePage(childAgent.id, { limit: 1 });
-              const resultText = latestAssistantMessage?.content ||
-                page?.items.find(message => message.role === 'assistant')?.content ||
-                update.agent.status?.message?.content ||
-                '(sub-agent completed with no output)';
+              // Live updates carry only the turn identity. Read the bounded
+              // canonical turn detail and derive text from its structured
+              // parts; the legacy content projection is never used here.
+              const turnId = latestAssistantTurnId ?? update.agent.status?.message?.turnId;
+              let resultText: string | undefined;
+              if (turnId) {
+                try {
+                  const detail = await agentInstanceService.getAgentConversationTurnDetail({
+                    conversationId: childAgent.id,
+                    turnId,
+                    limit: 50,
+                    maxBytes: 256 * 1024,
+                  });
+                  const assistantMessage = detail.items.find(message => message.role === 'assistant');
+                  if (assistantMessage) {
+                    resultText = await loadAssistantMessageText(agentInstanceService, assistantMessage);
+                  }
+                } catch (error) {
+                  logger.warn('Failed to read canonical sub-agent turn detail', {
+                    childAgentId: childAgent.id,
+                    turnId,
+                    error,
+                  });
+                }
+              }
+              const output = resultText || '(sub-agent completed with no output)';
               resolve({
                 success: state === 'completed',
-                data: state === 'completed' ? resultText : undefined,
-                error: state !== 'completed' ? `Sub-agent ${state}: ${resultText}` : undefined,
+                data: state === 'completed' ? output : undefined,
+                error: state !== 'completed' ? `Sub-agent ${state}: ${output}` : undefined,
                 metadata: { childAgentId: childAgent.id, state },
               });
             })();
@@ -133,6 +151,33 @@ async function executeSpawnAgent(
   } catch (error) {
     return { success: false, error: `Failed to spawn sub-agent: ${error instanceof Error ? error.message : String(error)}` };
   }
+}
+
+async function loadAssistantMessageText(
+  service: IAgentInstanceService,
+  projection: ConversationMessageListProjection,
+): Promise<string | undefined> {
+  const detail = await service.getAgentConversationMessageDetail({
+    conversationId: projection.conversationId,
+    messageId: projection.messageId,
+  });
+  if (!detail.found || detail.encoding !== 'base64-json') return undefined;
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.from(detail.data, 'base64').toString('utf8')) as unknown;
+  } catch {
+    return undefined;
+  }
+  assertCanonicalChatMessageProjection(value, projection.conversationId);
+  return assistantMessageText(value);
+}
+
+function assistantMessageText(message: ChatMessage): string | undefined {
+  const text = message.parts
+    ?.filter((part): part is Extract<NonNullable<ChatMessage['parts']>[number], { type: 'text' }> => part.type === 'text')
+    .map(part => part.text)
+    .join('');
+  return text || undefined;
 }
 
 export const spawnAgentToolDefinition = {

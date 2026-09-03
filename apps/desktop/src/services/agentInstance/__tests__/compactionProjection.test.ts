@@ -5,10 +5,12 @@ import { AgentInstanceService } from '../index';
 
 interface AgentInstanceServiceInternals {
   bindWorkerConversation(agentId: string, conversationId: string): void;
+  memeLoopHostIdentity?: { peerId: string };
   memeLoopWorker: {
     subscribeToUpdates(conversationId: string): Observable<unknown>;
   };
   publishWorkerUpdate: ReturnType<typeof vi.fn>;
+  workerActiveTurnIdByConversationId: Map<string, string>;
 }
 
 describe('AgentInstanceService compaction projection', () => {
@@ -20,6 +22,8 @@ describe('AgentInstanceService compaction projection', () => {
     internals.memeLoopWorker = {
       subscribeToUpdates: () => updates.asObservable(),
     };
+    internals.memeLoopHostIdentity = { peerId: '12D3KooWcanonicalProjectionPeer' };
+    internals.workerActiveTurnIdByConversationId.set('conversation-1', 'turn-1');
     internals.publishWorkerUpdate = publishWorkerUpdate;
     internals.bindWorkerConversation('agent-1', 'conversation-1');
 

@@ -6,7 +6,7 @@ import { logger } from '@services/libs/log';
 import { net } from 'electron';
 import type { ToolDefinition } from 'memeloop/tools';
 import { z } from 'zod/v4';
-import type { ToolExecutionResult } from './defineToolTypes';
+import type { ToolExecutionResult } from './toolExecutionResult';
 
 export const WebFetchParameterSchema = z.object({
   toolListPosition: z.object({

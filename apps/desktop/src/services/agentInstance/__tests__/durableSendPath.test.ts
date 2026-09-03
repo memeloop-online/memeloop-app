@@ -21,7 +21,9 @@ describe('AgentInstanceService durable send path', () => {
       name: 'Assistant',
       status: { state: 'completed', modified: new Date() },
       created: new Date(),
-      messages: [],
+      closed: false,
+      volatile: false,
+      preview: false,
     });
     internals.ensureWorkerConversation = vi.fn().mockResolvedValue('conversation-1');
 

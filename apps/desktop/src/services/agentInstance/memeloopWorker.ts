@@ -5,10 +5,9 @@ import { nanoid } from 'nanoid';
 import { timingSafeEqual } from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
-import { parentPort } from 'node:worker_threads';
 import { Observable, Subject } from 'rxjs';
 
-import { handleWorkerMessages } from '@services/libs/workerAdapter';
+import { getWorkerParentPort, handleWorkerMessages, safePostMessage } from '@services/libs/workerAdapter';
 
 import {
   type AgentDefinition,
@@ -27,12 +26,10 @@ import {
 import type { NodeRuntimeResult } from 'memeloop-cli/runtime';
 import { requireDesktopAtomicRetryStore } from './atomicRetryCapability';
 import { type ConversationMutationWake, installConversationMutationObserver } from './conversationMutationObserver';
-import type { IAgentInstanceService } from './interface';
 import { createDesktopRetryTurnHandler } from './retryTurn';
-import { createDesktopScheduledTaskRpcHandler } from './scheduledTaskRpcStore';
+import { createDesktopScheduledTaskRpcHandler, type ScheduledTaskServicePort } from './scheduledTaskRpcStore';
 import type {
   CreateScheduledTaskInput,
-  ListRemoteScheduledTaskProjectionPageInput,
   ListScheduledTasksPageForAgentInput,
   ScheduledTask,
   ScheduledTaskCallOptions,
@@ -43,11 +40,81 @@ import { createDesktopAgentRuntimeProjectionStore } from './sqliteAgentRuntimePr
 import { TerminalSessionManager } from './terminal/sessionManager';
 import { ensureMemeLoopWorkerDataDirectory } from './workerDataDirectory';
 
+// Electron UtilityProcess exposes `process.parentPort`; the worker adapter
+// normalizes it to the transport shape used by the RPC adapter.  The runtime
+// itself never creates or derives a second identity.
+const parentPort = getWorkerParentPort();
+
 type WorkerLogEvent = {
   level: 'debug' | 'info' | 'warn' | 'error';
   message: string;
   meta?: unknown;
 };
+
+const MAX_WORKER_LOG_MESSAGE_BYTES = 4 * 1024;
+const MAX_WORKER_LOG_META_BYTES = 8 * 1024;
+const MAX_WORKER_LOG_DEPTH = 6;
+const MAX_WORKER_LOG_EVENTS_PER_SECOND = 100;
+let workerLogWindowStartedAt = Date.now();
+let workerLogWindowCount = 0;
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  const encoded = Buffer.from(value, 'utf8');
+  if (encoded.byteLength <= maxBytes) return value;
+  return `${encoded.subarray(0, maxBytes).toString('utf8')}…`;
+}
+
+function sanitizeWorkerLogValue(value: unknown, depth = 0, seen = new WeakSet<object>()): unknown {
+  if (depth > MAX_WORKER_LOG_DEPTH) return '[depth limit]';
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') return truncateUtf8(value, 2 * 1024);
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return value;
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: truncateUtf8(value.message, 2 * 1024),
+      stack: value.stack ? truncateUtf8(value.stack, 4 * 1024) : undefined,
+    };
+  }
+  if (Buffer.isBuffer(value) || ArrayBuffer.isView(value)) {
+    return { type: 'binary', bytes: value.byteLength };
+  }
+  if (value instanceof ArrayBuffer) return { type: 'binary', bytes: value.byteLength };
+  if (typeof value === 'symbol') return value.description ?? '[symbol]';
+  if (typeof value === 'function') return value.name ? `[function ${value.name}]` : '[function]';
+  if (typeof value !== 'object') return '[unsupported]';
+
+  if (seen.has(value)) return '[circular]';
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.slice(0, 32).map(item => sanitizeWorkerLogValue(item, depth + 1, seen));
+    }
+    const result: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, 32)) {
+      result[truncateUtf8(key, 256)] = sanitizeWorkerLogValue(item, depth + 1, seen);
+    }
+    return result;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function boundedWorkerLogMeta(value: unknown): unknown {
+  const sanitized = sanitizeWorkerLogValue(value);
+  try {
+    const encoded = JSON.stringify(sanitized);
+    if (encoded === undefined || Buffer.byteLength(encoded, 'utf8') <= MAX_WORKER_LOG_META_BYTES) {
+      return sanitized;
+    }
+    return {
+      truncated: true,
+      preview: truncateUtf8(encoded, MAX_WORKER_LOG_META_BYTES - 64),
+    };
+  } catch {
+    return { truncated: true, preview: '[unserializable]' };
+  }
+}
 
 // Use the existing workerAdapter Observable streaming channel for logs,
 // so we don't invent a one-off postMessage protocol.
@@ -58,11 +125,28 @@ function workerLog(
   message: string,
   meta?: unknown,
 ): void {
-  try {
-    logSubject.next({ level, message, meta });
-  } catch {
-    // ignore
+  const now = Date.now();
+  if (now - workerLogWindowStartedAt >= 1000) {
+    workerLogWindowStartedAt = now;
+    workerLogWindowCount = 0;
   }
+  if (workerLogWindowCount >= MAX_WORKER_LOG_EVENTS_PER_SECOND) return;
+  workerLogWindowCount += 1;
+  try {
+    logSubject.next({
+      level,
+      message: truncateUtf8(message, MAX_WORKER_LOG_MESSAGE_BYTES),
+      meta: meta === undefined ? undefined : boundedWorkerLogMeta(meta),
+    });
+  } catch {
+    // Logging must never break runtime work, but a failed observer is still
+    // observable in the bounded child stderr stream.
+    process.stderr.write('[memeloop-utility-process] worker log observer failed\n');
+  }
+}
+
+function postToParent(message: unknown): boolean {
+  return parentPort ? safePostMessage(parentPort, message) : false;
 }
 
 type MainLlmChatRequest = {
@@ -85,6 +169,23 @@ const pendingMainToolList = new Map<string, PendingMainRequest<string[]>>();
 const pendingMainToolCall = new Map<string, PendingMainRequest<unknown>>();
 const pendingMainScheduledTaskCall = new Map<string, PendingMainRequest<unknown>>();
 
+function rejectPendingMainRequests(error: Error): void {
+  for (const pending of pendingMainToolList.values()) pending.reject(error);
+  for (const pending of pendingMainToolCall.values()) pending.reject(error);
+  for (const pending of pendingMainScheduledTaskCall.values()) pending.reject(error);
+  pendingMainToolList.clear();
+  pendingMainToolCall.clear();
+  pendingMainScheduledTaskCall.clear();
+  for (const pending of pendingMainLlmChat.values()) {
+    pending.error = error;
+    pending.done = true;
+    while (pending.waiters.length > 0) {
+      pending.waiters.shift()?.({ value: undefined, done: true });
+    }
+  }
+  pendingMainLlmChat.clear();
+}
+
 if (parentPort) {
   parentPort.on('message', (message: unknown) => {
     const m = message as {
@@ -105,6 +206,16 @@ if (parentPort) {
           ? m.tools.filter((t): t is string => typeof t === 'string')
           : [],
       );
+      return;
+    }
+    if (m.type === 'memeloop-tool-list-error') {
+      const pending = pendingMainToolList.get(m.id);
+      if (!pending) return;
+      pendingMainToolList.delete(m.id);
+      const error = new Error(m.error?.message ?? 'memeloop-tool-list failed');
+      error.name = m.error?.name ?? 'Error';
+      error.stack = m.error?.stack;
+      pending.reject(error);
       return;
     }
     if (m.type === 'memeloop-tool-call-result') {
@@ -192,7 +303,11 @@ async function requestMainBridgeToolList(timeoutMs = 10000): Promise<string[]> {
         reject(error);
       },
     });
-    parentPort?.postMessage({ type: 'memeloop-tool-list', id });
+    if (!postToParent({ type: 'memeloop-tool-list', id })) {
+      pendingMainToolList.delete(id);
+      clearTimeout(timeout);
+      reject(new Error('memeloop_tool_list_transport_unavailable'));
+    }
   });
   return result;
 }
@@ -222,7 +337,11 @@ async function callMainTool(
         reject(error);
       },
     });
-    parentPort?.postMessage({ type: 'memeloop-tool-call', id, toolId, args: arguments_ });
+    if (!postToParent({ type: 'memeloop-tool-call', id, toolId, args: arguments_ })) {
+      pendingMainToolCall.delete(id);
+      clearTimeout(timeout);
+      reject(new Error('memeloop_tool_call_transport_unavailable'));
+    }
   });
   return result;
 }
@@ -249,13 +368,13 @@ async function callMainScheduledTask<T>(
       callback();
     };
     const onAbort = (): void => {
-      parentPort?.postMessage({ type: 'memeloop-scheduled-task-cancel', id });
+      postToParent({ type: 'memeloop-scheduled-task-cancel', id });
       finish(() => {
         reject(signal?.reason instanceof Error ? signal.reason : new Error('scheduled_task_call_aborted'));
       });
     };
     const timeout = setTimeout(() => {
-      parentPort?.postMessage({ type: 'memeloop-scheduled-task-cancel', id });
+      postToParent({ type: 'memeloop-scheduled-task-cancel', id });
       finish(() => {
         reject(new Error(`memeloop-scheduled-task-call timed out after ${timeoutMs}ms for ${method}`));
       });
@@ -274,11 +393,15 @@ async function callMainScheduledTask<T>(
     });
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) onAbort();
-    else parentPort?.postMessage({ type: 'memeloop-scheduled-task-call', id, method, arguments: arguments_ });
+    else if (!postToParent({ type: 'memeloop-scheduled-task-call', id, method, arguments: arguments_ })) {
+      finish(() => {
+        reject(new Error('memeloop_scheduled_task_transport_unavailable'));
+      });
+    }
   });
 }
 
-function createMainScheduledTaskServiceBridge(): IAgentInstanceService {
+function createMainScheduledTaskServiceBridge(): ScheduledTaskServicePort {
   const bridge = {
     createScheduledTask: (input: CreateScheduledTaskInput, options?: ScheduledTaskCallOptions) =>
       callMainScheduledTask<ScheduledTask>('createScheduledTask', [input], options?.signal),
@@ -293,11 +416,9 @@ function createMainScheduledTaskServiceBridge(): IAgentInstanceService {
       const { signal, ...cloneableInput } = input;
       return callMainScheduledTask('listScheduledTasksPageForAgent', [cloneableInput], signal);
     },
-    listRemoteScheduledTaskProjectionPageForAgent: (input: ListRemoteScheduledTaskProjectionPageInput) =>
-      callMainScheduledTask('listRemoteScheduledTaskProjectionPageForAgent', [input]),
     getCronPreviewDates: (expression: string, timezone?: string, count?: number) => callMainScheduledTask<string[]>('getCronPreviewDates', [expression, timezone, count]),
-  } satisfies Partial<IAgentInstanceService>;
-  return bridge as unknown as IAgentInstanceService;
+  } satisfies ScheduledTaskServicePort;
+  return bridge;
 }
 
 async function* callMainLlmChat(
@@ -306,7 +427,10 @@ async function* callMainLlmChat(
   const id = `llm_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const pending: PendingLlmStream = { deltas: [], waiters: [], done: false };
   pendingMainLlmChat.set(id, pending);
-  parentPort?.postMessage({ type: 'memeloop-llm-chat', id, request });
+  if (!postToParent({ type: 'memeloop-llm-chat', id, request })) {
+    pendingMainLlmChat.delete(id);
+    throw new Error('memeloop_llm_chat_transport_unavailable');
+  }
 
   while (true) {
     const streamError = readPendingLlmError(pending);
@@ -334,36 +458,69 @@ function readPendingLlmError(pending: PendingLlmStream): Error | undefined {
 
 const workerLogger = {
   warn: (...a: unknown[]) => {
-    workerLog('warn', '[memeloop-worker]', { a });
+    workerLog('warn', '[memeloop-utility-process]', { a });
   },
   error: (...a: unknown[]) => {
-    workerLog('error', '[memeloop-worker]', { a });
+    workerLog('error', '[memeloop-utility-process]', { a });
   },
 };
 
-process.on('uncaughtException', (error) => {
-  workerLog('error', '[memeloop-worker] uncaughtException', { err: error });
+let fatalExitScheduled = false;
+let gracefulShutdownPromise: Promise<void> | undefined;
+const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5_000;
+
+function shutdownDesktopNodeWithDeadline(): Promise<void> {
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  const deadlinePromise = new Promise<never>((_, reject) => {
+    deadlineTimer = setTimeout(() => {
+      reject(new Error('MemeLoop UtilityProcess graceful shutdown timed out'));
+    }, GRACEFUL_SHUTDOWN_TIMEOUT_MS);
+    deadlineTimer.unref?.();
+  });
+  return Promise.race([shutdownDesktopNode(), deadlinePromise]).finally(() => {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+  });
+}
+
+function scheduleFatalExit(kind: string, reason: unknown): void {
+  if (fatalExitScheduled) return;
+  fatalExitScheduled = true;
+  workerLog('error', `[memeloop-utility-process] ${kind}`, { reason });
+  rejectPendingMainRequests(new Error(`memeloop_utility_process_${kind}`));
+  // Give the bounded fatal log a turn to cross the parent port, then exit
+  // deterministically. Leaving a process alive after uncaught state is unsafe.
+  setImmediate(() => {
+    void shutdownDesktopNode().catch((error: unknown) => {
+      workerLog('error', '[memeloop-utility-process] fatal shutdown failed', { error });
+    });
+    process.exit(1);
+  });
+}
+
+function handleTerminationSignal(signal: 'SIGTERM' | 'SIGHUP' | 'SIGINT'): void {
+  if (gracefulShutdownPromise || fatalExitScheduled) return;
+  workerLog('info', '[memeloop-utility-process] termination requested', { signal });
+  rejectPendingMainRequests(new Error(`memeloop_utility_process_${signal.toLowerCase()}`));
+  gracefulShutdownPromise = shutdownDesktopNodeWithDeadline()
+    .then(() => undefined)
+    .catch((error: unknown) => {
+      workerLog('error', '[memeloop-utility-process] graceful shutdown failed', { error });
+      process.exitCode = 1;
+    })
+    .finally(() => {
+      process.exit(process.exitCode ?? 0);
+    });
+}
+
+process.on('uncaughtException', error => {
+  scheduleFatalExit('uncaughtException', error);
 });
-process.on('unhandledRejection', (reason) => {
-  workerLog('error', '[memeloop-worker] unhandledRejection', { reason });
+process.on('unhandledRejection', reason => {
+  scheduleFatalExit('unhandledRejection', reason);
 });
-process.on('exit', (code) => {
-  workerLog('error', '[memeloop-worker] exit', { code });
-});
-for (
-  const sig of [
-    'SIGABRT',
-    'SIGSEGV',
-    'SIGILL',
-    'SIGFPE',
-    'SIGBUS',
-    'SIGTERM',
-    'SIGHUP',
-    'SIGINT',
-  ] as const
-) {
-  process.on(sig, () => {
-    workerLog('error', '[memeloop-worker] signal', { sig });
+for (const signal of ['SIGTERM', 'SIGHUP', 'SIGINT'] as const) {
+  process.on(signal, () => {
+    handleTerminationSignal(signal);
   });
 }
 
@@ -407,7 +564,7 @@ function emitCustomUpdate(
     : Array.from(customUpdateListenersByConversationId.values());
   if (targetSets.length === 0) return;
 
-  workerLog('warn', '[memeloop-worker] emitCustomUpdate', {
+  workerLog('warn', '[memeloop-utility-process] emitCustomUpdate', {
     conversationId,
     type: update.type,
     targetSets: targetSets.length,
@@ -426,7 +583,7 @@ function emitCustomUpdate(
     try {
       listener(update);
     } catch {
-      // ignore listener errors
+      workerLog('warn', '[memeloop-utility-process] custom update listener failed');
     }
   }
 }
@@ -452,7 +609,9 @@ const llmProvider = {
   },
 };
 
-let localNodeId = `memeloop-app-${nanoid(8)}`;
+// The host config supplies the sole DeviceNetwork identity before runtime
+// initialization. Keep this unset until then instead of minting a child key.
+let localNodeId = '';
 const terminalManager = new TerminalSessionManager();
 
 let runtime: NodeRuntimeResult['runtime'] | undefined;
@@ -488,9 +647,26 @@ interface DesktopHostConfig {
 
 let hostConfig: DesktopHostConfig | undefined;
 
+function isAgentRuntimeRpcStorage(value: unknown): value is AgentRuntimeRpcStorage {
+  if (!value || typeof value !== 'object') return false;
+  return [
+    'getMessagePage',
+    'getMessageById',
+    'getMessageIdentity',
+    'readMessageDetailRange',
+    'getMessageWindowAround',
+    'getConversationTimelinePage',
+    'readAttachmentRange',
+  ].every(method => typeof Reflect.get(value, method) === 'function');
+}
+
+function isCallable(value: unknown): value is (...arguments_: unknown[]) => unknown {
+  return typeof value === 'function';
+}
+
 function requireHostConfig(): DesktopHostConfig {
   if (!hostConfig) {
-    throw new Error('MemeLoop worker host configuration is required before initialization');
+    throw new Error('MemeLoop UtilityProcess host configuration is required before initialization');
   }
   return hostConfig;
 }
@@ -520,21 +696,21 @@ async function ensureRuntimeInitialized(): Promise<void> {
     createRemoteOrchestrationHttpHandlerFunction = createRemoteOrchestrationHttpHandler;
     const configuredHost = requireHostConfig();
     localNodeId = configuredHost.localPeerId;
-    workerLog('info', '[memeloop-worker] runtime module loaded');
+    workerLog('info', '[memeloop-utility-process] runtime module loaded');
 
     const mainBridgeToolIds = await requestMainBridgeToolList().catch(
       (error: unknown) => {
         workerLog(
           'warn',
-          '[memeloop-worker] failed to load main bridge tool list',
+          '[memeloop-utility-process] failed to load main bridge tool list',
           { error },
         );
         return [] as string[];
       },
     );
-    workerLog('info', '[memeloop-worker] main bridge tools loaded', { count: mainBridgeToolIds.length });
+    workerLog('info', '[memeloop-utility-process] main bridge tools loaded', { count: mainBridgeToolIds.length });
 
-    workerLog('info', '[memeloop-worker] createNodeRuntime starting');
+    workerLog('info', '[memeloop-utility-process] createNodeRuntime starting');
     const runtimeResult = await createNodeRuntime({
       // Core supplies the official profiles. App-specific definitions are
       // resolved explicitly from storage and must never shadow Core defaults.
@@ -619,7 +795,7 @@ async function ensureRuntimeInitialized(): Promise<void> {
         stop: async () => undefined,
       },
     });
-    workerLog('info', '[memeloop-worker] createNodeRuntime completed');
+    workerLog('info', '[memeloop-utility-process] createNodeRuntime completed');
 
     await requireDesktopAtomicRetryStore(runtimeResult);
 
@@ -681,7 +857,7 @@ async function ensureDesktopNodeStarted(requestedPort?: number): Promise<void> {
       const listenHost = configuredHost.orchestrationHost ?? '127.0.0.1';
       workerLog(
         'warn',
-        '[memeloop-worker][desktop-as-node] ensureDesktopNodeStarted',
+        '[memeloop-utility-process][desktop-as-node] ensureDesktopNodeStarted',
         {
           stage,
           port,
@@ -694,11 +870,12 @@ async function ensureDesktopNodeStarted(requestedPort?: number): Promise<void> {
         throw new Error('Node runtime did not provide an orchestration client');
       }
       const orchestrationHandler = createRemoteOrchestrationHttpHandlerFunction(orchestrationClient, {
+        path: '/v2/orchestration/resources',
         authorize: (request) => authorized(request, configuredHost.orchestrationAccessToken),
         onError: (error) => {
           workerLog(
             'error',
-            '[memeloop-worker] orchestration HTTP handler failed',
+            '[memeloop-utility-process] orchestration HTTP handler failed',
             { error },
           );
         },
@@ -708,13 +885,13 @@ async function ensureDesktopNodeStarted(requestedPort?: number): Promise<void> {
       });
       workerLog(
         'warn',
-        '[memeloop-worker][desktop-as-node] after createNodeServer',
+        '[memeloop-utility-process][desktop-as-node] after createNodeServer',
         { stage },
       );
 
       stage = 'listen';
       await new Promise<void>((resolve, reject) => {
-        workerLog('warn', '[memeloop-worker][desktop-as-node] before listen', {
+        workerLog('warn', '[memeloop-utility-process][desktop-as-node] before listen', {
           stage,
           port,
         });
@@ -731,7 +908,7 @@ async function ensureDesktopNodeStarted(requestedPort?: number): Promise<void> {
       });
       workerLog(
         'warn',
-        '[memeloop-worker][desktop-as-node] after listen resolved',
+        '[memeloop-utility-process][desktop-as-node] after listen resolved',
         { stage },
       );
       stage = 'read-address';
@@ -767,30 +944,40 @@ async function stopDesktopHttpServer(): Promise<void> {
   desktopNodePort = undefined;
 }
 
+let shutdownDesktopNodePromise: Promise<void> | undefined;
+
 async function shutdownDesktopNode(): Promise<void> {
-  await stopDesktopHttpServer();
-  for (const controller of promptPreviewPrepareOperations.values()) {
-    controller.abort(new Error('MemeLoop worker is shutting down'));
-  }
-  promptPreviewPrepareOperations.clear();
-  approvalRequestCleanup?.();
-  approvalRequestCleanup = undefined;
-  conversationMutationObserverCleanup?.();
-  conversationMutationObserverCleanup = undefined;
-  const stop = stopNodeRuntime;
-  stopNodeRuntime = undefined;
+  if (shutdownDesktopNodePromise) return shutdownDesktopNodePromise;
+  shutdownDesktopNodePromise = (async () => {
+    await stopDesktopHttpServer();
+    for (const controller of promptPreviewPrepareOperations.values()) {
+      controller.abort(new Error('MemeLoop UtilityProcess is shutting down'));
+    }
+    promptPreviewPrepareOperations.clear();
+    approvalRequestCleanup?.();
+    approvalRequestCleanup = undefined;
+    conversationMutationObserverCleanup?.();
+    conversationMutationObserverCleanup = undefined;
+    const stop = stopNodeRuntime;
+    stopNodeRuntime = undefined;
+    try {
+      await stop?.();
+    } finally {
+      runtime = undefined;
+      storage = undefined;
+      runtimeContext = undefined;
+      deviceRpcHandler = undefined;
+      scheduledTaskRpcHandler = undefined;
+      orchestrationClient = undefined;
+      runtimeToolIds = [];
+      runtimeAgentDefinitions = [];
+      runtimeInitPromise = undefined;
+    }
+  })();
   try {
-    await stop?.();
+    await shutdownDesktopNodePromise;
   } finally {
-    runtime = undefined;
-    storage = undefined;
-    runtimeContext = undefined;
-    deviceRpcHandler = undefined;
-    scheduledTaskRpcHandler = undefined;
-    orchestrationClient = undefined;
-    runtimeToolIds = [];
-    runtimeAgentDefinitions = [];
-    runtimeInitPromise = undefined;
+    shutdownDesktopNodePromise = undefined;
   }
 }
 
@@ -801,19 +988,19 @@ const workerState = {
 const memeloopWorker = {
   configureHost: async (config: DesktopHostConfig) => {
     if (runtimeInitPromise || runtime) {
-      throw new Error('MemeLoop worker is already initialized');
+      throw new Error('MemeLoop UtilityProcess is already initialized');
     }
     if (!path.isAbsolute(config.dataDir)) {
-      throw new Error('MemeLoop worker dataDir must be absolute');
+      throw new Error('MemeLoop UtilityProcess dataDir must be absolute');
     }
     if (!path.isAbsolute(config.sqliteNativeBinding)) {
-      throw new Error('MemeLoop worker SQLite native binding path must be absolute');
+      throw new Error('MemeLoop UtilityProcess SQLite native binding path must be absolute');
     }
     if (config.orchestrationAccessToken.length < 32) {
       throw new Error('MemeLoop orchestration access token is too short');
     }
     if (!config.localPeerId.startsWith('12D3Koo')) {
-      throw new Error('MemeLoop worker requires the host DeviceNetwork PeerId');
+      throw new Error('MemeLoop UtilityProcess requires the host DeviceNetwork PeerId');
     }
     await ensureMemeLoopWorkerDataDirectory(config.dataDir);
     hostConfig = { ...config };
@@ -834,7 +1021,7 @@ const memeloopWorker = {
       };
     }),
   ping: async () => {
-    workerLog('warn', '[memeloop-worker] ping');
+    workerLog('warn', '[memeloop-utility-process] ping');
     await ensureRuntimeInitialized();
     return {
       ok: true,
@@ -842,7 +1029,7 @@ const memeloopWorker = {
       nodeId: localNodeId,
       port: desktopNodePort,
       orchestrationEndpoint: desktopNodePort
-        ? `http://127.0.0.1:${desktopNodePort}/v1/orchestration/resources`
+        ? `http://127.0.0.1:${desktopNodePort}/v2/orchestration/resources`
         : undefined,
     };
   },
@@ -870,19 +1057,13 @@ const memeloopWorker = {
     await ensureRuntimeInitialized();
     if (!runtime || !storage) throw new Error('MemeLoop runtime did not initialize');
     const activeRuntime = runtime;
-    if (
-      typeof storage.getMessagePage !== 'function' ||
-      typeof storage.getMessageById !== 'function' ||
-      typeof storage.getMessageIdentity !== 'function' ||
-      typeof storage.readMessageDetailRange !== 'function' ||
-      typeof storage.getMessageWindowAround !== 'function' ||
-      typeof storage.getConversationTimelinePage !== 'function' ||
-      typeof storage.readAttachmentRange !== 'function'
-    ) throw new Error('MemeLoop SQLite v2 bounded storage ports are unavailable');
+    if (!isAgentRuntimeRpcStorage(storage)) {
+      throw new Error('MemeLoop SQLite v2 bounded storage ports are unavailable');
+    }
     deviceRpcHandler ??= createAgentRuntimeDeviceRpcHandler({
       runtime: activeRuntime,
-      storage: storage as AgentRuntimeRpcStorage,
-      projections: createDesktopAgentRuntimeProjectionStore(storage as AgentRuntimeRpcStorage),
+      storage,
+      projections: createDesktopAgentRuntimeProjectionStore(storage),
       retryTurn: createDesktopRetryTurnHandler(activeRuntime),
       getAgentDefinitions: () => runtimeAgentDefinitions,
       scheduledTaskHandler: scheduledTaskRpcHandler ??= createDesktopScheduledTaskRpcHandler(
@@ -901,11 +1082,11 @@ const memeloopWorker = {
   storageCall: async (method: string, arguments_: unknown[]) => {
     await ensureRuntimeInitialized();
     if (!storage) throw new Error('MemeLoop storage did not initialize');
-    const callable = (storage as unknown as Record<string, unknown>)[method];
-    if (typeof callable !== 'function') {
+    const callable: unknown = Reflect.get(storage, method);
+    if (!isCallable(callable)) {
       throw new Error(`memeloop_storage_method_not_supported:${method}`);
     }
-    return (callable as (...values: unknown[]) => unknown).apply(storage, arguments_);
+    return Reflect.apply(callable, storage, arguments_);
   },
   preparePromptPreviewExecution: async (input: {
     conversationId: string;
@@ -965,7 +1146,7 @@ const memeloopWorker = {
     initialMessage?: string,
     conversationId?: string,
   ) => {
-    workerLog('warn', '[memeloop-worker] createAgent', { definitionId });
+    workerLog('warn', '[memeloop-utility-process] createAgent', { definitionId });
     await ensureDesktopNodeStarted();
     try {
       if (!runtime || !storage) {
@@ -974,7 +1155,7 @@ const memeloopWorker = {
       await storage.getAgentDefinition(definitionId);
       workerLog(
         'warn',
-        '[memeloop-worker] createAgent runtime.createAgent start',
+        '[memeloop-utility-process] createAgent runtime.createAgent start',
         { definitionId },
       );
       const created = await runtime.createAgent({
@@ -984,12 +1165,12 @@ const memeloopWorker = {
       });
       workerLog(
         'warn',
-        '[memeloop-worker] createAgent runtime.createAgent done',
+        '[memeloop-utility-process] createAgent runtime.createAgent done',
         { definitionId, conversationId: created?.conversationId },
       );
       return created;
     } catch (error) {
-      workerLog('error', '[memeloop-worker] createAgent failed', {
+      workerLog('error', '[memeloop-utility-process] createAgent failed', {
         definitionId,
         error,
       });
@@ -1005,7 +1186,7 @@ const memeloopWorker = {
       userMessage?: Partial<ChatMessage> & { messageId: string; turnId: string; content: string };
     },
   ) => {
-    workerLog('warn', '[memeloop-worker] sendMessage start', {
+    workerLog('warn', '[memeloop-utility-process] sendMessage start', {
       conversationId,
     });
     await ensureDesktopNodeStarted();
@@ -1025,13 +1206,13 @@ const memeloopWorker = {
             },
           }
           : {}),
-      }) as unknown as { runId: string; turnId: string; conversationId: string };
-      workerLog('warn', '[memeloop-worker] sendMessage done', {
+      });
+      workerLog('warn', '[memeloop-utility-process] sendMessage done', {
         conversationId,
       });
       return accepted;
     } catch (error) {
-      workerLog('error', '[memeloop-worker] sendMessage failed', {
+      workerLog('error', '[memeloop-utility-process] sendMessage failed', {
         conversationId,
         error,
       });
@@ -1059,7 +1240,7 @@ const memeloopWorker = {
     }
   },
   cancelRun: async (conversationId: string, runId?: string) => {
-    workerLog('warn', '[memeloop-worker] cancelRun', { conversationId, runId });
+    workerLog('warn', '[memeloop-utility-process] cancelRun', { conversationId, runId });
     conversationCancellation.add(conversationId);
     if (!runtime) throw new Error('MemeLoop runtime did not initialize');
     if (runId) {
@@ -1074,7 +1255,7 @@ const memeloopWorker = {
     if (!runtime) throw new Error('MemeLoop runtime not initialized');
     const activeRuntime = runtime;
     return new Observable<RuntimeUpdate>((observer) => {
-      workerLog('warn', '[memeloop-worker] subscribeToUpdates start', {
+      workerLog('warn', '[memeloop-utility-process] subscribeToUpdates start', {
         conversationId,
       });
       const dispose = activeRuntime.subscribeToUpdates(
@@ -1096,7 +1277,7 @@ const memeloopWorker = {
       set.add(listener);
 
       return () => {
-        workerLog('warn', '[memeloop-worker] subscribeToUpdates dispose', {
+        workerLog('warn', '[memeloop-utility-process] subscribeToUpdates dispose', {
           conversationId,
         });
         set?.delete(listener);
@@ -1112,7 +1293,7 @@ const memeloopWorker = {
     questionId: string,
     answer: string,
   ) => {
-    workerLog('warn', '[memeloop-worker] resolveAskQuestion', { questionId });
+    workerLog('warn', '[memeloop-utility-process] resolveAskQuestion', { questionId });
     await ensureRuntimeInitialized();
     const resolved = runtimeContext?.questionWaits?.resolveQuestionAnswer(questionId, answer) ?? false;
     return { resolved };
@@ -1121,7 +1302,7 @@ const memeloopWorker = {
     approvalId: string,
     decision: 'allow' | 'deny',
   ) => {
-    workerLog('warn', '[memeloop-worker] resolveToolApproval', {
+    workerLog('warn', '[memeloop-utility-process] resolveToolApproval', {
       approvalId,
       decision,
     });
@@ -1145,7 +1326,9 @@ const memeloopWorker = {
 export type MemeLoopWorker = typeof memeloopWorker;
 
 process.on('beforeExit', () => {
-  void shutdownDesktopNode();
+  void shutdownDesktopNode().catch((error: unknown) => {
+    workerLog('error', '[memeloop-utility-process] beforeExit shutdown failed', { error });
+  });
 });
 
 handleWorkerMessages(memeloopWorker);

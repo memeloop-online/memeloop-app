@@ -1,12 +1,12 @@
-import { createWorkerProxy } from '@services/libs/workerAdapter';
+import { createWorkerProxy, safePostMessage } from '@services/libs/workerAdapter';
 import type { ModelMessage } from 'ai';
-import { dialog } from 'electron';
+import { app, dialog } from 'electron';
+import type { UtilityProcess } from 'electron';
 import { inject, injectable } from 'inversify';
 import {
   AGENT_DEVICE_RPC_METHODS,
   type AgentConversationMessagePage,
   type AgentConversationMessagePageOptions,
-  type AgentConversationMessagePageSuccess,
   type AgentConversationMessageWindowRequest,
   type AgentConversationMessageWindowResult,
   type AgentDeviceRpcDeleteTurnRequest,
@@ -30,10 +30,11 @@ import {
   type ConversationMessageDetailRange,
   type ConversationMeta,
   type ConversationTimelinePage,
+  createChatMessage,
   createFetchOrchestrationTransport,
   type DeviceCapabilities,
   type DeviceRpcHandler,
-  type IAgentStorage,
+  type FullAgentStorage,
   type LocalDeviceIdentity,
   type PromptPreviewAuditDetailChunk,
   type PromptPreviewAuditDetailRequest,
@@ -53,10 +54,9 @@ import { open } from 'node:fs/promises';
 import path from 'node:path';
 import { BehaviorSubject, Observable, Subscription } from 'rxjs';
 import { DataSource, Repository } from 'typeorm';
-import { Worker } from 'worker_threads';
 import type { ExportAgentMessageRequest, ExportAgentMessageResult, PreparePromptPreviewExecutionRequest } from './interface';
 import type { MemeLoopWorker } from './memeloopWorker';
-import MemeLoopWorkerFactory from './memeloopWorkerFactory';
+import createMemeLoopUtilityProcess from './memeloopWorkerFactory';
 import { AGENT_MESSAGE_EXPORT_CHUNK_BYTES, AGENT_MESSAGE_EXPORT_MAX_BYTES, streamAgentMessageDetailRanges } from './messageExport';
 
 import { USER_DATA_FOLDER } from '@/constants/appPaths';
@@ -73,16 +73,14 @@ import serviceIdentifier from '@services/serviceIdentifier';
 
 import * as repo from './agentRepository';
 import type { ConversationMutationWake } from './conversationMutationObserver';
-import { getActiveHeartbeatEntries, startHeartbeat, stopHeartbeat } from './heartbeatManager';
+import { startHeartbeat, stopHeartbeat } from './heartbeatManager';
 import type {
-  AgentBackgroundTask,
   AgentInstance,
   AgentInstanceLatestStatus,
   AgentInstanceMessage,
+  AgentInstanceMetadata,
   AgentInstanceUpdate,
   IAgentInstanceService,
-  LegacyAgentMessagePageOptions,
-  SetBackgroundAlarmInput,
   SetBackgroundHeartbeatInput,
 } from './interface';
 import {
@@ -115,15 +113,96 @@ import type {
   RemoteScheduledTaskProjectionPage,
   ScheduledTask,
   ScheduledTaskCallOptions,
-  ScheduledTaskPage,
   ScheduledTaskScope,
+  ScheduledTaskStoragePage,
   UpdateScheduledTaskInput,
 } from './scheduledTaskTypes';
-import { cancelAlarm, getActiveAlarmEntries, scheduleAlarmTimer } from './tools/alarmClock';
 import { cleanupMCPClient } from './tools/modelContextProtocol';
 import { type AppAgentToolRuntime, bootstrapAppAgentToolRuntime } from './tools/runtime';
 
-const MEMELOOP_WORKER_INITIALIZATION_TIMEOUT_MS = 30_000;
+const MEMELOOP_UTILITY_PROCESS_INITIALIZATION_TIMEOUT_MS = 30_000;
+const MAX_UTILITY_PROCESS_LOG_BYTES = 4 * 1024;
+const MAX_UTILITY_PROCESS_LOG_EVENTS_PER_SECOND = 100;
+
+type UtilityProcessLogLimiter = {
+  allow: () => boolean;
+  text: (data: unknown) => string;
+};
+
+function createUtilityProcessLogLimiter(): UtilityProcessLogLimiter {
+  let windowStartedAt = Date.now();
+  let windowCount = 0;
+  return {
+    allow: () => {
+      const now = Date.now();
+      if (now - windowStartedAt >= 1000) {
+        windowStartedAt = now;
+        windowCount = 0;
+      }
+      if (windowCount >= MAX_UTILITY_PROCESS_LOG_EVENTS_PER_SECOND) return false;
+      windowCount += 1;
+      return true;
+    },
+    text: data => {
+      const value = Buffer.isBuffer(data)
+        ? data
+        : Buffer.from(typeof data === 'string' ? data : String(data), 'utf8');
+      if (value.byteLength <= MAX_UTILITY_PROCESS_LOG_BYTES) return value.toString('utf8');
+      return `${value.subarray(0, MAX_UTILITY_PROCESS_LOG_BYTES).toString('utf8')}…`;
+    },
+  };
+}
+
+type UtilityProcessReadyApp = typeof app & {
+  isReady?: () => boolean;
+  whenReady?: () => Promise<unknown>;
+};
+
+async function waitForElectronReady(): Promise<void> {
+  const readyApp = app as UtilityProcessReadyApp;
+  if (readyApp.isReady?.()) return;
+  await readyApp.whenReady?.();
+}
+
+function waitForUtilityProcessSpawn(
+  child: UtilityProcess,
+  signal: AbortSignal,
+): Promise<void> {
+  if (child.pid !== undefined) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      finish(new Error('MemeLoop UtilityProcess spawn timed out'));
+    }, MEMELOOP_UTILITY_PROCESS_INITIALIZATION_TIMEOUT_MS);
+    const onSpawn = (): void => {
+      finish(undefined);
+    };
+    const onExit = (code: number): void => {
+      finish(new Error(`MemeLoop UtilityProcess exited before spawn with code ${code}`));
+    };
+    const onAbort = (): void => {
+      finish(
+        signal.reason instanceof Error
+          ? signal.reason
+          : new Error('MemeLoop UtilityProcess startup aborted'),
+      );
+    };
+    const finish = (error: Error | undefined): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      signal.removeEventListener('abort', onAbort);
+      child.removeListener('spawn', onSpawn);
+      child.removeListener('exit', onExit);
+      if (error) reject(error);
+      else resolve();
+    };
+    child.once('spawn', onSpawn);
+    child.once('exit', onExit);
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}
 
 function getWorkerErrorDetails(error: unknown): {
   message: string;
@@ -156,7 +235,9 @@ export class AgentInstanceService implements IAgentInstanceService {
   > = new Map();
   private frameworkSchemas: Map<string, Record<string, unknown>> = new Map();
   private agentToolRuntime?: AppAgentToolRuntime;
-  private memeLoopNativeWorker?: Worker;
+  private memeLoopUtilityProcess?: UtilityProcess;
+  private memeLoopStartupAbortController?: AbortController;
+  private memeLoopDisposePromise?: Promise<void>;
   private memeLoopWorker?: MemeLoopWorker;
   private memeLoopWorkerLogCleanup?: () => void;
   private readonly workerConversationMutationSubscriptions = new Set<Subscription>();
@@ -164,14 +245,15 @@ export class AgentInstanceService implements IAgentInstanceService {
   private workerActiveTurnIdByConversationId: Map<string, string> = new Map();
   private workerActiveRunIdByConversationId: Map<string, string> = new Map();
   private readonly workerScheduledTaskCallAbortControllers = new Map<string, AbortController>();
+  private readonly workerHostCallbackAbortControllers = new Map<string, AbortController>();
   private readonly messageExportAbortControllers = new Map<string, AbortController>();
   private readonly memeLoopOrchestrationToken = randomBytes(32).toString('base64url');
   private memeLoopOrchestrationEndpoint?: string;
   private memeLoopHostIdentity?: LocalDeviceIdentity;
-  private memeLoopSyncStorage?: IAgentStorage;
+  private memeLoopSyncStorage?: FullAgentStorage;
 
   public configureMemeLoopHostIdentity(identity: LocalDeviceIdentity): void {
-    if (this.memeLoopWorker || this.memeLoopNativeWorker) {
+    if (this.memeLoopWorker || this.memeLoopUtilityProcess) {
       throw new Error('MemeLoop host identity must be configured before the UtilityProcess starts');
     }
     this.memeLoopHostIdentity = { ...identity };
@@ -185,13 +267,42 @@ export class AgentInstanceService implements IAgentInstanceService {
     return peerId;
   }
 
+  private abortUtilityProcessHostCallbacks(reason: Error): void {
+    for (const controller of this.workerScheduledTaskCallAbortControllers.values()) {
+      controller.abort(reason);
+    }
+    this.workerScheduledTaskCallAbortControllers.clear();
+    for (const controller of this.workerHostCallbackAbortControllers.values()) {
+      controller.abort(reason);
+    }
+    this.workerHostCallbackAbortControllers.clear();
+  }
+
+  /** Remove subscriptions bound to a dead process but keep durable IDs so a
+   * replacement UtilityProcess can subscribe to the same Core conversations. */
+  private detachCrashedWorkerConversations(): void {
+    for (const cleanup of this.workerConversationCleanupByAgentId.values()) {
+      try {
+        cleanup();
+      } catch {
+        // A dead process may reject unsubscribe; keep clearing local maps so
+        // the replacement process can bind fresh subscriptions.
+        logger.warn('MemeLoop UtilityProcess conversation cleanup failed after exit');
+      }
+    }
+    this.workerConversationCleanupByAgentId.clear();
+    this.workerAgentIdByConversationId.clear();
+    this.workerActiveTurnIdByConversationId.clear();
+    this.workerActiveRunIdByConversationId.clear();
+  }
+
   /**
-   * Internal accessor for the worker proxy — used by MemeloopNode service
-   * to delegate peer/sync operations to the worker thread.
+   * Internal accessor for the runtime proxy — used by MemeloopNode service
+   * to delegate peer/sync operations to the isolated UtilityProcess.
    */
   async getMemeLoopWorkerProxy(): Promise<MemeLoopWorker> {
     await this.ensureMemeLoopWorkerHealthy();
-    if (!this.memeLoopWorker) throw new Error('MemeLoop worker not available');
+    if (!this.memeLoopWorker) throw new Error('MemeLoop UtilityProcess runtime not available');
     return this.memeLoopWorker;
   }
 
@@ -200,12 +311,13 @@ export class AgentInstanceService implements IAgentInstanceService {
    * UtilityProcess. No SQLite connection or competing MemeLoop store is opened
    * in the Electron main process.
    */
-  public getMemeLoopSyncStorage(): IAgentStorage {
+  public getMemeLoopSyncStorage(): FullAgentStorage {
     if (this.memeLoopSyncStorage) return this.memeLoopSyncStorage;
     const call = <T>(method: string, ...arguments_: unknown[]): Promise<T> => this.callMemeLoopWorkerStorage(method, ...arguments_);
-    const storage: IAgentStorage = {
+    const storage: FullAgentStorage = {
       listConversationsPage: options => call('listConversationsPage', options),
       getMessagePage: (conversationId, options) => call('getMessagePage', conversationId, options),
+      getFullContentMessagePage: (conversationId, options) => call('getFullContentMessagePage', conversationId, options),
       getMessageWindowAround: (conversationId, options) => call('getMessageWindowAround', conversationId, options),
       getConversationTimelinePage: (conversationId, options) => call('getConversationTimelinePage', conversationId, options),
       getMessageIdentity: (conversationId, messageId, options) => call('getMessageIdentity', conversationId, messageId, options),
@@ -382,7 +494,7 @@ export class AgentInstanceService implements IAgentInstanceService {
   private workerConversationByAgentId: Map<string, string> = new Map();
   private workerConversationCleanupByAgentId: Map<string, () => void> = new Map();
 
-  /** Serializes worker ping/restart so concurrent agent turns do not double-terminate or race proxies. */
+  /** Serializes UtilityProcess ping/restart so concurrent agent turns do not race proxies. */
   private memeLoopWorkerMutex: Promise<void> = Promise.resolve();
 
   public async initialize(): Promise<void> {
@@ -392,7 +504,7 @@ export class AgentInstanceService implements IAgentInstanceService {
       // tool module never mutates process state, so initialization order and
       // repeated service setup remain deterministic.
       await this.initializeFrameworks();
-      // Restore legacy heartbeat timers and alarms for active agents after DB + frameworks are ready
+      // Restore definition heartbeats after DB + frameworks are ready.
       await this.restoreBackgroundTasks();
       // Restore unified ScheduledTaskManager tasks
       await this.restoreScheduledTaskManagerTasks();
@@ -443,10 +555,41 @@ export class AgentInstanceService implements IAgentInstanceService {
     if (!this.memeLoopHostIdentity) {
       throw new Error('MemeLoop UtilityProcess cannot start without the host DeviceNetwork identity');
     }
-    if (this.memeLoopWorker) return;
+    if (this.memeLoopWorker || this.memeLoopUtilityProcess) return;
+    const startupAbortController = new AbortController();
+    this.memeLoopStartupAbortController = startupAbortController;
+    let utilityProcess: UtilityProcess | undefined;
     try {
-      const worker = MemeLoopWorkerFactory();
-      worker.on('message', (message: unknown) => {
+      await waitForElectronReady();
+      startupAbortController.signal.throwIfAborted();
+      const runtimeProcess = createMemeLoopUtilityProcess();
+      utilityProcess = runtimeProcess;
+      this.memeLoopUtilityProcess = runtimeProcess;
+      const logLimiter = createUtilityProcessLogLimiter();
+      const postToRuntime = (message: unknown): boolean => {
+        if (this.memeLoopUtilityProcess !== runtimeProcess || runtimeProcess.pid === undefined) {
+          return false;
+        }
+        return safePostMessage(runtimeProcess, message);
+      };
+      const postRuntimeReply = (
+        message: unknown,
+        id: string,
+        errorType: string,
+      ): boolean => {
+        if (postToRuntime(message)) return true;
+        // If a result is too large for structured clone, return a bounded
+        // terminal error so the child never waits forever for a response.
+        return postToRuntime({
+          type: errorType,
+          id,
+          error: {
+            message: 'memeloop_utility_process_response_too_large_or_not_cloneable',
+            name: 'UtilityProcessTransportError',
+          },
+        });
+      };
+      runtimeProcess.on('message', (message: unknown) => {
         const m = message as {
           type?: string;
           id?: string;
@@ -463,65 +606,121 @@ export class AgentInstanceService implements IAgentInstanceService {
         }
 
         if (m?.type === 'memeloop-scheduled-task-call' && m.id && m.method && Array.isArray(m.arguments)) {
+          const requestId = m.id;
+          const method = m.method;
+          const arguments_ = m.arguments;
           const controller = new AbortController();
-          this.workerScheduledTaskCallAbortControllers.set(m.id, controller);
-          void this.handleWorkerScheduledTaskCall(m.method, m.arguments, controller.signal).then(
+          this.workerScheduledTaskCallAbortControllers.set(requestId, controller);
+          void this.handleWorkerScheduledTaskCall(method, arguments_, controller.signal).then(
             result => {
-              worker.postMessage({ type: 'memeloop-scheduled-task-call-result', id: m.id, result });
+              if (!controller.signal.aborted) {
+                postRuntimeReply(
+                  { type: 'memeloop-scheduled-task-call-result', id: requestId, result },
+                  requestId,
+                  'memeloop-scheduled-task-call-error',
+                );
+              }
             },
             (error: unknown) => {
-              worker.postMessage({
-                type: 'memeloop-scheduled-task-call-error',
-                id: m.id,
-                error: getWorkerErrorDetails(error),
-              });
+              if (!controller.signal.aborted) {
+                postRuntimeReply(
+                  {
+                    type: 'memeloop-scheduled-task-call-error',
+                    id: requestId,
+                    error: getWorkerErrorDetails(error),
+                  },
+                  requestId,
+                  'memeloop-scheduled-task-call-error',
+                );
+              }
             },
           ).finally(() => {
-            this.workerScheduledTaskCallAbortControllers.delete(m.id!);
+            this.workerScheduledTaskCallAbortControllers.delete(requestId);
+          }).catch((error: unknown) => {
+            logger.debug('MemeLoop UtilityProcess scheduled callback ended after process exit', { error });
           });
           return;
         }
 
         if (m?.type === 'memeloop-tool-list' && m.id) {
-          worker.postMessage({
-            type: 'memeloop-tool-list-result',
-            id: m.id,
-            tools: this.requireAgentToolRuntime().workerBridgeTools.listTools(),
-          });
+          const requestId = m.id;
+          try {
+            postRuntimeReply(
+              {
+                type: 'memeloop-tool-list-result',
+                id: requestId,
+                tools: this.requireAgentToolRuntime().workerBridgeTools.listTools(),
+              },
+              requestId,
+              'memeloop-tool-list-error',
+            );
+          } catch (error) {
+            postRuntimeReply(
+              {
+                type: 'memeloop-tool-list-error',
+                id: requestId,
+                error: getWorkerErrorDetails(error),
+              },
+              requestId,
+              'memeloop-tool-list-error',
+            );
+          }
           return;
         }
 
         if (m?.type === 'memeloop-tool-call' && m.id && m.toolId) {
+          const requestId = m.id;
+          const toolId = m.toolId;
+          const callbackController = new AbortController();
+          this.workerHostCallbackAbortControllers.set(requestId, callbackController);
           void (async () => {
             try {
               const result = await this.requireAgentToolRuntime().workerBridgeTools.execute(
-                m.toolId!,
+                toolId,
                 m.args ?? {},
               );
-              worker.postMessage({
-                type: 'memeloop-tool-call-result',
-                id: m.id,
-                result,
-              });
+              if (!callbackController.signal.aborted) {
+                postRuntimeReply(
+                  {
+                    type: 'memeloop-tool-call-result',
+                    id: requestId,
+                    result,
+                  },
+                  requestId,
+                  'memeloop-tool-call-error',
+                );
+              }
             } catch (error) {
-              worker.postMessage({
-                type: 'memeloop-tool-call-error',
-                id: m.id,
-                error: getWorkerErrorDetails(error),
-              });
+              if (!callbackController.signal.aborted) {
+                postRuntimeReply(
+                  {
+                    type: 'memeloop-tool-call-error',
+                    id: requestId,
+                    error: getWorkerErrorDetails(error),
+                  },
+                  requestId,
+                  'memeloop-tool-call-error',
+                );
+              }
+            } finally {
+              this.workerHostCallbackAbortControllers.delete(requestId);
             }
-          })();
+          })().catch((error: unknown) => {
+            logger.debug('MemeLoop UtilityProcess tool callback ended after process exit', { error });
+          });
           return;
         }
 
         if (m?.type === 'memeloop-llm-chat' && m.id) {
+          const requestId = m.id;
+          const request = m.request as {
+            conversationId?: string;
+            messages?: ModelMessage[];
+          };
+          const callbackController = new AbortController();
+          this.workerHostCallbackAbortControllers.set(requestId, callbackController);
           void (async () => {
             try {
-              const request = m.request as {
-                conversationId?: string;
-                messages?: ModelMessage[];
-              };
-
               const conversationId = request.conversationId;
               const mappedAgentId = conversationId
                 ? this.workerAgentIdByConversationId.get(conversationId)
@@ -534,7 +733,7 @@ export class AgentInstanceService implements IAgentInstanceService {
               const providerRegistryService = container.get<IProviderRegistryService>(
                 serviceIdentifier.ProviderRegistry,
               );
-              const aiConfig = await providerRegistryService.getAIConfig();
+              const aiConfig = await providerRegistryService.getModelAssignments();
               logger.warn('memeloop-llm-chat request prepared', {
                 conversationId,
                 agentId: mappedAgentId,
@@ -572,36 +771,82 @@ export class AgentInstanceService implements IAgentInstanceService {
                       ? snapshot.slice(previousSnapshot.length)
                       : snapshot;
                     previousSnapshot = snapshot;
-                    if (delta) {
-                      worker.postMessage({
-                        type: 'memeloop-llm-chat-delta',
-                        id: m.id,
-                        delta,
-                      });
+                    if (delta && !callbackController.signal.aborted) {
+                      postRuntimeReply(
+                        {
+                          type: 'memeloop-llm-chat-delta',
+                          id: requestId,
+                          delta,
+                        },
+                        requestId,
+                        'memeloop-llm-chat-error',
+                      );
                     }
                   }
                 }
               }
-              worker.postMessage({ type: 'memeloop-llm-chat-done', id: m.id });
+              if (!callbackController.signal.aborted) {
+                postRuntimeReply(
+                  { type: 'memeloop-llm-chat-done', id: requestId },
+                  requestId,
+                  'memeloop-llm-chat-error',
+                );
+              }
             } catch (error) {
-              worker.postMessage({
-                type: 'memeloop-llm-chat-error',
-                id: m.id,
-                error: getWorkerErrorDetails(error),
-              });
+              if (!callbackController.signal.aborted) {
+                postRuntimeReply(
+                  {
+                    type: 'memeloop-llm-chat-error',
+                    id: requestId,
+                    error: getWorkerErrorDetails(error),
+                  },
+                  requestId,
+                  'memeloop-llm-chat-error',
+                );
+              }
+            } finally {
+              this.workerHostCallbackAbortControllers.delete(requestId);
             }
-          })();
+          })().catch((error: unknown) => {
+            logger.debug('MemeLoop UtilityProcess LLM callback ended after process exit', { error });
+          });
           return;
         }
       });
-      worker.on('error', (error) => {
-        logger.error('MemeLoop native worker thread error', { error });
+      runtimeProcess.on('error', (type: 'FatalError', location: string, report: string) => {
+        if (!logLimiter.allow()) return;
+        logger.error('MemeLoop UtilityProcess error', {
+          type,
+          location: logLimiter.text(location),
+          report: logLimiter.text(report),
+        });
       });
-      worker.on('exit', (code) => {
-        logger.warn('MemeLoop native worker thread exited', { code });
+      runtimeProcess.on('exit', (code) => {
+        if (this.memeLoopUtilityProcess !== runtimeProcess) return;
+        const exitError = new Error(`MemeLoop UtilityProcess exited with code ${code}`);
+        this.abortUtilityProcessHostCallbacks(exitError);
+        this.memeLoopWorkerLogCleanup?.();
+        this.memeLoopWorkerLogCleanup = undefined;
+        this.detachCrashedWorkerConversations();
+        this.memeLoopUtilityProcess = undefined;
+        this.memeLoopWorker = undefined;
+        this.memeLoopOrchestrationEndpoint = undefined;
+        if (code === 0) logger.info('MemeLoop UtilityProcess exited', { code });
+        else logger.error('MemeLoop UtilityProcess crashed', { code });
       });
-      this.memeLoopNativeWorker = worker;
-      this.memeLoopWorker = createWorkerProxy<MemeLoopWorker>(worker, {
+      runtimeProcess.stdout?.on('data', (data: unknown) => {
+        if (logLimiter.allow()) {
+          logger.debug('MemeLoop UtilityProcess stdout', { output: logLimiter.text(data) });
+        }
+      });
+      runtimeProcess.stderr?.on('data', (data: unknown) => {
+        if (logLimiter.allow()) {
+          logger.warn('MemeLoop UtilityProcess stderr', { output: logLimiter.text(data) });
+        }
+      });
+      await waitForUtilityProcessSpawn(runtimeProcess, startupAbortController.signal);
+      startupAbortController.signal.throwIfAborted();
+      this.memeLoopWorker = createWorkerProxy<MemeLoopWorker>(runtimeProcess, {
         observableMethods: [
           'subscribeLogs',
           'subscribeToUpdates',
@@ -615,7 +860,7 @@ export class AgentInstanceService implements IAgentInstanceService {
         localPeerId: this.memeLoopHostIdentity.peerId,
       });
 
-      // Subscribe worker logs via the standard workerAdapter streaming protocol.
+      // Subscribe UtilityProcess logs via the standard workerAdapter protocol.
       this.memeLoopWorkerLogCleanup?.();
       try {
         const subscription = this.memeLoopWorker.subscribeLogs().subscribe({
@@ -627,14 +872,14 @@ export class AgentInstanceService implements IAgentInstanceService {
             else logger.info(event.message, metadata);
           },
           error: (error: unknown) => {
-            logger.error('MemeLoop worker log stream failed', { error });
+            logger.error('MemeLoop UtilityProcess log stream failed', { error });
           },
         });
         this.memeLoopWorkerLogCleanup = () => {
           subscription.unsubscribe();
         };
       } catch (error) {
-        logger.warn('Failed to subscribe MemeLoop worker logs', { error });
+        logger.warn('Failed to subscribe MemeLoop UtilityProcess logs', { error });
       }
 
       const ping = await Promise.race([
@@ -642,24 +887,45 @@ export class AgentInstanceService implements IAgentInstanceService {
         new Promise<never>((_, reject) => {
           setTimeout(
             () => {
-              reject(new Error('MemeLoop worker initial ping timeout'));
+              reject(new Error('MemeLoop UtilityProcess initial ping timeout'));
             },
-            MEMELOOP_WORKER_INITIALIZATION_TIMEOUT_MS,
+            MEMELOOP_UTILITY_PROCESS_INITIALIZATION_TIMEOUT_MS,
           );
         }),
       ]);
       const server = await this.memeLoopWorker.startServer(0);
       if (!server.running || !server.port) {
-        throw new Error('MemeLoop worker orchestration server did not start');
+        throw new Error('MemeLoop UtilityProcess orchestration server did not start');
       }
-      this.memeLoopOrchestrationEndpoint = `http://127.0.0.1:${server.port}/v1/orchestration/resources`;
-      logger.info('MemeLoop worker initialized', {
+      this.memeLoopOrchestrationEndpoint = `http://127.0.0.1:${server.port}/v2/orchestration/resources`;
+      // A crashed process invalidates only its subscriptions, not the durable
+      // Core conversation IDs. Rebind every surviving conversation before
+      // exposing the replacement process as healthy.
+      for (const [agentId, conversationId] of this.workerConversationByAgentId) {
+        this.bindWorkerConversation(agentId, conversationId);
+      }
+      logger.info('MemeLoop UtilityProcess initialized', {
         ...ping,
         orchestrationEndpoint: this.memeLoopOrchestrationEndpoint,
       });
     } catch (error) {
-      logger.error('Failed to initialize MemeLoop worker', { error });
+      logger.error('Failed to initialize MemeLoop UtilityProcess', { error });
+      startupAbortController.abort(error instanceof Error ? error : new Error(String(error)));
+      if (utilityProcess && this.memeLoopUtilityProcess === utilityProcess) {
+        this.memeLoopUtilityProcess = undefined;
+        this.memeLoopWorker = undefined;
+        this.memeLoopOrchestrationEndpoint = undefined;
+        try {
+          utilityProcess.kill();
+        } catch (killError) {
+          logger.warn('Failed to kill failed MemeLoop UtilityProcess', { killError });
+        }
+      }
       throw error;
+    } finally {
+      if (this.memeLoopStartupAbortController === startupAbortController) {
+        this.memeLoopStartupAbortController = undefined;
+      }
     }
   }
 
@@ -704,8 +970,9 @@ export class AgentInstanceService implements IAgentInstanceService {
   }
 
   /**
-   * Ensures the worker thread exists and responds to ping; on failure disposes and recreates it.
-   * Caller should treat this as required before any `memeLoopWorker` RPC (serialized via mutex).
+   * Ensures the UtilityProcess exists and responds to ping; on failure disposes
+   * and recreates it. Caller should treat this as required before any
+   * `memeLoopWorker` protocol RPC (serialized via mutex).
    */
   private async ensureMemeLoopWorkerHealthy(): Promise<void> {
     const previous = this.memeLoopWorkerMutex;
@@ -725,14 +992,14 @@ export class AgentInstanceService implements IAgentInstanceService {
           new Promise<never>((_, reject) => {
             setTimeout(
               () => {
-                reject(new Error('MemeLoop worker ping timeout'));
+                reject(new Error('MemeLoop UtilityProcess ping timeout'));
               },
               5000,
             );
           }),
         ]);
       } catch (error: unknown) {
-        logger.warn('MemeLoop worker unhealthy; restarting worker thread', {
+        logger.warn('MemeLoop UtilityProcess unhealthy; restarting process', {
           error,
         });
         await this.disposeMemeLoopWorker();
@@ -743,11 +1010,8 @@ export class AgentInstanceService implements IAgentInstanceService {
     }
   }
 
-  /**
-   * Restore heartbeat timers and alarm timers for active agents after app restart.
-   * Heartbeats: read from AgentDefinition.heartbeat for all non-closed instances.
-   * Alarms: read from AgentInstance.scheduledAlarm for all non-closed instances.
-   */
+  /** Restore definition heartbeats; durable scheduled tasks are restored by the
+   * canonical ScheduledTask manager below. */
   private async restoreBackgroundTasks(): Promise<void> {
     if (!this.agentInstanceRepository) return;
     try {
@@ -758,7 +1022,6 @@ export class AgentInstanceService implements IAgentInstanceService {
       });
 
       let heartbeatsRestored = 0;
-      let alarmsRestored = 0;
 
       for (const instance of activeInstances) {
         // Restore heartbeat from definition
@@ -769,49 +1032,11 @@ export class AgentInstanceService implements IAgentInstanceService {
           });
           heartbeatsRestored++;
         }
-
-        // Restore persisted alarm
-        const alarm = instance.scheduledAlarm;
-        if (alarm?.wakeAtISO) {
-          const wakeAt = new Date(alarm.wakeAtISO);
-          const now = new Date();
-          // For one-shot alarms in the past, fire immediately
-          // For recurring alarms, always restore
-          if (alarm.repeatIntervalMinutes || wakeAt.getTime() > now.getTime()) {
-            scheduleAlarmTimer(
-              instance.id,
-              alarm.wakeAtISO,
-              alarm.reminderMessage,
-              alarm.repeatIntervalMinutes,
-              {
-                createdBy: alarm.createdBy ?? 'restore',
-                runCount: alarm.runCount,
-                lastRunAtISO: alarm.lastRunAtISO,
-              },
-            );
-            alarmsRestored++;
-          } else {
-            // Past one-shot alarm — fire it now and clear
-            scheduleAlarmTimer(
-              instance.id,
-              new Date().toISOString(),
-              alarm.reminderMessage,
-              undefined,
-              {
-                createdBy: alarm.createdBy ?? 'restore',
-                runCount: alarm.runCount,
-                lastRunAtISO: alarm.lastRunAtISO,
-              },
-            );
-            alarmsRestored++;
-          }
-        }
       }
 
-      if (heartbeatsRestored > 0 || alarmsRestored > 0) {
+      if (heartbeatsRestored > 0) {
         logger.info('Background tasks restored', {
           heartbeatsRestored,
-          alarmsRestored,
           totalInstances: activeInstances.length,
         });
       }
@@ -874,7 +1099,7 @@ export class AgentInstanceService implements IAgentInstanceService {
         agentDefinitionID,
         options,
       );
-      // Don't block the agent tab creation UI on MemeLoop worker conversation initialization.
+      // Don't block the agent tab creation UI on UtilityProcess conversation initialization.
       // Worker conversation binding may take time (or fail), but the agent instance can still be created.
       void this.ensureWorkerConversation(created.id, created.agentDefId);
       return created;
@@ -884,22 +1109,9 @@ export class AgentInstanceService implements IAgentInstanceService {
     }
   }
 
-  public async getAgentMetadata(agentId: string): Promise<AgentInstance | undefined> {
+  public async getAgentMetadata(agentId: string): Promise<AgentInstanceMetadata | undefined> {
     this.ensureRepositories();
     return repo.getAgentMetadata(this.agentInstanceRepository!, agentId);
-  }
-
-  public async getAgentMessagePage(
-    agentId: string,
-    options: LegacyAgentMessagePageOptions,
-  ): Promise<AgentConversationMessagePageSuccess> {
-    const page = await this.callMemeLoopWorkerStorage<AgentConversationMessagePageSuccess | { reset: true }>(
-      'getMessagePage',
-      agentId,
-      { maxBytes: 256 * 1024, ...options },
-    );
-    if (page.reset) throw new Error('unexpected_compatibility_message_page_reset');
-    return page;
   }
 
   private async callLocalAgentDeviceRpc<T>(method: string, parameters: unknown): Promise<T> {
@@ -919,7 +1131,6 @@ export class AgentInstanceService implements IAgentInstanceService {
       conversationId,
       limit: options.limit,
       maxBytes: options.maxBytes,
-      ...(options.mode === undefined ? {} : { mode: options.mode }),
       ...(options.direction === undefined ? {} : { direction: options.direction }),
       ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
       ...(options.expectedRevision === undefined ? {} : { expectedRevision: options.expectedRevision }),
@@ -1142,10 +1353,13 @@ export class AgentInstanceService implements IAgentInstanceService {
       const updatedAgent = await repo.updateAgent(
         this.agentInstanceRepository!,
         this.agentMessageRepository!,
+        this.agentDefinitionService,
         agentId,
         data,
       );
-      this.notifyAgentUpdate(agentId, updatedAgent, updatedAgent.messages[0]);
+      const metadata = await this.getAgentMetadata(agentId);
+      if (!metadata) throw new Error(`Agent instance not found: ${agentId}`);
+      this.notifyAgentUpdate(agentId, metadata, updatedAgent.messages[0]);
       return updatedAgent;
     } catch (error) {
       logger.error('Failed to update agent instance', { error });
@@ -1157,7 +1371,6 @@ export class AgentInstanceService implements IAgentInstanceService {
     this.ensureRepositories();
     try {
       stopHeartbeat(agentId);
-      cancelAlarm(agentId);
       await deleteTasksForAgent(agentId);
       await cleanupMCPClient(agentId);
       await this.cancelWorkerConversation(agentId);
@@ -1179,7 +1392,7 @@ export class AgentInstanceService implements IAgentInstanceService {
     page: number,
     pageSize: number,
     options?: { closed?: boolean; searchName?: string },
-  ): Promise<Omit<AgentInstance, 'messages'>[]> {
+  ): Promise<AgentInstanceMetadata[]> {
     this.ensureRepositories();
     try {
       return await repo.getAgents(
@@ -1313,7 +1526,7 @@ export class AgentInstanceService implements IAgentInstanceService {
     options.signal.throwIfAborted();
     const agent = await this.getAgentMetadata(agentId);
     if (!agent) throw new Error('scheduled_task_agent_unavailable');
-    if (agent.volatile || agent.isSubAgent) throw new Error('scheduled_task_volatile_agent');
+    if (agent.volatile) throw new Error('scheduled_task_volatile_agent');
     const conversationId = await this.ensureWorkerConversation(agentId, agent.agentDefId);
     await this.ensureMemeLoopWorkerHealthy();
     if (!conversationId || !this.memeLoopWorker) throw new Error('MemeLoop runtime is unavailable');
@@ -1400,7 +1613,6 @@ export class AgentInstanceService implements IAgentInstanceService {
 
     try {
       stopHeartbeat(agentId);
-      cancelAlarm(agentId);
       await cancelTasksForAgent(agentId);
       await cleanupMCPClient(agentId);
       await this.cancelWorkerConversation(agentId);
@@ -1444,7 +1656,7 @@ export class AgentInstanceService implements IAgentInstanceService {
     try {
       await this.ensureMemeLoopWorkerHealthy();
     } catch (error) {
-      logger.error('Failed to ensure MemeLoop worker for conversation', {
+      logger.error('Failed to ensure MemeLoop UtilityProcess conversation', {
         agentId,
         definitionId,
         error,
@@ -1453,7 +1665,12 @@ export class AgentInstanceService implements IAgentInstanceService {
     }
     if (!this.memeLoopWorker) return undefined;
     const existing = this.workerConversationByAgentId.get(agentId);
-    if (existing) return existing;
+    if (existing) {
+      if (!this.workerConversationCleanupByAgentId.has(agentId)) {
+        this.bindWorkerConversation(agentId, existing);
+      }
+      return existing;
+    }
     try {
       // The host agent id is the durable Core conversation id. Reusing it is
       // idempotent, so a worker restart resumes the same SQLite history instead
@@ -1475,13 +1692,42 @@ export class AgentInstanceService implements IAgentInstanceService {
         return conversationId;
       }
     } catch (error) {
-      logger.error('Failed to create MemeLoop worker conversation', {
+      logger.error('Failed to create MemeLoop UtilityProcess conversation', {
         agentId,
         definitionId,
         error,
       });
     }
     return undefined;
+  }
+
+  /**
+   * Build the canonical message shape used by live worker projections.
+   * Stream updates are intentionally not persisted here, but they still cross
+   * the service boundary and therefore must carry Core's provenance fields.
+   */
+  private createWorkerProjectionMessage(input: {
+    conversationId: string;
+    messageId: string;
+    turnId: string | undefined;
+    role: ChatMessage['role'];
+    content: string;
+  }): ChatMessage | undefined {
+    const { conversationId, messageId, turnId, role, content } = input;
+    const originNodeId = this.memeLoopHostIdentity?.peerId;
+    if (!turnId || !originNodeId) return undefined;
+    const timestamp = Date.now();
+    return createChatMessage({
+      messageId,
+      turnId,
+      conversationId,
+      role,
+      content,
+      originNodeId,
+      originSequence: timestamp,
+      timestamp,
+      lamportClock: timestamp,
+    });
   }
 
   private bindWorkerConversation(
@@ -1518,7 +1764,7 @@ export class AgentInstanceService implements IAgentInstanceService {
             if (!updateType) return;
             // Debug hook: verify whether MemeLoop emits ask-question/tool-approval updates.
             // Keep this log short to avoid huge log files in e2e.
-            logger.warn('MemeLoop worker update received', {
+            logger.warn('MemeLoop UtilityProcess update received', {
               agentId,
               conversationId,
               updateType,
@@ -1555,14 +1801,13 @@ Parameters: {}
 Result: ${JSON.stringify(askPrompt)}
 </functions_result>`;
 
-              const message = {
-                id: `worker-ask-${questionId}`,
-                agentId,
+              const message = this.createWorkerProjectionMessage({
+                conversationId,
+                messageId: `worker-ask-${questionId}`,
                 turnId: this.workerActiveTurnIdByConversationId.get(conversationId),
-                role: 'agent' as const,
+                role: 'agent',
                 content,
-                modified: new Date(),
-              };
+              });
               void this.publishWorkerUpdate(agentId, 'input-required', message).catch(() => undefined);
               return;
             }
@@ -1591,14 +1836,13 @@ Parameters: {}
 Result: ${JSON.stringify(approvalPrompt)}
 </functions_result>`;
 
-              const message = {
-                id: `worker-approval-${payload_.approvalId}`,
-                agentId,
+              const message = this.createWorkerProjectionMessage({
+                conversationId,
+                messageId: `worker-approval-${payload_.approvalId}`,
                 turnId: this.workerActiveTurnIdByConversationId.get(conversationId),
-                role: 'agent' as const,
+                role: 'agent',
                 content,
-                modified: new Date(),
-              };
+              });
               void this.publishWorkerUpdate(agentId, 'input-required', message).catch(() => undefined);
               return;
             }
@@ -1617,7 +1861,7 @@ Result: ${JSON.stringify(approvalPrompt)}
                       typeof data.content === 'string'
                   ? data.content
                   : JSON.stringify(data ?? '');
-                logger.warn('MemeLoop worker assistant delta', {
+                logger.warn('MemeLoop UtilityProcess assistant delta', {
                   agentId,
                   conversationId,
                   deltaPreview: delta.slice(0, 120),
@@ -1630,14 +1874,13 @@ Result: ${JSON.stringify(approvalPrompt)}
                 }
                 lastWasAssistantMessage = true;
                 const messageId = assistantMessageId ?? `worker-assistant-${Date.now()}`;
-                const message = {
-                  id: messageId,
-                  agentId,
+                const message = this.createWorkerProjectionMessage({
+                  conversationId,
+                  messageId,
                   turnId: this.workerActiveTurnIdByConversationId.get(conversationId),
-                  role: 'assistant' as const,
+                  role: 'assistant',
                   content: assistantBuffer,
-                  modified: new Date(),
-                };
+                });
                 void this.publishWorkerUpdate(agentId, 'working', message).catch(() => undefined);
                 return;
               }
@@ -1657,14 +1900,13 @@ Result: ${JSON.stringify(approvalPrompt)}
                   conversationId,
                   contentPreview: content.slice(0, 200),
                 });
-                const message = {
-                  id: `worker-tool-${Date.now()}`,
-                  agentId,
+                const message = this.createWorkerProjectionMessage({
+                  conversationId,
+                  messageId: `worker-tool-${Date.now()}`,
                   turnId: this.workerActiveTurnIdByConversationId.get(conversationId),
-                  role: 'tool' as const,
+                  role: 'tool',
                   content,
-                  modified: new Date(),
-                };
+                });
                 void this.publishWorkerUpdate(agentId, 'working', message).catch(() => undefined);
               }
               return;
@@ -1677,13 +1919,13 @@ Result: ${JSON.stringify(approvalPrompt)}
               assistantBuffer = '';
               let finalMessage: AgentInstanceMessage | undefined;
               if (finalMessageId) {
-                finalMessage = {
-                  id: finalMessageId,
-                  agentId,
+                finalMessage = this.createWorkerProjectionMessage({
+                  conversationId,
+                  messageId: finalMessageId,
                   turnId: this.workerActiveTurnIdByConversationId.get(conversationId),
-                  role: 'assistant' as const,
+                  role: 'assistant',
                   content: finalContent,
-                };
+                });
               }
               void this.publishWorkerUpdate(agentId, 'canceled', finalMessage).catch(() => undefined);
               this.workerActiveTurnIdByConversationId.delete(conversationId);
@@ -1698,13 +1940,13 @@ Result: ${JSON.stringify(approvalPrompt)}
               assistantBuffer = '';
               let finalMessage: AgentInstanceMessage | undefined;
               if (finalMessageId) {
-                finalMessage = {
-                  id: finalMessageId,
-                  agentId,
+                finalMessage = this.createWorkerProjectionMessage({
+                  conversationId,
+                  messageId: finalMessageId,
                   turnId: this.workerActiveTurnIdByConversationId.get(conversationId),
-                  role: 'assistant' as const,
+                  role: 'assistant',
                   content: finalContent,
-                };
+                });
               }
               void this.publishWorkerUpdate(agentId, 'completed', finalMessage).catch(() => undefined);
               this.workerActiveTurnIdByConversationId.delete(conversationId);
@@ -1713,21 +1955,20 @@ Result: ${JSON.stringify(approvalPrompt)}
             }
             if (updateType === 'agent-error') {
               lastWasAssistantMessage = false;
-              const message = {
-                id: `worker-error-${Date.now()}`,
-                agentId,
+              const message = this.createWorkerProjectionMessage({
+                conversationId,
+                messageId: `worker-error-${Date.now()}`,
                 turnId: this.workerActiveTurnIdByConversationId.get(conversationId),
-                role: 'error' as const,
-                content: raw?.update?.error || 'MemeLoop worker error',
-                modified: new Date(),
-              };
+                role: 'error',
+                content: raw?.update?.error || 'MemeLoop UtilityProcess error',
+              });
               void this.publishWorkerUpdate(agentId, 'failed', message).catch(() => undefined);
               this.workerActiveTurnIdByConversationId.delete(conversationId);
               this.workerActiveRunIdByConversationId.delete(conversationId);
             }
           },
           error: (error: unknown) => {
-            logger.warn('MemeLoop worker update stream failed', {
+            logger.warn('MemeLoop UtilityProcess update stream failed', {
               agentId,
               conversationId,
               error,
@@ -1738,7 +1979,7 @@ Result: ${JSON.stringify(approvalPrompt)}
         subscription.unsubscribe();
       });
     } catch (error) {
-      logger.warn('Failed to bind MemeLoop worker update stream', {
+      logger.warn('Failed to bind MemeLoop UtilityProcess update stream', {
         agentId,
         conversationId,
         error,
@@ -1758,13 +1999,15 @@ Result: ${JSON.stringify(approvalPrompt)}
     message?: AgentInstanceMessage,
   ): Promise<void> {
     this.ensureRepositories();
-    const updated = await repo.updateAgent(
+    await repo.updateAgent(
       this.agentInstanceRepository!,
       this.agentMessageRepository!,
+      this.agentDefinitionService,
       agentId,
       { status: { state, modified: new Date() } },
     );
-    this.notifyAgentUpdate(agentId, updated, message);
+    const metadata = await this.getAgentMetadata(agentId);
+    if (metadata) this.notifyAgentUpdate(agentId, metadata, message);
   }
 
   private cleanupWorkerConversation(agentId: string): void {
@@ -1774,7 +2017,7 @@ Result: ${JSON.stringify(approvalPrompt)}
       try {
         cleanup();
       } catch {
-        // ignore
+        logger.warn('MemeLoop UtilityProcess conversation cleanup failed during agent removal');
       }
       this.workerConversationCleanupByAgentId.delete(agentId);
     }
@@ -1790,7 +2033,8 @@ Result: ${JSON.stringify(approvalPrompt)}
     if (!workerConversationId) return;
     try {
       await this.ensureMemeLoopWorkerHealthy();
-    } catch {
+    } catch (error: unknown) {
+      logger.debug('MemeLoop UtilityProcess conversation was unavailable during cancellation', { error });
       return;
     }
     if (!this.memeLoopWorker) return;
@@ -1801,7 +2045,7 @@ Result: ${JSON.stringify(approvalPrompt)}
       );
     } catch (error) {
       logger.warn(
-        'Failed to cancel MemeLoop worker conversation during cleanup',
+        'Failed to cancel MemeLoop UtilityProcess conversation during cleanup',
         { agentId, workerConversationId, error },
       );
     }
@@ -1821,12 +2065,12 @@ Result: ${JSON.stringify(approvalPrompt)}
     questionId: string,
     answer: string,
   ): void {
-    // Prefer resolving inside MemeLoop worker so the agent can continue in the same turn.
+    // Prefer resolving inside the MemeLoop UtilityProcess so the agent can continue in the same turn.
     void (async () => {
       try {
         await this.ensureMemeLoopWorkerHealthy();
       } catch (error) {
-        logger.warn('MemeLoop worker unavailable for resolveAskQuestion', { agentId, error });
+        logger.warn('MemeLoop UtilityProcess unavailable for resolveAskQuestion', { agentId, error });
         return;
       }
       if (this.memeLoopWorker) {
@@ -1838,122 +2082,10 @@ Result: ${JSON.stringify(approvalPrompt)}
           );
           if (result?.resolved) return;
         } catch (error) {
-          logger.warn('MemeLoop worker resolveAskQuestion failed', { agentId, questionId, error });
+          logger.warn('MemeLoop UtilityProcess resolveAskQuestion failed', { agentId, questionId, error });
         }
       }
     })();
-  }
-
-  public async getBackgroundTasks(): Promise<AgentBackgroundTask[]> {
-    const tasks: AgentBackgroundTask[] = [];
-
-    // Collect heartbeats from in-memory registry
-    const heartbeatEntries = getActiveHeartbeatEntries();
-    for (const heartbeatEntry of heartbeatEntries) {
-      const agentId = heartbeatEntry.agentId;
-      const agent = await this.getAgentMetadata(agentId);
-      const agentDefinition = agent?.agentDefId
-        ? await this.agentDefinitionService.getAgentDef(agent.agentDefId)
-        : undefined;
-      const heartbeatConfig = agentDefinition?.heartbeat;
-      tasks.push({
-        agentId,
-        agentName: agent?.name ?? agentDefinition?.name,
-        type: 'heartbeat',
-        intervalSeconds: heartbeatConfig?.intervalSeconds,
-        activeHoursStart: heartbeatConfig?.activeHoursStart,
-        activeHoursEnd: heartbeatConfig?.activeHoursEnd,
-        nextWakeAtISO: heartbeatEntry.nextWakeAtISO,
-        message: heartbeatConfig?.message,
-        createdBy: heartbeatEntry.createdBy,
-        lastRunAtISO: heartbeatEntry.lastRunAtISO,
-        runCount: heartbeatEntry.runCount,
-      });
-    }
-
-    // Collect alarms from in-memory registry
-    const alarmEntries = getActiveAlarmEntries();
-    for (const alarmEntry of alarmEntries) {
-      const agentId = alarmEntry.agentId;
-      const agent = await this.getAgentMetadata(agentId);
-      tasks.push({
-        agentId,
-        agentName: agent?.name,
-        type: 'alarm',
-        wakeAtISO: alarmEntry.wakeAtISO,
-        nextWakeAtISO: alarmEntry.nextWakeAtISO,
-        message: alarmEntry.reminderMessage,
-        repeatIntervalMinutes: alarmEntry.repeatIntervalMinutes,
-        createdBy: alarmEntry.createdBy,
-        lastRunAtISO: alarmEntry.lastRunAtISO,
-        runCount: alarmEntry.runCount,
-      });
-    }
-
-    return tasks;
-  }
-
-  public async cancelBackgroundTask(
-    agentId: string,
-    type: 'heartbeat' | 'alarm',
-  ): Promise<void> {
-    if (type === 'heartbeat') {
-      stopHeartbeat(agentId);
-    } else if (type === 'alarm') {
-      cancelAlarm(agentId);
-    }
-    logger.info('Background task cancelled from UI', { agentId, type });
-  }
-
-  public async setBackgroundAlarm(
-    agentId: string,
-    alarm: SetBackgroundAlarmInput,
-  ): Promise<void> {
-    this.ensureRepositories();
-
-    const entity = await this.agentInstanceRepository!.findOne({
-      where: { id: agentId },
-    });
-    if (!entity) {
-      throw new Error(`Agent instance not found: ${agentId}`);
-    }
-
-    const parsedWakeAt = new Date(alarm.wakeAtISO);
-    if (Number.isNaN(parsedWakeAt.getTime())) {
-      throw new Error(`Invalid wakeAtISO: ${alarm.wakeAtISO}`);
-    }
-
-    const repeatIntervalMinutes = alarm.repeatIntervalMinutes && alarm.repeatIntervalMinutes > 0
-      ? alarm.repeatIntervalMinutes
-      : undefined;
-    const wakeAtISO = parsedWakeAt.toISOString();
-
-    scheduleAlarmTimer(
-      agentId,
-      wakeAtISO,
-      alarm.message,
-      repeatIntervalMinutes,
-      {
-        createdBy: 'settings-ui',
-        runCount: 0,
-      },
-    );
-
-    await this.agentInstanceRepository!.update(agentId, {
-      scheduledAlarm: {
-        wakeAtISO,
-        reminderMessage: alarm.message,
-        repeatIntervalMinutes,
-        createdBy: 'settings-ui',
-        runCount: 0,
-      },
-    });
-
-    logger.info('Background alarm upserted from UI', {
-      agentId,
-      wakeAtISO,
-      repeatIntervalMinutes,
-    });
   }
 
   public async setBackgroundHeartbeat(
@@ -2059,7 +2191,7 @@ Result: ${JSON.stringify(approvalPrompt)}
     return stmGetActiveTasksForAgent(agentInstanceId, options);
   }
 
-  public async listScheduledTasksPageForAgent(input: ListScheduledTasksPageForAgentInput): Promise<ScheduledTaskPage> {
+  public async listScheduledTasksPageForAgent(input: ListScheduledTasksPageForAgentInput): Promise<ScheduledTaskStoragePage> {
     return stmGetScheduledTasksPageForAgent(input);
   }
 
@@ -2122,7 +2254,7 @@ Result: ${JSON.stringify(approvalPrompt)}
             this.agentInstanceSubjects.get(agentId)?.next(undefined);
             return;
           }
-          this.agentInstanceSubjects.get(agentId)?.next(this.toAgentInstanceUpdate(agent));
+          this.agentInstanceSubjects.get(agentId)?.next(this.createAgentInstanceUpdate(agent));
         })
         .catch((error: unknown) => {
           logger.error('Failed to get initial agent data', {
@@ -2140,24 +2272,23 @@ Result: ${JSON.stringify(approvalPrompt)}
    * @param agentId Agent ID
    * @param agentData Agent data to use for notification
    */
-  private toAgentInstanceUpdate(
-    agentData: AgentInstance,
+  private createAgentInstanceUpdate(
+    agentData: AgentInstanceMetadata,
     message?: AgentInstanceMessage,
   ): AgentInstanceUpdate {
-    const { messages: _messages, ...agent } = agentData;
-    return { agent, ...(message ? { message } : {}) };
+    return { agent: agentData, ...(message ? { message } : {}) };
   }
 
   private notifyAgentUpdate(
     agentId: string,
-    agentData: AgentInstance,
+    agentData: AgentInstanceMetadata,
     message?: AgentInstanceMessage,
   ): void {
     try {
       // Only notify if there are active subscriptions
       if (this.agentInstanceSubjects.has(agentId)) {
         this.agentInstanceSubjects.get(agentId)?.next(
-          this.toAgentInstanceUpdate(agentData, message),
+          this.createAgentInstanceUpdate(agentData, message),
         );
       }
     } catch (error) {
@@ -2166,67 +2297,68 @@ Result: ${JSON.stringify(approvalPrompt)}
     }
   }
 
-  /** Legacy prompt-plugin ABI retained only until the editor schema moves upstream. */
-  public async saveUserMessage(_userMessage: AgentInstanceMessage): Promise<void> {
-    throw new Error('legacy_agent_message_persistence_disabled');
-  }
-
-  /** Legacy prompt-plugin ABI retained only until the editor schema moves upstream. */
-  public debounceUpdateMessage(
-    _message: AgentInstanceMessage,
-    _agentId?: string,
-    _debounceMs?: number,
-  ): void {
-    throw new Error('legacy_agent_message_persistence_disabled');
-  }
-
   /**
-   * Terminate the MemeLoop worker thread and drop proxies. Call from app `before-quit` so the process can exit cleanly.
+   * Stop the MemeLoop UtilityProcess once and drop its protocol proxy. Call
+   * from app `before-quit` so the child can close its server and SQLite store
+   * before the OS process is terminated.
    */
   public async disposeMemeLoopWorker(): Promise<void> {
-    this.memeLoopWorkerLogCleanup?.();
-    this.memeLoopWorkerLogCleanup = undefined;
-    for (const subscription of this.workerConversationMutationSubscriptions) {
-      subscription.unsubscribe();
-    }
-    this.workerConversationMutationSubscriptions.clear();
-    this.agentToolRuntime?.dispose();
-    this.agentToolRuntime = undefined;
-    this.frameworkSchemas.clear();
-    for (
-      const [agentId, cleanup] of [
-        ...this.workerConversationCleanupByAgentId.entries(),
-      ]
-    ) {
-      try {
-        cleanup();
-      } catch {
-        // ignore
+    if (this.memeLoopDisposePromise) return this.memeLoopDisposePromise;
+    this.memeLoopDisposePromise = (async () => {
+      this.memeLoopStartupAbortController?.abort(new Error('MemeLoop UtilityProcess shutdown requested'));
+      this.memeLoopStartupAbortController = undefined;
+      this.abortUtilityProcessHostCallbacks(new Error('MemeLoop UtilityProcess shutdown requested'));
+      this.memeLoopWorkerLogCleanup?.();
+      this.memeLoopWorkerLogCleanup = undefined;
+      for (const subscription of this.workerConversationMutationSubscriptions) {
+        subscription.unsubscribe();
       }
-      this.workerConversationCleanupByAgentId.delete(agentId);
-    }
-    this.workerAgentIdByConversationId.clear();
-    this.workerConversationByAgentId.clear();
+      this.workerConversationMutationSubscriptions.clear();
+      this.agentToolRuntime?.dispose();
+      this.agentToolRuntime = undefined;
+      this.frameworkSchemas.clear();
+      for (
+        const [agentId, cleanup] of [
+          ...this.workerConversationCleanupByAgentId.entries(),
+        ]
+      ) {
+        try {
+          cleanup();
+        } catch {
+          logger.warn('MemeLoop UtilityProcess conversation cleanup failed during dispose');
+        }
+        this.workerConversationCleanupByAgentId.delete(agentId);
+      }
+      this.workerAgentIdByConversationId.clear();
+      this.workerConversationByAgentId.clear();
 
-    if (this.memeLoopWorker) {
-      try {
-        await this.memeLoopWorker.shutdown();
-      } catch (error) {
-        logger.warn('Failed to gracefully shut down MemeLoop worker', {
-          error,
-        });
+      const proxy = this.memeLoopWorker;
+      const utilityProcess = this.memeLoopUtilityProcess;
+      if (proxy) {
+        try {
+          await proxy.shutdown();
+        } catch (error) {
+          logger.warn('Failed to gracefully shut down MemeLoop UtilityProcess', {
+            error,
+          });
+        }
       }
-    }
-    if (this.memeLoopNativeWorker) {
-      try {
-        await this.memeLoopNativeWorker.terminate();
-      } catch (error) {
-        logger.warn('Failed to terminate MemeLoop native worker', { error });
+      if (utilityProcess) {
+        try {
+          utilityProcess.kill();
+        } catch (error) {
+          logger.warn('Failed to terminate MemeLoop UtilityProcess', { error });
+        }
       }
-      this.memeLoopNativeWorker = undefined;
+      this.memeLoopUtilityProcess = undefined;
+      this.memeLoopWorker = undefined;
+      this.memeLoopOrchestrationEndpoint = undefined;
+    })();
+    try {
+      await this.memeLoopDisposePromise;
+    } finally {
+      this.memeLoopDisposePromise = undefined;
     }
-    this.memeLoopWorker = undefined;
-    this.memeLoopOrchestrationEndpoint = undefined;
   }
 
   private requireAgentToolRuntime(): AppAgentToolRuntime {

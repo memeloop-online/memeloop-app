@@ -1,12 +1,17 @@
-import type { AgentDefinition, AgentHeartbeatConfig, AgentToolConfig } from '@services/agentDefinition/interface';
-import type { AgentInstance, AgentInstanceLatestStatus, AgentInstanceMessage } from '@services/agentInstance/interface';
-import type { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema/types';
-import type { ScheduleConfig, ScheduleKind } from '@services/agentInstance/scheduledTaskTypes';
-import type { ScheduledTask as DesktopScheduledTask } from '@services/agentInstance/scheduledTaskTypes';
-import type { ScheduledTaskState } from 'memeloop';
+import type {
+  AgentDefinition,
+  AgentDefinitionToolConfig,
+  AgentFrameworkConfig,
+  AgentHeartbeatConfig,
+  AgentInstanceLatestStatus,
+  AgentInstanceMetadata,
+  AgentModelConfig,
+  ChatMessage,
+  CreateScheduledTaskInput,
+  ScheduledTask,
+  ScheduledTaskState,
+} from 'memeloop';
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryColumn, UpdateDateColumn } from 'typeorm';
-
-export type { ScheduleConfig, ScheduleKind } from '@services/agentInstance/scheduledTaskTypes';
 
 @Entity('scheduled_tasks')
 @Index('IDX_scheduled_task_rpc_page', ['agentInstanceId', 'executionNodeId', 'state', 'updated', 'id'])
@@ -29,11 +34,11 @@ export class ScheduledTaskEntity {
 
   /** Schedule kind discriminator */
   @Column({ type: 'varchar' })
-  scheduleKind!: ScheduleKind;
+  scheduleKind!: CreateScheduledTaskInput['scheduleKind'];
 
   /** Full schedule config stored as JSON */
   @Column({ type: 'simple-json' })
-  schedule!: ScheduleConfig;
+  schedule!: CreateScheduledTaskInput['schedule'];
 
   /** Payload: message sent to agent on trigger */
   @Column({ type: 'simple-json', nullable: true })
@@ -149,7 +154,7 @@ export class RemoteScheduledTaskProjectionEntity {
   state!: ScheduledTaskState;
 
   @Column({ type: 'simple-json' })
-  task!: DesktopScheduledTask;
+  task!: ScheduledTask;
 
   @Column({ type: 'integer' })
   observedAt!: number;
@@ -162,18 +167,25 @@ export class RemoteScheduledTaskProjectionEntity {
  * This saves space and makes it easier to track user personalization
  */
 @Entity('agent_definitions')
-export class AgentDefinitionEntity implements Partial<AgentDefinition> {
+export class AgentDefinitionEntity implements AgentDefinition {
   /** Unique identifier for the agent */
   @PrimaryColumn()
   id!: string;
 
-  /** Agent name, nullable indicates using default name */
-  @Column({ nullable: true })
-  name?: string;
+  @Column()
+  name!: string;
 
-  /** Detailed agent description, nullable indicates using default description */
-  @Column({ type: 'text', nullable: true })
-  description?: string;
+  @Column({ type: 'text' })
+  description!: string;
+
+  @Column({ type: 'text' })
+  systemPrompt!: string;
+
+  @Column({ type: 'simple-json' })
+  tools!: string[];
+
+  @Column()
+  version!: string;
 
   /** Agent avatar or icon URL, nullable indicates using default avatar */
   @Column({ nullable: true })
@@ -185,15 +197,19 @@ export class AgentDefinitionEntity implements Partial<AgentDefinition> {
 
   /** Agent handler configuration parameters, stored as JSON */
   @Column({ type: 'simple-json', nullable: true })
-  agentFrameworkConfig?: Record<string, unknown>;
+  agentFrameworkConfig?: AgentFrameworkConfig;
 
-  /** Agent's AI API configuration, can override global default config */
+  /** Agent's model configuration, which can override the host default. */
   @Column({ type: 'simple-json', nullable: true })
-  aiApiConfig?: Partial<AiAPIConfig>;
+  modelConfig?: AgentModelConfig;
+
+  /** Optional JSON schema advertised by the canonical definition. */
+  @Column({ type: 'simple-json', nullable: true })
+  promptSchema?: unknown;
 
   /** Tools available to this agent */
   @Column({ type: 'simple-json', nullable: true })
-  agentTools?: AgentToolConfig[];
+  agentTools?: AgentDefinitionToolConfig[];
 
   /** Heartbeat configuration for periodic auto-wake */
   @Column({ type: 'simple-json', nullable: true })
@@ -216,7 +232,7 @@ export class AgentDefinitionEntity implements Partial<AgentDefinition> {
  * Stores user chat sessions with Agents
  */
 @Entity('agent_instances')
-export class AgentInstanceEntity implements Partial<AgentInstance> {
+export class AgentInstanceEntity implements AgentInstanceMetadata {
   @PrimaryColumn()
   id!: string;
 
@@ -237,14 +253,14 @@ export class AgentInstanceEntity implements Partial<AgentInstance> {
   modified?: Date;
 
   @Column({ type: 'simple-json', nullable: true })
-  aiApiConfig?: Partial<AiAPIConfig>;
+  modelConfig?: AgentModelConfig;
 
   @Column({ nullable: true })
   avatarUrl?: string;
 
   /** Agent handler configuration parameters, inherited from AgentDefinition */
   @Column({ type: 'simple-json', nullable: true })
-  agentFrameworkConfig?: Record<string, unknown>;
+  agentFrameworkConfig?: AgentFrameworkConfig;
 
   @Column({ default: false })
   closed: boolean = false;
@@ -253,16 +269,8 @@ export class AgentInstanceEntity implements Partial<AgentInstance> {
   @Column({ default: false })
   volatile: boolean = false;
 
-  /** Persisted alarm data — survives app restart. Null when no alarm is active. */
-  @Column({ type: 'simple-json', nullable: true })
-  scheduledAlarm?: {
-    wakeAtISO: string;
-    reminderMessage?: string;
-    repeatIntervalMinutes?: number;
-    createdBy?: string;
-    lastRunAtISO?: string;
-    runCount?: number;
-  } | null;
+  @Column({ default: false })
+  preview: boolean = false;
 
   // Relation to AgentDefinition
   @ManyToOne(() => AgentDefinitionEntity, definition => definition.instances)
@@ -282,7 +290,7 @@ export class AgentInstanceEntity implements Partial<AgentInstance> {
 @Entity('agent_instance_messages')
 @Index('IDX_agent_message_agent_created_id', ['agentId', 'created', 'id'])
 @Index('IDX_agent_message_origin_sequence', ['agentId', 'originNodeId', 'originSequence'])
-export class AgentInstanceMessageEntity implements AgentInstanceMessage {
+export class AgentInstanceMessageEntity {
   @PrimaryColumn()
   id!: string;
 
@@ -312,6 +320,25 @@ export class AgentInstanceMessageEntity implements AgentInstanceMessage {
 
   @Column({ type: 'text' })
   content!: string;
+
+  /** Canonical structured payload; content is retained as its plain-text projection. */
+  @Column({ type: 'simple-json' })
+  parts!: ChatMessage['parts'];
+
+  @Column({ type: 'simple-json', nullable: true })
+  toolCalls?: ChatMessage['toolCalls'];
+
+  @Column({ type: 'simple-json', nullable: true })
+  attachments?: ChatMessage['attachments'];
+
+  @Column({ type: 'simple-json', nullable: true })
+  detailRef?: ChatMessage['detailRef'];
+
+  @Column({ type: 'text', nullable: true })
+  reasoning_content?: string;
+
+  @Column({ default: false })
+  hidden: boolean = false;
 
   @Column({
     type: 'varchar',

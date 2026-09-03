@@ -27,6 +27,44 @@ interface SchemaConfig {
   migrationsRun: boolean;
 }
 
+type ElectronSettingsValue = Parameters<typeof settings.setSync>[1];
+type ElectronSettingsObject = Record<string, ElectronSettingsValue>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isSettingFile(value: unknown): value is ISettingFile {
+  if (!isRecord(value)) return false;
+  const preferences = value.preferences;
+  return preferences === undefined || (preferences !== null && typeof preferences === 'object' && !Array.isArray(preferences));
+}
+
+function toElectronSettingsValue(value: unknown): ElectronSettingsValue {
+  if (value === null || typeof value === 'boolean' || typeof value === 'string' || typeof value === 'number') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(toElectronSettingsValue);
+  }
+  if (typeof value === 'object') {
+    const object: Record<string, ElectronSettingsValue> = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if (nestedValue !== undefined) object[key] = toElectronSettingsValue(nestedValue);
+    }
+    return object;
+  }
+  throw new TypeError(`Unsupported settings value type: ${typeof value}`);
+}
+
+function toElectronSettingsObject(value: ISettingFile): ElectronSettingsObject {
+  const object: ElectronSettingsObject = {};
+  for (const [key, nestedValue] of Object.entries(value)) {
+    if (nestedValue !== undefined) object[key] = toElectronSettingsValue(nestedValue);
+  }
+  return object;
+}
+
 @injectable()
 export class DatabaseService implements IDatabaseService {
   // Database connection pool
@@ -49,8 +87,8 @@ export class DatabaseService implements IDatabaseService {
     // Guard against corrupted settings files that contain a non-object root value (e.g. a JSON string).
     // Such files pass JSON.parse without error but cause "Cannot create property 'x' on string" when
     // setSetting() tries to write into them.
-    this.settingFileContent = (rawSettings !== null && typeof rawSettings === 'object' && !Array.isArray(rawSettings))
-      ? rawSettings as unknown as ISettingFile
+    this.settingFileContent = isSettingFile(rawSettings)
+      ? rawSettings
       : {} as ISettingFile;
     // Initialize settings backup stream
     try {
@@ -432,7 +470,6 @@ export class DatabaseService implements IDatabaseService {
   }
 
   public async immediatelyStoreSettingsToFile() {
-    /* eslint-disable @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any */
     if (!this.settingFileContent) {
       logger.error('immediatelyStoreSettingsToFile called before initializeForApp()');
       return;
@@ -440,11 +477,11 @@ export class DatabaseService implements IDatabaseService {
     try {
       if (this.storeSettingsToFileLock) return;
       this.storeSettingsToFileLock = true;
-      await settings.set(this.settingFileContent as any);
+      await settings.set(toElectronSettingsObject(this.settingFileContent));
     } catch (error) {
       logger.error('Setting file format bad in debouncedSetSettingFile, will try force writing', { error, settingFileContent: JSON.stringify(this.settingFileContent) });
       ensureSettingFolderExist();
-      fixSettingFileWhenError(error as Error);
+      fixSettingFileWhenError(error instanceof Error ? error : new Error(String(error)));
       fs.writeJSONSync(settings.file(), this.settingFileContent);
     } finally {
       this.storeSettingsToFileLock = false;

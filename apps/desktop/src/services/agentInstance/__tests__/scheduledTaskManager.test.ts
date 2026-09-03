@@ -182,8 +182,8 @@ describe('scheduled-task bounded keyset paging', () => {
   });
 
   it.each([
-    { flags: { volatile: true }, kind: 'preview' },
-    { flags: { isSubAgent: true }, kind: 'subagent' },
+    { flags: { preview: true, volatile: true }, kind: 'preview' },
+    { flags: { preview: false, volatile: true }, kind: 'volatile' },
   ])('rejects persistent schedules for a $kind Agent even when identity fields are supplied', async ({ flags }) => {
     initScheduledTaskManager(
       dataSource.getRepository(ScheduledTaskEntity),
@@ -203,6 +203,8 @@ describe('scheduled-task bounded keyset paging', () => {
       name: 'Must not persist',
       scheduleKind: 'at',
       schedule: { kind: 'at', wakeAtISO: new Date(Date.now() + 60_000).toISOString() },
+      executionNodeId: NODE_ID,
+      originNodeId: NODE_ID,
     })).rejects.toThrow('scheduled_task_volatile_agent');
     expect(await dataSource.getRepository(ScheduledTaskEntity).count()).toBe(0);
   });

@@ -4,6 +4,10 @@ import type { AgentDefinition } from '@services/agentDefinition/interface';
 export const promptConcatTestAgent = {
   id: 'test:prompt-concat',
   name: 'Prompt concat test agent',
+  description: 'Test agent for prompt concatenation',
+  systemPrompt: 'Test system prompt',
+  tools: [],
+  version: '1.0.0',
   agentFrameworkID: 'memeloopTaskAgentWorker',
   agentFrameworkConfig: {
     prompts: [
@@ -39,4 +43,4 @@ export const promptConcatTestAgent = {
       },
     ],
   },
-} as const satisfies AgentDefinition;
+} satisfies AgentDefinition;

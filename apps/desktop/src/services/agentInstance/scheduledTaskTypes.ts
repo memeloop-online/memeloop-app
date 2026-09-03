@@ -1,78 +1,29 @@
-import type { ScheduledTaskState } from 'memeloop';
+/**
+ * Scheduling contracts are owned by Core.  This module only keeps the small
+ * persistence-adapter cursor shapes used by the Electron database; it must not
+ * grow a second ScheduledTask/CreateScheduledTaskInput model.
+ */
+import type {
+  AgentManagementCallOptions,
+  CreateScheduledTaskInput as CoreCreateScheduledTaskInput,
+  ListScheduledTasksOptions as CoreListScheduledTasksOptions,
+  ScheduledTask as CoreScheduledTask,
+  ScheduledTaskPage as CoreScheduledTaskPage,
+  ScheduledTaskState as CoreScheduledTaskState,
+} from 'memeloop';
 
-export type ScheduleKind = 'at' | 'cron';
+export type ScheduleKind = CoreCreateScheduledTaskInput['scheduleKind'];
+export type ScheduleConfig = CoreCreateScheduledTaskInput['schedule'];
+export type ScheduledTask = CoreScheduledTask;
+export type CreateScheduledTaskInput = CoreCreateScheduledTaskInput;
+export type ListScheduledTasksOptions = CoreListScheduledTasksOptions;
+export type ScheduledTaskState = CoreScheduledTaskState;
+export type ScheduledTaskCallOptions = AgentManagementCallOptions;
 
-export interface AtSchedule {
-  kind: 'at';
-  wakeAtISO: string;
-}
-
-export interface CronSchedule {
-  kind: 'cron';
-  expression: string;
-  timezone?: string;
-}
-
-export type ScheduleConfig = AtSchedule | CronSchedule;
-
-export interface ScheduledTask {
-  id: string;
-  agentInstanceId: string;
-  agentDefinitionId: string;
-  name: string;
-  scheduleKind: ScheduleKind;
-  schedule: ScheduleConfig;
-  payload?: { message: string };
-  enabled: boolean;
-  deleteAfterRun: boolean;
-  activeHoursStart?: string;
-  activeHoursEnd?: string;
-  lastRunAt?: string;
-  lastRunStatus?: 'succeeded' | 'failed';
-  lastError?: string;
-  lastFailureAt?: string;
-  consecutiveFailures: number;
-  nextRetryAt?: string;
-  nextRunAt?: string;
-  runCount: number;
-  maxRuns?: number;
-  createdBy: string;
-  created: string;
-  updated: string;
-  state: ScheduledTaskState;
-  executionNodeId: string;
-  executionNodeLabel?: string;
-  originNodeId: string;
-  executionRevision: number;
-  occurrenceId?: string;
-  occurrenceScheduledFor?: string;
-  occurrenceAttempt: number;
-}
-
-export interface CreateScheduledTaskInput {
-  agentInstanceId: string;
-  agentDefinitionId?: string;
-  name?: string;
-  scheduleKind: ScheduleKind;
-  schedule: ScheduleConfig;
-  payload?: { message: string };
-  enabled?: boolean;
-  deleteAfterRun?: boolean;
-  activeHoursStart?: string;
-  activeHoursEnd?: string;
-  maxRuns?: number;
-  createdBy?: string;
-  state?: ScheduledTaskState;
-  executionNodeId?: string;
-  executionNodeLabel?: string;
-  originNodeId?: string;
-}
-
-export interface ListScheduledTasksOptions {
-  states?: ScheduledTaskState[];
-  executionNodeIds?: string[];
-}
-
+/**
+ * Keyset position for the local SQL adapter.  The public Core page exposes an
+ * opaque cursor; this physical position never crosses the service boundary.
+ */
 export interface ScheduledTaskPagePosition {
   updatedAt: string;
   id: string;
@@ -88,21 +39,22 @@ export interface ListScheduledTasksPageForAgentInput {
   signal?: AbortSignal;
 }
 
-export interface ScheduledTaskPage {
+/** SQL adapter page.  `next` is translated to Core's opaque cursor by the host. */
+export interface ScheduledTaskStoragePage {
   items: ScheduledTask[];
   revision: string;
   next?: ScheduledTaskPagePosition;
 }
 
+/** Keep the Core page visible to consumers that need the portable contract. */
+export type CoreScheduledTaskPageContract = CoreScheduledTaskPage;
+
+/** Resource identity used for authenticated main-process mutations. */
 export interface ScheduledTaskScope {
   taskId: string;
   agentInstanceId: string;
   agentDefinitionId: string;
   executionNodeId: string;
-}
-
-export interface ScheduledTaskCallOptions {
-  signal?: AbortSignal;
 }
 
 export interface RemoteScheduledTaskProjection {
@@ -130,17 +82,11 @@ export interface RemoteScheduledTaskProjectionPage {
   next?: RemoteScheduledTaskProjectionPagePosition;
 }
 
-export type UpdateScheduledTaskInput =
-  & Partial<
-    Omit<
-      CreateScheduledTaskInput,
-      'agentInstanceId' | 'payload' | 'activeHoursStart' | 'activeHoursEnd' | 'executionNodeLabel'
-    >
-  >
-  & {
-    id: string;
-    payload?: { message: string } | null;
-    activeHoursStart?: string | null;
-    activeHoursEnd?: string | null;
-    executionNodeLabel?: string | null;
-  };
+/** Core's update API carries the id separately; the service keeps it for IPC. */
+export type UpdateScheduledTaskInput = Omit<Partial<CoreCreateScheduledTaskInput>, 'payload' | 'activeHoursStart' | 'activeHoursEnd' | 'executionNodeLabel'> & {
+  id: string;
+  payload?: { message: string } | null;
+  activeHoursStart?: string | null;
+  activeHoursEnd?: string | null;
+  executionNodeLabel?: string | null;
+};

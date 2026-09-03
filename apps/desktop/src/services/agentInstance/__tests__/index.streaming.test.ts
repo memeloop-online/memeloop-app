@@ -13,10 +13,11 @@ import type { AgentInstance, AgentInstanceMessage, AgentInstanceUpdate, IAgentIn
 import { container } from '@services/container';
 import type { IDatabaseService } from '@services/database/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
+import { createChatMessage } from 'memeloop';
 
 describe('AgentInstanceService incremental observable', () => {
   let service: IAgentInstanceService;
-  let agent: AgentInstance;
+  let agent: AgentInstance & import('memeloop').AgentInstanceMetadata;
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -47,25 +48,38 @@ describe('AgentInstanceService incremental observable', () => {
       id: nanoid(),
       agentDefId: 'general-assistant',
       name: 'Long conversation',
+      description: '',
+      systemPrompt: '',
+      tools: [],
+      version: '1',
       status: { state: 'working', modified: new Date() },
       created: new Date(),
       closed: false,
+      volatile: false,
+      preview: false,
       messages: [],
     };
   });
 
   it('does not read or serialize history for the initial subscription', async () => {
-    const hugeMetadataInput: AgentInstance = {
+    const hugeMetadataInput: typeof agent = {
       ...agent,
-      messages: Array.from({ length: 100_000 }, (_, index) => ({
-        id: `historical-${index}`,
-        agentId: agent.id,
-        role: 'user' as const,
-        content: 'x'.repeat(128),
-      })),
+      messages: Array.from({ length: 100_000 }, (_, index) =>
+        createChatMessage({
+          messageId: `historical-${index}`,
+          turnId: `historical-${index}`,
+          conversationId: agent.id,
+          originNodeId: 'test-node',
+          originSequence: index + 1,
+          timestamp: index + 1,
+          lamportClock: index + 1,
+          role: 'user',
+          content: 'x'.repeat(128),
+        })),
     };
-    vi.spyOn(service, 'getAgentMetadata').mockResolvedValue(hugeMetadataInput);
-    const pageReader = vi.spyOn(service, 'getAgentMessagePage');
+    const { messages: _history, ...metadataInput } = hugeMetadataInput;
+    vi.spyOn(service, 'getAgentMetadata').mockResolvedValue(metadataInput);
+    const pageReader = vi.spyOn(service, 'getAgentConversationMessagePage');
 
     const update = await nextDefinedUpdate(service, agent.id);
 
@@ -81,9 +95,15 @@ describe('AgentInstanceService incremental observable', () => {
     expect(first.message).toBeUndefined();
 
     const changedMessage: AgentInstanceMessage = {
-      id: 'turn-100000',
-      agentId: agent.id,
+      messageId: 'turn-100000',
+      turnId: 'turn-100000',
+      conversationId: agent.id,
+      originNodeId: 'test-node',
+      originSequence: 100001,
+      timestamp: 100001,
+      lamportClock: 100001,
       role: 'assistant',
+      parts: [{ type: 'text', text: 'bounded delta' }],
       content: 'bounded delta',
     };
     const next = new Promise<AgentInstanceUpdate>((resolve) => {
@@ -99,12 +119,7 @@ describe('AgentInstanceService incremental observable', () => {
     }).notifyAgentUpdate.bind(service);
     notify(agent.id, {
       ...agent,
-      messages: Array.from({ length: 100_000 }, (_, index) => ({
-        id: `historical-${index}`,
-        agentId: agent.id,
-        role: 'user' as const,
-        content: 'never serialized',
-      })),
+      messages: [],
     }, changedMessage);
 
     await expect(next).resolves.toMatchObject({

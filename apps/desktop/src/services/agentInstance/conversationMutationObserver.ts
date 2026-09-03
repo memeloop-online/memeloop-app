@@ -1,3 +1,5 @@
+import { logger } from '@services/libs/log';
+
 /**
  * A deliberately content-free notification that a durable conversation
  * projection changed.  The SQLite event log remains the only source of
@@ -21,6 +23,10 @@ type MutationMethod =
   | 'upsertConversationMetadata';
 
 type StorageMethod = (...arguments_: unknown[]) => unknown;
+
+function isStorageMethod(value: unknown): value is StorageMethod {
+  return typeof value === 'function';
+}
 
 /** Narrow storage shape needed by the observer, useful for host conformance tests. */
 export interface ConversationMutationStorage {
@@ -213,16 +219,15 @@ export function installConversationMutationObserver(
   storage: ConversationMutationStorage,
   notify: (wake: ConversationMutationWake) => void,
 ): () => void {
-  const target = storage as unknown as Record<string, unknown>;
   const originals = new Map<MutationMethod, StorageMethod>();
   let disposed = false;
 
   for (const method of MUTATION_METHODS) {
-    const original = target[method];
-    if (typeof original !== 'function') continue;
-    const originalMethod = original as StorageMethod;
+    const original: unknown = Reflect.get(storage, method);
+    if (!isStorageMethod(original)) continue;
+    const originalMethod = original;
     originals.set(method, originalMethod);
-    target[method] = async (...arguments_: unknown[]): Promise<unknown> => {
+    Reflect.set(storage, method, async (...arguments_: unknown[]): Promise<unknown> => {
       const plan = createMutationPlan(method, arguments_);
       if (!plan) return await Reflect.apply(originalMethod, storage, arguments_);
       const conversationIds = [...plan.hints.keys()];
@@ -254,21 +259,26 @@ export function installConversationMutationObserver(
           if (!ids || ids.length === 0) continue;
           try {
             notify({ conversationIds: ids, hint });
-          } catch {
+          } catch (error) {
             // A notification consumer cannot turn a committed transaction
             // into a failed storage operation.
+            logger.debug('Conversation mutation notification consumer failed', {
+              conversationIds: ids,
+              hint,
+              error,
+            });
           }
         }
       }
       return result;
-    };
+    });
   }
 
   return () => {
     if (disposed) return;
     disposed = true;
     for (const [method, original] of originals) {
-      target[method] = original;
+      Reflect.set(storage, method, original);
     }
     originals.clear();
   };

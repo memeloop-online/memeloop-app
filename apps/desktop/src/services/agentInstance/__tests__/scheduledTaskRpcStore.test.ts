@@ -1,3 +1,4 @@
+import type { ScheduledTaskRpcListRequest } from 'memeloop';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { IAgentInstanceService } from '../interface';
@@ -9,7 +10,6 @@ const task = (overrides: Partial<DesktopScheduledTask> = {}): DesktopScheduledTa
   agentInstanceId: 'agent-1',
   agentDefinitionId: 'definition-1',
   name: 'Daily review',
-  scheduleKind: 'cron',
   schedule: { kind: 'cron', expression: '0 9 * * *' },
   payload: { message: 'review' },
   enabled: true,
@@ -17,8 +17,7 @@ const task = (overrides: Partial<DesktopScheduledTask> = {}): DesktopScheduledTa
   consecutiveFailures: 0,
   runCount: 0,
   createdBy: 'settings-ui',
-  created: new Date(0).toISOString(),
-  updated: new Date(0).toISOString(),
+  updatedAt: new Date(0).toISOString(),
   state: 'active',
   executionNodeId: 'peer-local',
   executionNodeLabel: 'Desktop',
@@ -35,7 +34,7 @@ describe('Desktop scheduled-task RPC store', () => {
       .mockResolvedValueOnce({
         items: tasks.slice(0, 2),
         revision: 'revision-1',
-        next: { updatedAt: tasks[1].updated, id: tasks[1].id },
+        next: { updatedAt: tasks[1].updatedAt ?? '', id: tasks[1].id },
       })
       .mockResolvedValueOnce({ items: tasks.slice(2), revision: 'revision-1' });
     const store = createDesktopScheduledTaskStore({ listScheduledTasksPageForAgent } as unknown as IAgentInstanceService);
@@ -67,7 +66,7 @@ describe('Desktop scheduled-task RPC store', () => {
     }, { localPeerId: 'peer-local', remotePeerId: 'peer-remote' });
     expect(second.items.map(item => item.id)).toEqual(['task-3']);
     expect(listScheduledTasksPageForAgent).toHaveBeenLastCalledWith(expect.objectContaining({
-      after: { updatedAt: tasks[1].updated, id: tasks[1].id },
+      after: { updatedAt: tasks[1].updatedAt, id: tasks[1].id },
       expectedRevision: 'revision-1',
     }));
     await expect(store.list({
@@ -76,7 +75,15 @@ describe('Desktop scheduled-task RPC store', () => {
       limit: 2,
       maxBytes: 256 * 1024,
       cursor: first.nextCursor,
-    }, { localPeerId: 'peer-local', remotePeerId: 'peer-remote' })).rejects.toThrow('scheduled_task_invalid_cursor');
+    }, { localPeerId: 'peer-local', remotePeerId: 'peer-remote' })).rejects.toThrow('scheduled_task_cursor_stale');
+
+    await expect(store.list({
+      agentInstanceId: 'agent-1',
+      executionNodeId: 'peer-other',
+      limit: 2,
+      maxBytes: 256 * 1024,
+      cursor: first.nextCursor,
+    }, { localPeerId: 'peer-local', remotePeerId: 'peer-remote' })).rejects.toThrow('scheduled_task_cursor_stale');
   });
 
   it('binds cursors to the normalized state filter', async () => {
@@ -85,7 +92,7 @@ describe('Desktop scheduled-task RPC store', () => {
       listScheduledTasksPageForAgent: vi.fn().mockResolvedValue({
         items: [firstTask],
         revision: 'revision-filter',
-        next: { updatedAt: firstTask.updated, id: firstTask.id },
+        next: { updatedAt: firstTask.updatedAt ?? '', id: firstTask.id },
       }),
     } as unknown as IAgentInstanceService;
     const store = createDesktopScheduledTaskStore(service);
@@ -104,8 +111,38 @@ describe('Desktop scheduled-task RPC store', () => {
       limit: 1,
       maxBytes: 256 * 1024,
       cursor: first.nextCursor,
-    }, { localPeerId: 'peer-local', remotePeerId: 'peer-remote' })).rejects.toThrow('scheduled_task_invalid_cursor');
+    }, { localPeerId: 'peer-local', remotePeerId: 'peer-remote' })).rejects.toThrow('scheduled_task_cursor_stale');
     expect(service.listScheduledTasksPageForAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects malformed and over-sized aggregate cursors before touching storage', async () => {
+    const listScheduledTasksPageForAgent = vi.fn();
+    const store = createDesktopScheduledTaskStore({ listScheduledTasksPageForAgent } as unknown as IAgentInstanceService);
+    const request: ScheduledTaskRpcListRequest = {
+      agentInstanceId: 'agent-1',
+      executionNodeId: 'peer-local',
+      states: ['active'],
+      limit: 1,
+      maxBytes: 256 * 1024,
+    };
+
+    await expect(store.list({ ...request, cursor: 'not-a-cursor!' }, {
+      localPeerId: 'peer-local',
+      remotePeerId: 'peer-remote',
+    })).rejects.toThrow('scheduled_task_invalid_cursor');
+    await expect(store.list({ ...request, cursor: 'a'.repeat(2_049) }, {
+      localPeerId: 'peer-local',
+      remotePeerId: 'peer-remote',
+    })).rejects.toThrow('scheduled_task_invalid_cursor');
+    await expect(store.list({ ...request, agentInstanceId: 'a'.repeat(513) }, {
+      localPeerId: 'peer-local',
+      remotePeerId: 'peer-remote',
+    })).rejects.toThrow('scheduled_task_invalid_cursor');
+    await expect(store.list({ ...request, executionNodeId: 'p'.repeat(1_025) }, {
+      localPeerId: 'peer-local',
+      remotePeerId: 'peer-remote',
+    })).rejects.toThrow('scheduled_task_invalid_cursor');
+    expect(listScheduledTasksPageForAgent).not.toHaveBeenCalled();
   });
 
   it('stops before the strict response byte budget and returns a resumable cursor', async () => {
@@ -119,7 +156,7 @@ describe('Desktop scheduled-task RPC store', () => {
       revision: 'revision-bytes',
     });
     const store = createDesktopScheduledTaskStore({ listScheduledTasksPageForAgent } as unknown as IAgentInstanceService);
-    const maxBytes = 1_600;
+    const maxBytes = 2_000;
     const page = await store.list({
       agentInstanceId: 'agent-1',
       executionNodeId: 'peer-local',

@@ -10,7 +10,7 @@ import { t } from '@services/libs/i18n/placeholder';
 import { logger } from '@services/libs/log';
 import type { ToolDefinition } from 'memeloop/tools';
 import { z } from 'zod/v4';
-import type { ToolExecutionResult } from './defineToolTypes';
+import type { ToolExecutionResult } from './toolExecutionResult';
 
 /**
  * Model Context Protocol Parameter Schema

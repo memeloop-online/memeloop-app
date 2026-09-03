@@ -1,7 +1,11 @@
 import {
+  createScheduledTaskAggregatePageController,
   createScheduledTaskRpcHandler,
+  normalizeScheduledTaskAggregateStates,
   type ScheduledAgentTaskStore,
   type ScheduledTask,
+  ScheduledTaskAggregateCursorError,
+  type ScheduledTaskAggregateCursorSource,
   type ScheduledTaskRpcCreateInput,
   type ScheduledTaskRpcHandlerInput,
   type ScheduledTaskRpcListRequest,
@@ -11,25 +15,21 @@ import {
   type ScheduledTaskRpcUpdateRequest,
 } from 'memeloop';
 import type { IAgentInstanceService } from './interface';
-import type { ScheduledTask as DesktopScheduledTask } from './scheduledTaskTypes';
 
-const ALL_TASK_STATES = ['active', 'paused', 'completed', 'cancelled', 'archived'] as const;
+/** Narrow port consumed by the Core RPC handler; the worker bridge need not
+ * pretend to implement unrelated renderer/service methods. */
+export type ScheduledTaskServicePort = Pick<
+  IAgentInstanceService,
+  | 'getScheduledTaskByScope'
+  | 'listScheduledTasksPageForAgent'
+  | 'createScheduledTask'
+  | 'updateScheduledTaskScoped'
+  | 'deleteScheduledTaskScoped'
+  | 'getCronPreviewDates'
+>;
+
 const MAX_LIST_BYTES = 256 * 1024;
 const MAX_STORAGE_SCAN_ROWS = 4;
-const MAX_CURSOR_CHARACTERS = 2_048;
-const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
-
-interface ScheduleCursor {
-  version: 2;
-  agentInstanceId: string;
-  executionNodeId: string;
-  states: string[];
-  revision: string;
-  after: {
-    updatedAt: string;
-    id: string;
-  };
-}
 
 /**
  * Main-process binding for Core's strict, scoped schedule RPC contract.
@@ -37,7 +37,7 @@ interface ScheduleCursor {
  * replaced with the authenticated remote PeerId.
  */
 export function createDesktopScheduledTaskRpcHandler(
-  agentInstanceService: IAgentInstanceService,
+  agentInstanceService: ScheduledTaskServicePort,
   localPeerId: string,
 ): (input: ScheduledTaskRpcHandlerInput) => Promise<unknown> {
   return createScheduledTaskRpcHandler({
@@ -53,12 +53,12 @@ export function createDesktopScheduledTaskRpcHandler(
 }
 
 export function createDesktopScheduledTaskStore(
-  agentInstanceService: IAgentInstanceService,
+  agentInstanceService: ScheduledTaskServicePort,
 ): ScheduledAgentTaskStore {
   const findScoped = async (
     request: ScheduledTaskRpcScopedTaskRequest,
     context: ScheduledTaskRpcStoreContext,
-  ): Promise<DesktopScheduledTask | undefined> => {
+  ): Promise<ScheduledTask | undefined> => {
     context.signal?.throwIfAborted();
     const task = await agentInstanceService.getScheduledTaskByScope({
       taskId: request.taskId,
@@ -73,8 +73,21 @@ export function createDesktopScheduledTaskStore(
   return {
     async list(request: ScheduledTaskRpcListRequest, context): Promise<ScheduledTaskRpcListResponse> {
       context.signal?.throwIfAborted();
-      const states = normalizeStates(request.states);
-      const cursor = request.cursor ? decodeCursor(request.cursor, request, states) : undefined;
+      const states = normalizeScheduledTaskAggregateStates(request.states);
+      const pageController = createScheduledTaskAggregatePageController({
+        agentInstanceId: request.agentInstanceId,
+        scope: request.executionNodeId,
+        states,
+        sourceCount: 1,
+      });
+      const cursor = request.cursor === undefined ? undefined : pageController.decode(request.cursor);
+      const sourceCursor = cursor?.sources[0];
+      if (
+        cursor !== undefined &&
+        (cursor.sourceIndex !== 0 || sourceCursor === undefined || sourceCursor.done ||
+          sourceCursor.executionNodeId !== request.executionNodeId ||
+          sourceCursor.position?.kind !== 'local' || sourceCursor.revision === undefined)
+      ) throw new ScheduledTaskAggregateCursorError();
       const limit = request.limit ?? 100;
       if (!Number.isSafeInteger(request.maxBytes) || request.maxBytes < 64 || request.maxBytes > MAX_LIST_BYTES) {
         throw new Error('scheduled_task_invalid_byte_budget');
@@ -86,14 +99,28 @@ export function createDesktopScheduledTaskStore(
         // A task payload can approach 32 KiB. Never materialize an entire
         // 100-row page before applying the transport byte budget.
         limit: Math.min(limit, MAX_STORAGE_SCAN_ROWS),
-        after: cursor?.after,
-        expectedRevision: cursor?.revision,
+        after: sourceCursor?.position?.kind === 'local'
+          ? { updatedAt: sourceCursor.position.updatedAt, id: sourceCursor.position.id }
+          : undefined,
+        expectedRevision: sourceCursor?.revision,
         signal: context.signal,
       });
       context.signal?.throwIfAborted();
-      const mapped = page.items.map(toRpcScheduledTask);
+      const mapped = page.items;
       const items: ScheduledTask[] = [];
       let nextCursor: string | undefined;
+      const encodeCursor = (after: { updatedAt: string; id: string }): string =>
+        pageController.encodePage({
+          sourceIndex: 0,
+          sources: [
+            {
+              executionNodeId: request.executionNodeId,
+              done: false,
+              position: { kind: 'local', ...after },
+              revision: page.revision,
+            } satisfies ScheduledTaskAggregateCursorSource,
+          ],
+        });
       for (let index = 0; index < mapped.length; index += 1) {
         const source = page.items[index];
         const mappedTask = mapped[index];
@@ -101,7 +128,12 @@ export function createDesktopScheduledTaskStore(
         const candidateItems = [...items, mappedTask];
         const hasMoreAfter = index + 1 < mapped.length || page.next !== undefined;
         const candidateCursor = hasMoreAfter
-          ? encodeCursor(request, states, page.revision, { updatedAt: source.updated, id: source.id })
+          ? encodeCursor({
+            updatedAt: source.updatedAt ?? (() => {
+              throw new Error('scheduled_task_missing_updated_at');
+            })(),
+            id: source.id,
+          })
           : undefined;
         const candidate = {
           items: candidateItems,
@@ -114,6 +146,9 @@ export function createDesktopScheduledTaskStore(
       }
       if (mapped.length > 0 && items.length === 0) throw new Error('scheduled_task_page_item_exceeds_byte_budget');
       const hasMoreAfter = items.length < mapped.length || page.next !== undefined;
+      if (hasMoreAfter && nextCursor === undefined && page.next !== undefined) {
+        nextCursor = encodeCursor(page.next);
+      }
       const response = {
         items,
         ...(hasMoreAfter && nextCursor ? { nextCursor } : {}),
@@ -126,7 +161,7 @@ export function createDesktopScheduledTaskStore(
     },
 
     async get(request, context): Promise<ScheduledTask | undefined> {
-      return toOptionalRpcTask(await findScoped(request, context));
+      return await findScoped(request, context);
     },
 
     async create(input: ScheduledTaskRpcCreateInput, context: ScheduledTaskRpcStoreContext): Promise<ScheduledTask> {
@@ -147,7 +182,7 @@ export function createDesktopScheduledTaskStore(
         originNodeId: context.remotePeerId,
       }, { signal: context.signal });
       context.signal?.throwIfAborted();
-      return toRpcScheduledTask(task);
+      return task;
     },
 
     async update(request: ScheduledTaskRpcUpdateRequest, context): Promise<ScheduledTask> {
@@ -173,7 +208,7 @@ export function createDesktopScheduledTaskStore(
         { signal: context.signal },
       );
       context.signal?.throwIfAborted();
-      return toRpcScheduledTask(task);
+      return task;
     },
 
     async delete(request, context): Promise<void> {
@@ -186,112 +221,4 @@ export function createDesktopScheduledTaskStore(
       context.signal?.throwIfAborted();
     },
   };
-}
-
-function toOptionalRpcTask(task: DesktopScheduledTask | undefined): ScheduledTask | undefined {
-  return task ? toRpcScheduledTask(task) : undefined;
-}
-
-function toRpcScheduledTask(task: DesktopScheduledTask): ScheduledTask {
-  return {
-    id: task.id,
-    agentInstanceId: task.agentInstanceId,
-    agentDefinitionId: task.agentDefinitionId,
-    name: task.name,
-    schedule: task.schedule,
-    payload: task.payload,
-    activeHoursStart: task.activeHoursStart,
-    activeHoursEnd: task.activeHoursEnd,
-    enabled: task.enabled,
-    createdBy: task.createdBy,
-    state: task.state,
-    executionNodeId: task.executionNodeId,
-    executionNodeLabel: task.executionNodeLabel,
-    originNodeId: task.originNodeId,
-    updatedAt: task.updated,
-    nextRunAt: task.nextRunAt,
-    lastRunAt: task.lastRunAt,
-    lastRunStatus: task.lastRunStatus,
-    lastError: task.lastError,
-    lastFailureAt: task.lastFailureAt,
-    consecutiveFailures: task.consecutiveFailures,
-    nextRetryAt: task.nextRetryAt,
-    runCount: task.runCount,
-    maxRuns: task.maxRuns,
-    deleteAfterRun: task.deleteAfterRun,
-    executionRevision: task.executionRevision,
-    occurrenceId: task.occurrenceId,
-    occurrenceScheduledFor: task.occurrenceScheduledFor,
-    occurrenceAttempt: task.occurrenceAttempt,
-  };
-}
-
-function normalizeStates(states: ScheduledTaskRpcListRequest['states']): (typeof ALL_TASK_STATES)[number][] {
-  const source: readonly string[] = states?.length ? states : ['active'];
-  const normalized = source.map((state) => {
-    if (!(ALL_TASK_STATES as readonly string[]).includes(state)) {
-      throw new Error('scheduled_task_invalid_state');
-    }
-    return state as (typeof ALL_TASK_STATES)[number];
-  });
-  return normalized.sort();
-}
-
-function encodeCursor(
-  request: ScheduledTaskRpcListRequest,
-  states: string[],
-  revision: string,
-  after: ScheduleCursor['after'],
-): string {
-  return Buffer.from(JSON.stringify(
-    {
-      version: 2,
-      agentInstanceId: request.agentInstanceId,
-      executionNodeId: request.executionNodeId,
-      states,
-      revision,
-      after,
-    } satisfies ScheduleCursor,
-  )).toString('base64url');
-}
-
-function decodeCursor(
-  value: string,
-  request: ScheduledTaskRpcListRequest,
-  states: string[],
-): ScheduleCursor {
-  if (value.length < 1 || value.length > MAX_CURSOR_CHARACTERS || !BASE64URL_PATTERN.test(value)) {
-    throw new Error('scheduled_task_invalid_cursor');
-  }
-  let cursor: unknown;
-  try {
-    cursor = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
-  } catch {
-    throw new Error('scheduled_task_invalid_cursor');
-  }
-  if (
-    !cursor ||
-    typeof cursor !== 'object' ||
-    Array.isArray(cursor) ||
-    Object.keys(cursor).some(key => !['version', 'agentInstanceId', 'executionNodeId', 'states', 'revision', 'after'].includes(key)) ||
-    (cursor as ScheduleCursor).version !== 2 ||
-    (cursor as ScheduleCursor).agentInstanceId !== request.agentInstanceId ||
-    (cursor as ScheduleCursor).executionNodeId !== request.executionNodeId ||
-    !Array.isArray((cursor as ScheduleCursor).states) ||
-    (cursor as ScheduleCursor).states.length !== states.length ||
-    (cursor as ScheduleCursor).states.some((state, index) => state !== states[index]) ||
-    typeof (cursor as ScheduleCursor).revision !== 'string' ||
-    (cursor as ScheduleCursor).revision.length < 1 ||
-    (cursor as ScheduleCursor).revision.length > 512 ||
-    !(cursor as ScheduleCursor).after ||
-    typeof (cursor as ScheduleCursor).after !== 'object' ||
-    Array.isArray((cursor as ScheduleCursor).after) ||
-    Object.keys((cursor as ScheduleCursor).after).some(key => !['updatedAt', 'id'].includes(key)) ||
-    typeof (cursor as ScheduleCursor).after.updatedAt !== 'string' ||
-    !Number.isFinite(new Date((cursor as ScheduleCursor).after.updatedAt).getTime()) ||
-    typeof (cursor as ScheduleCursor).after.id !== 'string' ||
-    (cursor as ScheduleCursor).after.id.length < 1 ||
-    (cursor as ScheduleCursor).after.id.length > 512
-  ) throw new Error('scheduled_task_invalid_cursor');
-  return cursor as ScheduleCursor;
 }

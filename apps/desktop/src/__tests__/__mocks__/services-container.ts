@@ -12,6 +12,7 @@ import { ProviderRegistryService } from '@services/providerRegistry';
 import type { IProviderRegistryService } from '@services/providerRegistry/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
 import type { IWindowService } from '@services/windows/interface';
+import type { ModelAssignments, ProviderAccountConfig } from 'memeloop';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { vi } from 'vitest';
 
@@ -50,8 +51,16 @@ export const serviceInstances: {
     } as Partial<IPreferenceService>;
   })(),
   externalAPI: {
-    getAIConfig: vi.fn(async () => ({ default: { model: 'test-model', provider: 'test-provider' }, modelParameters: {} })),
-    getAIProviders: vi.fn(async () => []),
+    getModelAssignments: vi.fn(async () => ({
+      default: { modelId: 'test-model', providerId: 'test-provider' },
+    })),
+    getProviderAccounts: vi.fn(async () => []),
+    getOfficialProviderAccounts: vi.fn(async () => []),
+    isAIAvailable: vi.fn(async () => false),
+    modelAssignments$: new BehaviorSubject<ModelAssignments>({
+      default: { modelId: 'test-model', providerId: 'test-provider' },
+    }),
+    providerAccounts$: new BehaviorSubject<readonly ProviderAccountConfig[]>([]),
     generateFromAI: vi.fn(async function*(): AsyncGenerator<AIStreamResponse, void, unknown> {
       // harmless await for linter
       await Promise.resolve();
@@ -79,8 +88,8 @@ export const serviceInstances: {
     cancelAIRequest: vi.fn(async () => undefined),
     updateProvider: vi.fn(async () => undefined),
     deleteProvider: vi.fn(async () => undefined),
-    updateDefaultAIConfig: vi.fn(async () => undefined),
-    deleteFieldFromDefaultAIConfig: vi.fn(async () => undefined),
+    updateModelAssignments: vi.fn(async () => undefined),
+    deleteModelAssignment: vi.fn(async () => undefined),
   },
   toolPermissions: {
     getPermissions: vi.fn(async () => []),

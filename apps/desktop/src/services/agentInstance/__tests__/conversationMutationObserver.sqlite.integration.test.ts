@@ -60,6 +60,7 @@ function event(conversationId: string, messageId: string, originSequence: number
     lamportClock: originSequence,
     timestamp: originSequence,
     role: 'user',
+    parts: [{ type: 'text', text: messageId }],
     content: messageId,
   };
   return messageToConversationEvent(message);

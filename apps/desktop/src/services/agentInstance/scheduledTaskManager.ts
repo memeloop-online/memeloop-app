@@ -12,8 +12,8 @@ import type {
   ListScheduledTasksPageForAgentInput,
   ScheduledTask,
   ScheduledTaskCallOptions,
-  ScheduledTaskPage,
   ScheduledTaskScope,
+  ScheduledTaskStoragePage,
   UpdateScheduledTaskInput,
 } from './scheduledTaskTypes';
 
@@ -53,74 +53,42 @@ async function requireLocalIdentity(): Promise<{ peerId: string; deviceName?: st
 }
 
 function entityToDto(entity: ScheduledTaskEntity): ScheduledTask {
-  return {
+  const task: ScheduledTask = {
     id: entity.id,
     agentInstanceId: entity.agentInstanceId,
     agentDefinitionId: entity.agentDefinitionId,
     name: entity.name,
-    scheduleKind: entity.scheduleKind,
     schedule: entity.schedule,
     payload: entity.payload ?? undefined,
     enabled: entity.enabled,
-    deleteAfterRun: entity.deleteAfterRun,
     activeHoursStart: entity.activeHoursStart ?? undefined,
     activeHoursEnd: entity.activeHoursEnd ?? undefined,
-    lastRunAt: entity.lastRunAt?.toISOString(),
-    lastRunStatus: entity.lastRunStatus,
-    lastError: entity.lastError ?? undefined,
-    lastFailureAt: entity.lastFailureAt?.toISOString(),
-    consecutiveFailures: entity.consecutiveFailures,
-    nextRetryAt: entity.nextRetryAt?.toISOString(),
-    nextRunAt: entity.nextRunAt?.toISOString(),
-    runCount: entity.runCount,
-    maxRuns: entity.maxRuns,
     createdBy: entity.createdBy,
-    created: entity.created?.toISOString() ?? new Date().toISOString(),
-    updated: entity.updated?.toISOString() ?? new Date().toISOString(),
     state: entity.state,
     executionNodeId: entity.executionNodeId,
     executionNodeLabel: entity.executionNodeLabel ?? undefined,
     originNodeId: entity.originNodeId,
-    executionRevision: entity.executionRevision,
-    occurrenceId: entity.occurrenceId ?? undefined,
-    occurrenceScheduledFor: entity.occurrenceScheduledFor?.toISOString(),
-    occurrenceAttempt: entity.occurrenceAttempt,
+    updatedAt: entity.updated?.toISOString(),
   };
+  if (entity.nextRunAt) task.nextRunAt = entity.nextRunAt.toISOString();
+  if (entity.lastRunAt) task.lastRunAt = entity.lastRunAt.toISOString();
+  if (entity.lastRunStatus) task.lastRunStatus = entity.lastRunStatus;
+  if (entity.lastError !== null) task.lastError = entity.lastError;
+  if (entity.lastFailureAt) task.lastFailureAt = entity.lastFailureAt.toISOString();
+  if (entity.consecutiveFailures > 0) task.consecutiveFailures = entity.consecutiveFailures;
+  if (entity.nextRetryAt) task.nextRetryAt = entity.nextRetryAt.toISOString();
+  if (entity.runCount > 0) task.runCount = entity.runCount;
+  if (entity.maxRuns !== undefined) task.maxRuns = entity.maxRuns;
+  if (entity.deleteAfterRun) task.deleteAfterRun = entity.deleteAfterRun;
+  if (entity.executionRevision > 0) task.executionRevision = entity.executionRevision;
+  if (entity.occurrenceId !== null) task.occurrenceId = entity.occurrenceId;
+  if (entity.occurrenceScheduledFor) task.occurrenceScheduledFor = entity.occurrenceScheduledFor.toISOString();
+  if (entity.occurrenceAttempt > 0) task.occurrenceAttempt = entity.occurrenceAttempt;
+  return task;
 }
 
 function toCoreTask(entity: ScheduledTaskEntity): CoreScheduledTask {
-  const task = entityToDto(entity);
-  return {
-    id: task.id,
-    agentInstanceId: task.agentInstanceId,
-    agentDefinitionId: task.agentDefinitionId,
-    name: task.name,
-    schedule: task.schedule,
-    payload: task.payload,
-    activeHoursStart: task.activeHoursStart,
-    activeHoursEnd: task.activeHoursEnd,
-    enabled: task.enabled,
-    createdBy: task.createdBy,
-    state: task.state,
-    executionNodeId: task.executionNodeId,
-    executionNodeLabel: task.executionNodeLabel,
-    originNodeId: task.originNodeId,
-    executionRevision: task.executionRevision,
-    occurrenceId: task.occurrenceId,
-    occurrenceScheduledFor: task.occurrenceScheduledFor,
-    occurrenceAttempt: task.occurrenceAttempt,
-    updatedAt: task.updated,
-    nextRunAt: task.nextRunAt,
-    lastRunAt: task.lastRunAt,
-    lastRunStatus: task.lastRunStatus,
-    lastError: task.lastError,
-    lastFailureAt: task.lastFailureAt,
-    consecutiveFailures: task.consecutiveFailures,
-    nextRetryAt: task.nextRetryAt,
-    runCount: task.runCount,
-    maxRuns: task.maxRuns,
-    deleteAfterRun: task.deleteAfterRun,
-  };
+  return entityToDto(entity);
 }
 
 interface RestoreCursor {
@@ -185,7 +153,6 @@ async function ensureExecutionCoordinator(): Promise<ScheduledTaskExecutionCoord
         })));
         const items = entities.filter(item => !item.volatile).map(item => ({
           ...item.task,
-          updatedAt: item.task.updated,
         }));
         return {
           items,
@@ -330,12 +297,12 @@ export async function addTask(
   const metadata = await agentInstanceService?.getAgentMetadata(input.agentInstanceId);
   options.signal?.throwIfAborted();
   if (!metadata) throw new Error('scheduled_task_agent_unavailable');
-  if (metadata.volatile || metadata.isSubAgent) throw new Error('scheduled_task_volatile_agent');
-  if (input.agentDefinitionId && input.agentDefinitionId !== metadata.agentDefId) {
+  if (metadata.volatile) throw new Error('scheduled_task_volatile_agent');
+  if (input.agentDefinitionId !== metadata.agentDefId) {
     throw new Error('scheduled_task_agent_definition_mismatch');
   }
   const agentDefinitionId = metadata.agentDefId;
-  const name = input.name ?? `${metadata.name || input.agentInstanceId} schedule`;
+  const name = input.name;
   if (!agentDefinitionId) throw new Error('scheduled_task_definition_unavailable');
   const executionNodeId = input.executionNodeId ?? identity.peerId;
   if (executionNodeId !== identity.peerId) {
@@ -350,14 +317,13 @@ export async function addTask(
     schedule: input.schedule,
     payload: input.payload ?? null,
     enabled: input.enabled ?? true,
-    state: input.state ?? (input.enabled === false ? 'paused' : 'active'),
+    state: input.enabled === false ? 'paused' : 'active',
     executionNodeId,
     executionNodeLabel: input.executionNodeLabel ?? identity.deviceName ?? null,
     originNodeId: input.originNodeId ?? identity.peerId,
-    deleteAfterRun: input.deleteAfterRun ?? input.schedule.kind === 'at',
+    deleteAfterRun: input.schedule.kind === 'at',
     activeHoursStart: input.activeHoursStart ?? null,
     activeHoursEnd: input.activeHoursEnd ?? null,
-    maxRuns: input.maxRuns,
     createdBy: input.createdBy ?? 'settings-ui',
     runCount: 0,
     consecutiveFailures: 0,
@@ -381,6 +347,7 @@ function applyUpdate(entity: ScheduledTaskEntity, input: UpdateScheduledTaskInpu
   if (input.schedule !== undefined) {
     entity.schedule = input.schedule;
     entity.scheduleKind = input.schedule.kind;
+    entity.deleteAfterRun = input.schedule.kind === 'at';
   }
   if (input.scheduleKind !== undefined && input.scheduleKind !== entity.schedule.kind) {
     throw new Error('scheduled_task_schedule_kind_mismatch');
@@ -388,13 +355,10 @@ function applyUpdate(entity: ScheduledTaskEntity, input: UpdateScheduledTaskInpu
   if (input.name !== undefined) entity.name = input.name;
   if (Object.hasOwn(input, 'payload')) entity.payload = input.payload ?? null;
   if (input.enabled !== undefined) entity.enabled = input.enabled;
-  if (input.state !== undefined) entity.state = input.state;
-  else if (input.enabled !== undefined) entity.state = input.enabled ? 'active' : 'paused';
+  if (input.enabled !== undefined) entity.state = input.enabled ? 'active' : 'paused';
   if (Object.hasOwn(input, 'executionNodeLabel')) entity.executionNodeLabel = input.executionNodeLabel ?? null;
-  if (input.deleteAfterRun !== undefined) entity.deleteAfterRun = input.deleteAfterRun;
   if (Object.hasOwn(input, 'activeHoursStart')) entity.activeHoursStart = input.activeHoursStart ?? null;
   if (Object.hasOwn(input, 'activeHoursEnd')) entity.activeHoursEnd = input.activeHoursEnd ?? null;
-  if (input.maxRuns !== undefined) entity.maxRuns = input.maxRuns;
   validateSchedule(entity);
   return entity;
 }
@@ -548,7 +512,7 @@ export async function getActiveTasksForAgent(
 export async function getScheduledTasksPageForAgent(
   input: ListScheduledTasksPageForAgentInput,
   internal: { allAgents?: boolean } = {},
-): Promise<ScheduledTaskPage> {
+): Promise<ScheduledTaskStoragePage> {
   const repository = requireRepository();
   input.signal?.throwIfAborted();
   if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100) {

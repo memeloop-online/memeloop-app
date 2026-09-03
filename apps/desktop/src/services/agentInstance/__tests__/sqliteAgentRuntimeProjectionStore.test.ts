@@ -57,9 +57,19 @@ describe('desktop SQLite agent RPC projections', () => {
     database.prepare(`
       INSERT INTO messages (
         messageId, conversationId, originNodeId, originSequence, turnId,
-        timestamp, lamportClock, role, content
-      ) VALUES (?, ?, 'desktop-node', ?, ?, ?, ?, ?, ?)
-    `).run(messageId, conversationId, timestamp, turnId, timestamp, timestamp, role, content);
+        timestamp, lamportClock, role, content, partsJson
+      ) VALUES (?, ?, 'desktop-node', ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      messageId,
+      conversationId,
+      timestamp,
+      turnId,
+      timestamp,
+      timestamp,
+      role,
+      content,
+      JSON.stringify([{ type: 'text', text: content }]),
+    );
   }
 
   function projections() {
@@ -80,7 +90,7 @@ describe('desktop SQLite agent RPC projections', () => {
         }
         const timelineItems = [
           {
-            kind: 'turn' as const,
+            kind: 'message' as const,
             entryId: 'turn-1',
             messageId: 'turn-1',
             turnId: 'turn-1',
@@ -91,12 +101,13 @@ describe('desktop SQLite agent RPC projections', () => {
             cursor: 'timeline-1',
             entryIndex: 0,
             turnIndex: 0,
-            userPreview: 'question',
-            participantPreviews: [],
-            responseCount: 2,
+            role: 'user' as const,
+            actorId: 'user',
+            actorLabel: 'User',
+            preview: 'question',
           },
           {
-            kind: 'turn' as const,
+            kind: 'message' as const,
             entryId: 'turn-2',
             messageId: 'turn-2',
             turnId: 'turn-2',
@@ -107,9 +118,10 @@ describe('desktop SQLite agent RPC projections', () => {
             cursor: 'timeline-2',
             entryIndex: 1,
             turnIndex: 1,
-            userPreview: 'second question',
-            participantPreviews: [],
-            responseCount: 0,
+            role: 'user' as const,
+            actorId: 'user',
+            actorLabel: 'User',
+            preview: 'second question',
           },
         ];
         const suppliedCursor = options.beforeCursor ?? options.afterCursor;

@@ -1,18 +1,25 @@
+import type { AgentDefinition } from 'memeloop';
 import { describe, expect, it } from 'vitest';
 import { createAgentInstanceData } from '../utilities';
 
 describe('createAgentInstanceData', () => {
   it('should create agent instance with undefined agentFrameworkConfig (fallback to definition)', () => {
-    const agentDefinition = {
+    const agentDefinition: AgentDefinition = {
       id: 'test-agent-def',
       name: 'Test Agent',
+      description: 'Test agent',
+      systemPrompt: 'You are a helpful assistant.',
+      tools: [],
+      version: '1.0.0',
       agentFrameworkConfig: {
         prompts: [
           {
+            id: 'system',
             text: 'You are a helpful assistant.',
             role: 'system',
           },
         ],
+        plugins: [],
       },
       agentFrameworkID: 'basicPromptConcatHandler',
     };
@@ -26,11 +33,15 @@ describe('createAgentInstanceData', () => {
   });
 
   it('should create agent instance with undefined agentFrameworkConfig even when definition has required agentFrameworkConfig', () => {
-    const agentDefinition = {
+    const agentDefinition: AgentDefinition = {
       id: 'test-agent-def-no-config',
       name: 'Test Agent No Config',
+      description: 'Test agent',
+      systemPrompt: 'You are a helpful assistant.',
+      tools: [],
+      version: '1.0.0',
       agentFrameworkID: 'basicPromptConcatHandler',
-      agentFrameworkConfig: {}, // Required by AgentDefinition interface
+      agentFrameworkConfig: { prompts: [], plugins: [] },
     };
 
     const { instanceData } = createAgentInstanceData(agentDefinition);

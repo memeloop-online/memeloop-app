@@ -3,7 +3,7 @@ import { type DefinedTool, type PromptConcatTool, type ToolDefinition, ToolDefin
 
 import { DynamicPositionParameterSchema } from '../promptConcat/modifiers/dynamicPosition';
 import { FullReplacementParameterSchema } from '../promptConcat/modifiers/fullReplacement';
-import { alarmClockToolDefinition } from './alarmClock';
+import { scheduledTaskToolDefinition } from './alarmClock';
 import { askQuestionToolDefinition } from './askQuestion';
 import { editAgentDefinitionToolDefinition } from './editAgentDefinition';
 import { modelContextProtocolToolDefinition } from './modelContextProtocol';
@@ -15,7 +15,7 @@ import { WorkerToolBridgeRegistry } from './workerToolBridge';
 const APP_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   modelContextProtocolToolDefinition,
   summaryToolDefinition,
-  alarmClockToolDefinition,
+  scheduledTaskToolDefinition,
   editAgentDefinitionToolDefinition,
   askQuestionToolDefinition,
   webFetchToolDefinition,

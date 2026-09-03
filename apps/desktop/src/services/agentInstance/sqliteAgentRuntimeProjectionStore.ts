@@ -4,11 +4,18 @@ import {
   AGENT_DEVICE_RPC_LIMITS,
   type AgentRuntimeRpcProjectionStore,
   type AgentRuntimeRpcStorage,
+  assertCanonicalChatMessageProjection,
   canonicalJsonBytes,
   type ChatMessage,
+  type ConversationListProjectionCursor,
   type ConversationMessageCursor,
+  type ConversationMessageListProjection,
   type ConversationMeta,
+  decodeConversationProjectionCursor,
+  encodeConversationProjectionCursor,
   projectConversationMessageForList,
+  type TurnDetailProjectionCursor,
+  type TurnListProjectionCursor,
 } from 'memeloop';
 
 interface SqliteStatement {
@@ -65,26 +72,6 @@ interface MessageIndexRow extends ConversationMessageCursor {
   turnId: string;
 }
 
-interface ConversationCursor {
-  v: 1;
-  scope: string;
-  timestamp: number;
-  conversationId: string;
-}
-
-interface TurnDetailCursor extends ConversationMessageCursor {
-  v: 1;
-  conversationId: string;
-  turnId: string;
-}
-
-interface TurnListCursor {
-  v: 1;
-  conversationId: string;
-  revision: string;
-  timelineCursor: string;
-}
-
 const MAX_TURN_MESSAGE_PROJECTION_BYTES = AGENT_DEVICE_RPC_LIMITS.messageProjectionBytes;
 
 function jsonBytes(value: unknown): number {
@@ -99,47 +86,19 @@ function scopeDigest(scopeKey: string): string {
   return createHash('sha256').update(scopeKey).digest('base64url');
 }
 
-function encodeCursor(value: ConversationCursor | TurnDetailCursor | TurnListCursor): string {
-  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
-}
-
-function decodeCursor<T>(value: string | undefined, guard: (candidate: unknown) => candidate is T): T | undefined {
-  if (!value || value.length > 4096) return undefined;
-  try {
-    const parsed: unknown = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
-    return guard(parsed) ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function isConversationCursor(value: unknown): value is ConversationCursor {
-  return isRecord(value) && value.v === 1 && typeof value.scope === 'string' &&
-    Number.isSafeInteger(value.timestamp) && typeof value.conversationId === 'string';
-}
-
-function isTurnDetailCursor(value: unknown): value is TurnDetailCursor {
-  return isRecord(value) && value.v === 1 && typeof value.conversationId === 'string' &&
-    typeof value.turnId === 'string' && typeof value.messageId === 'string' &&
-    typeof value.originNodeId === 'string' && Number.isSafeInteger(value.timestamp) &&
-    Number.isSafeInteger(value.lamportClock);
-}
-
-function isTurnListCursor(value: unknown): value is TurnListCursor {
-  return isRecord(value) && value.v === 1 && typeof value.conversationId === 'string' &&
-    typeof value.revision === 'string' && typeof value.timelineCursor === 'string';
-}
-
 function assertSqliteStorage(storage: AgentRuntimeRpcStorage): ProjectionCapableStorage {
-  const database = (storage as unknown as { db?: Partial<SqliteDatabase> }).db;
-  if (!database || typeof database.prepare !== 'function' || typeof database.transaction !== 'function') {
+  if (!isProjectionCapableStorage(storage)) {
     throw new Error('memeloop_sqlite_projection_database_unavailable');
   }
-  return storage as ProjectionCapableStorage;
+  return storage;
+}
+
+function isProjectionCapableStorage(storage: AgentRuntimeRpcStorage): storage is ProjectionCapableStorage {
+  if (typeof storage !== 'object' || storage === null) return false;
+  const database: unknown = Reflect.get(storage, 'db');
+  if (typeof database !== 'object' || database === null) return false;
+  return typeof Reflect.get(database, 'prepare') === 'function' &&
+    typeof Reflect.get(database, 'transaction') === 'function';
 }
 
 function conversationMeta(row: ConversationRow): ConversationMeta {
@@ -163,7 +122,7 @@ function conversationMeta(row: ConversationRow): ConversationMeta {
 }
 
 function chatMessage(row: MessageRow): ChatMessage {
-  return {
+  const message: unknown = {
     messageId: row.messageId,
     conversationId: row.conversationId,
     originNodeId: row.originNodeId,
@@ -173,16 +132,27 @@ function chatMessage(row: MessageRow): ChatMessage {
     lamportClock: row.lamportClock,
     role: row.role,
     content: row.content,
-    ...(row.partsJson ? { parts: JSON.parse(row.partsJson) as ChatMessage['parts'] } : {}),
-    ...(row.toolCallsJson ? { toolCalls: JSON.parse(row.toolCallsJson) as ChatMessage['toolCalls'] } : {}),
-    ...(row.attachmentsJson ? { attachments: JSON.parse(row.attachmentsJson) as ChatMessage['attachments'] } : {}),
-    ...(row.detailRefJson ? { detailRef: JSON.parse(row.detailRefJson) as ChatMessage['detailRef'] } : {}),
+    parts: parseStoredJson(row.partsJson, row.messageId, 'parts'),
+    ...(row.toolCallsJson ? { toolCalls: parseStoredJson(row.toolCallsJson, row.messageId, 'toolCalls') } : {}),
+    ...(row.attachmentsJson ? { attachments: parseStoredJson(row.attachmentsJson, row.messageId, 'attachments') } : {}),
+    ...(row.detailRefJson ? { detailRef: parseStoredJson(row.detailRefJson, row.messageId, 'detailRef') } : {}),
     ...(row.reasoningContent === null ? {} : { reasoning_content: row.reasoningContent }),
     ...(row.contentType === null ? {} : { contentType: row.contentType }),
     ...(row.hidden === null ? {} : { hidden: Boolean(row.hidden) }),
     ...(row.duration === null ? {} : { duration: row.duration }),
-    ...(row.metadataJson ? { metadata: JSON.parse(row.metadataJson) as ChatMessage['metadata'] } : {}),
+    ...(row.metadataJson ? { metadata: parseStoredJson(row.metadataJson, row.messageId, 'metadata') } : {}),
   };
+  assertCanonicalChatMessageProjection(message, row.conversationId);
+  return message;
+}
+
+function parseStoredJson(value: string | null, messageId: string, field: string): unknown {
+  if (value === null) throw new Error(`message ${messageId} has no stored ${field} JSON`);
+  try {
+    return JSON.parse(value) as unknown;
+  } catch (error) {
+    throw new Error(`message ${messageId} has invalid stored ${field} JSON`, { cause: error });
+  }
 }
 
 function placeholders(values: readonly string[]): string {
@@ -229,11 +199,23 @@ export function createDesktopAgentRuntimeProjectionStore(
       const limit = Math.min(request.limit ?? 50, AGENT_DEVICE_RPC_LIMITS.conversationListPage);
       const direction = request.direction ?? 'backward';
       const digest = scopeDigest(context.scopeKey);
-      const supplied = decodeCursor(request.cursor, isConversationCursor);
-      if (request.cursor !== undefined && (!supplied || supplied.scope !== digest)) {
-        throw new Error('conversation_projection_cursor_invalid');
+      // This endpoint has no durable directory revision in its contract; bind
+      // the cursor to the scope/query digest so it cannot cross grant scopes.
+      const projectionRevision = digest;
+      let supplied: ConversationListProjectionCursor | undefined;
+      if (request.cursor !== undefined) {
+        try {
+          const decoded = decodeConversationProjectionCursor(request.cursor, {
+            kind: 'conversation-list',
+            revision: projectionRevision,
+            queryDigest: digest,
+          });
+          supplied = decoded.kind === 'conversation-list' ? decoded : undefined;
+        } catch {
+          throw new Error('conversation_projection_cursor_invalid');
+        }
       }
-      const cursor = supplied?.scope === digest ? supplied : undefined;
+      const cursor = supplied;
       const scope = scopedConversationWhere(context);
       const readingForward = direction === 'forward';
       const conditions = [scope.sql];
@@ -258,9 +240,11 @@ export function createDesktopAgentRuntimeProjectionStore(
       let items = rows.map(conversationMeta);
       let byteTrimmed = false;
       const cursorFor = (row: ConversationRow): string =>
-        encodeCursor({
-          v: 1,
-          scope: digest,
+        encodeConversationProjectionCursor({
+          version: 1,
+          kind: 'conversation-list',
+          revision: projectionRevision,
+          queryDigest: digest,
           timestamp: row.lastMessageTimestamp,
           conversationId: row.conversationId,
         });
@@ -275,8 +259,18 @@ export function createDesktopAgentRuntimeProjectionStore(
           ...(last ? { nextCursor: cursorFor(last) } : {}),
           ...(request.seenCursor === undefined ? {} : {
             seenCursorFound: (() => {
-              const seen = decodeCursor(request.seenCursor, isConversationCursor);
-              if (!seen || seen.scope !== digest) return false;
+              let seen: ConversationListProjectionCursor;
+              try {
+                const decoded = decodeConversationProjectionCursor(request.seenCursor, {
+                  kind: 'conversation-list',
+                  revision: projectionRevision,
+                  queryDigest: digest,
+                });
+                if (decoded.kind !== 'conversation-list') return false;
+                seen = decoded;
+              } catch {
+                return false;
+              }
               return database.prepare(`
                 SELECT 1 FROM conversations
                 WHERE ${scope.sql} AND lastMessageTimestamp = ? AND conversationId = ?
@@ -312,12 +306,18 @@ export function createDesktopAgentRuntimeProjectionStore(
         AGENT_DEVICE_RPC_LIMITS.timelinePageMaxBytes,
       );
       const readingForward = request.direction === 'forward';
-      const supplied = decodeCursor(request.cursor, isTurnListCursor);
-      if (
-        request.cursor !== undefined && (
-          !supplied || supplied.conversationId !== request.conversationId
-        )
-      ) throw new Error('conversation_turn_projection_cursor_invalid');
+      let supplied: TurnListProjectionCursor | undefined;
+      if (request.cursor !== undefined) {
+        try {
+          const decoded = decodeConversationProjectionCursor(request.cursor, {
+            kind: 'turn-list',
+            conversationId: request.conversationId,
+          });
+          supplied = decoded.kind === 'turn-list' ? decoded : undefined;
+        } catch {
+          throw new Error('conversation_turn_projection_cursor_invalid');
+        }
+      }
       const page = await storage.getConversationTimelinePage(request.conversationId, {
         limit,
         maxBytes,
@@ -331,16 +331,27 @@ export function createDesktopAgentRuntimeProjectionStore(
       context.signal?.throwIfAborted();
       if (page.reset) throw new Error('conversation_turn_projection_cursor_reset');
       const cursorFor = (timelineCursor: string): string =>
-        encodeCursor({
-          v: 1,
+        encodeConversationProjectionCursor({
+          version: 1,
+          kind: 'turn-list',
           conversationId: request.conversationId,
           revision: page.revision,
           timelineCursor,
         });
       let seenCursorFound: boolean | undefined;
       if (request.seenCursor !== undefined) {
-        const seen = decodeCursor(request.seenCursor, isTurnListCursor);
-        if (!seen || seen.conversationId !== request.conversationId || seen.revision !== page.revision) {
+        let seen: TurnListProjectionCursor | undefined;
+        try {
+          const decoded = decodeConversationProjectionCursor(request.seenCursor, {
+            kind: 'turn-list',
+            conversationId: request.conversationId,
+            revision: page.revision,
+          });
+          seen = decoded.kind === 'turn-list' ? decoded : undefined;
+        } catch {
+          seen = undefined;
+        }
+        if (seen === undefined) {
           seenCursorFound = false;
         } else if (page.items.some(entry => entry.cursor === seen.timelineCursor)) {
           seenCursorFound = true;
@@ -356,19 +367,26 @@ export function createDesktopAgentRuntimeProjectionStore(
         }
       }
       let items = page.items.map(entry =>
-        entry.kind === 'turn'
+        entry.kind === 'message'
           ? {
             turnId: entry.turnId,
             conversationId: entry.conversationId,
             cursor: cursorFor(entry.cursor),
             startedAt: entry.timestamp,
             updatedAt: entry.timestamp,
-            userPreview: entry.userPreview,
-            participantPreviews: entry.participantPreviews,
-            responseCount: entry.responseCount,
+            userPreview: entry.role === 'user' ? entry.preview : '',
+            participantPreviews: entry.role === 'user'
+              ? []
+              : [{
+                actorId: entry.actorId,
+                actorLabel: entry.actorLabel,
+                role: entry.role,
+                preview: entry.preview,
+              }],
+            responseCount: entry.role === 'user' ? 0 : 1,
             isCompaction: false,
             isTombstone: false,
-            detailState: 'notLoaded' as const,
+            detailState: 'summary' as const,
           }
           : {
             turnId: entry.entryId,
@@ -382,7 +400,7 @@ export function createDesktopAgentRuntimeProjectionStore(
             isCompaction: true,
             compactedMessageCount: entry.compactedMessageCount,
             isTombstone: false,
-            detailState: 'notLoaded' as const,
+            detailState: 'summary' as const,
           }
       );
       let renderLines = items.reduce((total, item) => total + 1 + item.participantPreviews.length, 0);
@@ -420,16 +438,19 @@ export function createDesktopAgentRuntimeProjectionStore(
       const limit = Math.min(request.limit ?? 50, AGENT_DEVICE_RPC_LIMITS.turnDetailPage);
       const maximumBytes = request.maxBytes ?? AGENT_DEVICE_RPC_LIMITS.turnDetailDefaultBytes;
       const readingForward = request.direction !== 'backward';
-      const supplied = decodeCursor(request.cursor, isTurnDetailCursor);
-      if (
-        request.cursor !== undefined && (
-          !supplied || supplied.conversationId !== request.conversationId ||
-          supplied.turnId !== request.turnId
-        )
-      ) throw new Error('turn_detail_projection_cursor_invalid');
-      const cursor = supplied?.conversationId === request.conversationId && supplied.turnId === request.turnId
-        ? supplied
-        : undefined;
+      let cursor: TurnDetailProjectionCursor | undefined;
+      if (request.cursor !== undefined) {
+        try {
+          const decoded = decodeConversationProjectionCursor(request.cursor, {
+            kind: 'turn-detail',
+            conversationId: request.conversationId,
+            turnId: request.turnId,
+          });
+          cursor = decoded.kind === 'turn-detail' ? decoded : undefined;
+        } catch {
+          throw new Error('turn_detail_projection_cursor_invalid');
+        }
+      }
       const result = database.transaction(() => {
         const base = `
           conversationId = ? AND turnId = ?
@@ -458,7 +479,7 @@ export function createDesktopAgentRuntimeProjectionStore(
         if (hasExtra) indexRows = indexRows.slice(0, limit);
         if (!readingForward) indexRows.reverse();
 
-        const items: ChatMessage[] = [];
+        const items: ConversationMessageListProjection[] = [];
         let byteStopped = false;
         for (const indexRow of indexRows) {
           const row = database.prepare(`
@@ -483,9 +504,10 @@ export function createDesktopAgentRuntimeProjectionStore(
         }
         const first = items[0];
         const last = items.at(-1);
-        const cursorFor = (message: ChatMessage): string =>
-          encodeCursor({
-            v: 1,
+        const cursorFor = (message: ConversationMessageListProjection): string =>
+          encodeConversationProjectionCursor({
+            version: 1,
+            kind: 'turn-detail',
             conversationId: request.conversationId,
             turnId: request.turnId,
             timestamp: message.timestamp,
@@ -493,7 +515,7 @@ export function createDesktopAgentRuntimeProjectionStore(
             originNodeId: message.originNodeId,
             messageId: message.messageId,
           });
-        const existsBeyond = (edge: ChatMessage | undefined, operator: '<' | '>'): boolean => {
+        const existsBeyond = (edge: ConversationMessageListProjection | undefined, operator: '<' | '>'): boolean => {
           if (!edge) return false;
           return database.prepare(`
             SELECT 1 FROM messages
@@ -514,11 +536,18 @@ export function createDesktopAgentRuntimeProjectionStore(
           ...(last ? { nextCursor: cursorFor(last) } : {}),
           ...(request.seenCursor === undefined ? {} : {
             seenCursorFound: (() => {
-              const seen = decodeCursor(request.seenCursor, isTurnDetailCursor);
-              if (
-                !seen || seen.conversationId !== request.conversationId ||
-                seen.turnId !== request.turnId
-              ) return false;
+              let seen: TurnDetailProjectionCursor;
+              try {
+                const decoded = decodeConversationProjectionCursor(request.seenCursor, {
+                  kind: 'turn-detail',
+                  conversationId: request.conversationId,
+                  turnId: request.turnId,
+                });
+                if (decoded.kind !== 'turn-detail') return false;
+                seen = decoded;
+              } catch {
+                return false;
+              }
               return database.prepare(`
                 SELECT 1 FROM messages WHERE ${base}
                   AND timestamp = ? AND lamportClock = ? AND originNodeId = ? AND messageId = ?

@@ -89,7 +89,7 @@ function replacementPayload(source: ChatMessage, turnId: string) {
     turnId,
     role: 'user' as const,
     content: source.content,
-    ...(source.parts === undefined ? {} : { parts: source.parts }),
+    parts: source.parts,
     ...(source.attachments === undefined ? {} : { attachments: source.attachments }),
     ...(source.metadata === undefined ? {} : { metadata: source.metadata }),
   };
@@ -140,6 +140,7 @@ async function seedSource(storage: TestSQLiteStorage): Promise<ChatMessage> {
     lamportClock: 1,
     timestamp: 1,
     role: 'user',
+    parts: [{ type: 'text', text: 'durable source content' }],
     content: 'durable source content',
     metadata: { retained: true },
   };

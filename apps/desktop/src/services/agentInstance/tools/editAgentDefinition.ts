@@ -4,6 +4,7 @@
  * Operates with approval mode "confirm" by default (user must approve each change).
  */
 import { t } from '@services/libs/i18n/placeholder';
+import type { AgentFrameworkConfig } from 'memeloop';
 import type { ToolDefinition } from 'memeloop/tools';
 import { z } from 'zod/v4';
 
@@ -119,8 +120,11 @@ export const editAgentDefinitionToolDefinition = {
         const agentDefinition = await agentDefinitionService.getAgentDef(agent.agentDefId);
         if (!agentDefinition) throw new Error(`Agent definition not found: ${agent.agentDefId}`);
 
-        const updatedConfig = {
-          ...(agentDefinition.agentFrameworkConfig ?? {}),
+        const currentConfig = agentDefinition.agentFrameworkConfig;
+        if (!currentConfig) throw new Error('Agent framework config is not configured');
+
+        const updatedConfig: AgentFrameworkConfig = {
+          ...currentConfig,
           [parameters.field]: parameters.value,
         };
 

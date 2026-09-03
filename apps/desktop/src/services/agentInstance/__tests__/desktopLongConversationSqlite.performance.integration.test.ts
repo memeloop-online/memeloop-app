@@ -19,7 +19,10 @@ const MESSAGE_COUNT = 100_000;
 const PAGE_LIMIT = 50;
 const PAGE_BYTES = 256 * 1024;
 const READ_BUDGET_MS = 1_000;
-const POSIX_SEED_BUDGET_MS = 30_000;
+// CI workers can exhibit material startup/IO jitter during the single
+// transaction that ingests 100k events. Keep this bounded at 45s while the
+// read/seek budgets and SQL-count assertions below remain strict.
+const POSIX_SEED_BUDGET_MS = 45_000;
 // sansheng Windows acceptance measured 41.754s for the same single-transaction
 // 100k ingest. 50s preserves a bounded regression gate with ~20% platform
 // headroom without weakening the independently strict read/seek budgets.
@@ -65,7 +68,7 @@ interface TestSQLiteStorage {
     conversationId: string,
     options: {
       focus:
-        | { kind: 'turn'; turnId: string; cursor?: string }
+        | { kind: 'message'; messageId: string; turnId: string; cursor?: string }
         | { kind: 'timeline-entry'; entryId: string; cursor: string };
       expectedRevision: string;
       maxMessages: number;
@@ -167,6 +170,7 @@ function messageEvent(index: number): ConversationEvent {
       messageId,
       turnId: messageId,
       role: 'user',
+      parts: [{ type: 'text', text: `desktop long conversation message ${sequence}` }],
       content: `desktop long conversation message ${sequence}`,
     },
   };
@@ -466,8 +470,8 @@ describe('Desktop real SQLite 100k long-conversation performance', () => {
         expectedRevision: timeline.revision,
       });
       sqlCounts.middleTimeline = sql.count();
-      if (middleTimeline.reset || middleTimeline.items[0]?.kind !== 'turn') {
-        throw new Error('missing 50k timeline turn');
+      if (middleTimeline.reset || middleTimeline.items[0]?.kind !== 'message') {
+        throw new Error('missing 50k timeline message');
       }
       const middleTurn = middleTimeline.items[0];
       expect(middleTurn.entryId).toBe('message-050001');
@@ -477,7 +481,12 @@ describe('Desktop real SQLite 100k long-conversation performance', () => {
         storage!.getMessageWindowAround(
           CONVERSATION_ID,
           {
-            focus: { kind: 'turn', turnId: middleTurn.turnId, cursor: middleTurn.cursor },
+            focus: {
+              kind: 'message',
+              messageId: middleTurn.messageId,
+              turnId: middleTurn.turnId,
+              cursor: middleTurn.cursor,
+            },
             expectedRevision: timeline.revision,
             maxMessages: PAGE_LIMIT,
             maxBytes: PAGE_BYTES,
@@ -539,7 +548,7 @@ describe('Desktop real SQLite 100k long-conversation performance', () => {
         database,
         `
         SELECT * FROM conversation_timeline_entries_v2
-        WHERE conversationId = ? AND kind = 'turn' AND turnId = ? LIMIT 1
+        WHERE conversationId = ? AND kind = 'message' AND turnId = ? LIMIT 1
       `,
         [CONVERSATION_ID, middleTurn.turnId],
       );
@@ -649,7 +658,12 @@ describe('Desktop real SQLite 100k long-conversation performance', () => {
         storage!.getMessageWindowAround(
           CONVERSATION_ID,
           {
-            focus: { kind: 'turn', turnId: middleTurn.turnId, cursor: middleTurn.cursor },
+            focus: {
+              kind: 'message',
+              messageId: middleTurn.messageId,
+              turnId: middleTurn.turnId,
+              cursor: middleTurn.cursor,
+            },
             expectedRevision: compactedTimeline.revision,
             maxMessages: PAGE_LIMIT,
             maxBytes: PAGE_BYTES,

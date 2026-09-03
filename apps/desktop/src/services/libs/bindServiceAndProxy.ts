@@ -24,8 +24,6 @@ import { DeepLinkService } from '@services/deepLink';
 import { DeepLinkServiceIPCDescriptor, type IDeepLinkService } from '@services/deepLink/interface';
 import { DeviceNetworkService } from '@services/deviceNetwork';
 import { DeviceNetworkServiceIPCDescriptor, type IDeviceNetworkService } from '@services/deviceNetwork/interface';
-import { ExternalAPIService } from '@services/externalAPI';
-import { ExternalAPIServiceIPCDescriptor, type IExternalAPIService } from '@services/externalAPI/interface';
 import { NativeService } from '@services/native';
 import { type INativeService, NativeServiceIPCDescriptor } from '@services/native/interface';
 import { NotificationService } from '@services/notifications';
@@ -63,7 +61,6 @@ const bindings: Array<Binding<unknown>> = [
   { id: serviceIdentifier.Database, implementation: DatabaseService, descriptor: DatabaseServiceIPCDescriptor },
   { id: serviceIdentifier.DeepLink, implementation: DeepLinkService, descriptor: DeepLinkServiceIPCDescriptor },
   { id: serviceIdentifier.DeviceNetwork, implementation: DeviceNetworkService, descriptor: DeviceNetworkServiceIPCDescriptor },
-  { id: serviceIdentifier.ExternalAPI, implementation: ExternalAPIService, descriptor: ExternalAPIServiceIPCDescriptor },
   { id: serviceIdentifier.ProviderRegistry, implementation: ProviderRegistryService, descriptor: ProviderRegistryServiceIPCDescriptor },
   { id: serviceIdentifier.NativeService, implementation: NativeService, descriptor: NativeServiceIPCDescriptor },
   { id: serviceIdentifier.NotificationService, implementation: NotificationService, descriptor: NotificationServiceIPCDescriptor },
@@ -96,7 +93,6 @@ type AppServices =
   | IDatabaseService
   | IDeepLinkService
   | IDeviceNetworkService
-  | IExternalAPIService
   | IProviderRegistryService
   | INativeService
   | INotificationService

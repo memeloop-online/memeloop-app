@@ -1,8 +1,8 @@
 import { DatabaseChannel } from '@/constants/channels';
 import type { IPreferences } from '@services/preferences/interface';
-import type { AIGlobalSettings } from '@services/providerRegistry/interface';
 import type { IToolPermissionEntry } from '@services/toolPermissions/interface';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
+import type { ProviderAccountSettings } from 'memeloop';
 import type { DataSource } from 'typeorm';
 
 export interface IAnalyticsSecretSettings {
@@ -19,7 +19,9 @@ export interface IAnalyticsSecretSettings {
 export interface ISettingFile {
   analyticsSecrets?: IAnalyticsSecretSettings;
   preferences: IPreferences;
-  aiSettings?: AIGlobalSettings;
+  aiSettings?: ProviderAccountSettings;
+  /** OS-encrypted provider credentials keyed by canonical secretRef. */
+  aiProviderSecrets?: Record<string, string>;
   'toolPermissions.blacklist'?: IToolPermissionEntry[];
   'toolPermissions.whitelist'?: IToolPermissionEntry[];
 }
