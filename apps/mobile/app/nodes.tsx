@@ -16,8 +16,10 @@ import {
 } from '../lib/deviceNetwork';
 import { MOBILE_ORCHESTRATION_CAPABILITIES } from '../lib/orchestration';
 import { createPairedDeviceOrchestrationClient } from '../lib/orchestration';
+import { getMobileLabels } from '../lib/i18n';
 
 export default function NodesScreen() {
+  const labels = getMobileLabels();
   const [network, setNetwork] = useState<MobileDeviceNetworkState>(
     mobileDeviceNetwork.getState(),
   );
@@ -41,10 +43,8 @@ export default function NodesScreen() {
       await mobileDeviceNetwork.pair(invite);
       setInvite('');
       setInviteOpen(false);
-    } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : 'Could not pair this device',
-      );
+    } catch {
+      setActionError(labels.nodes.pairFailure);
     } finally {
       setBusy(false);
     }
@@ -65,14 +65,10 @@ export default function NodesScreen() {
       const capabilities = await client.getCapabilities();
       setVerifiedPeers((current) => ({
         ...current,
-        [peerId]: `${capabilities.resourceKinds.length} resource kinds`,
+        [peerId]: labels.nodes.resourceKinds(capabilities.resourceKinds.length),
       }));
-    } catch (error) {
-      setActionError(
-        error instanceof Error
-          ? error.message
-          : 'Secure orchestration check failed',
-      );
+    } catch {
+      setActionError(labels.nodes.orchestrationFailure);
     } finally {
       setCheckingPeerId(undefined);
     }
@@ -84,19 +80,16 @@ export default function NodesScreen() {
     setActionError(undefined);
     try {
       await action();
-    } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : 'Device action failed',
-      );
+    } catch {
+      setActionError(labels.nodes.deviceActionFailure);
     }
   };
 
   return (
     <View style={styles.container}>
-      <Text variant="titleLarge" style={styles.title}>Connected Nodes</Text>
+      <Text variant="titleLarge" style={styles.title}>{labels.nodes.title}</Text>
       <Text variant="bodySmall" style={styles.capabilities}>
-        End-to-end encrypted, read-only access (
-        {MOBILE_ORCHESTRATION_CAPABILITIES.operations.join(', ')}).
+        {labels.nodes.capabilities(MOBILE_ORCHESTRATION_CAPABILITIES.operations.join(', '))}
       </Text>
 
       {network.status !== 'online' && (
@@ -104,8 +97,8 @@ export default function NodesScreen() {
           <Card.Content>
             <Text>
               {network.status === 'error'
-                ? network.error
-                : 'Starting secure device network…'}
+                ? labels.nodes.statusError
+                : labels.nodes.statusStarting}
             </Text>
           </Card.Content>
         </Card>
@@ -114,8 +107,10 @@ export default function NodesScreen() {
       {pending.map((session) => (
         <Card key={session.sessionId} style={styles.card}>
           <Card.Title
-            title={`Verify ${session.remoteDeviceName}`}
-            subtitle="Compare this code on both devices"
+            title={labels.nodes.verifyDevice(session.remoteDeviceName)}
+            subtitle={labels.nodes.compareCode}
+            titleNumberOfLines={2}
+            subtitleNumberOfLines={2}
           />
           <Card.Content>
             <Text variant="displaySmall" style={styles.confirmCode}>
@@ -129,7 +124,7 @@ export default function NodesScreen() {
                   mobileDeviceNetwork.reject(session.sessionId)
                 )}
             >
-              Reject
+              {labels.nodes.reject}
             </Button>
             <Button
               mode="contained"
@@ -138,7 +133,7 @@ export default function NodesScreen() {
                   mobileDeviceNetwork.accept(session.sessionId)
                 )}
             >
-              Codes match
+              {labels.nodes.codesMatch}
             </Button>
           </Card.Actions>
         </Card>
@@ -149,7 +144,7 @@ export default function NodesScreen() {
         keyExtractor={(item) => item.peerId}
         ListEmptyComponent={
           network.status === 'online'
-            ? <Text style={styles.empty}>No paired desktop yet.</Text>
+            ? <Text style={styles.empty}>{labels.nodes.noPairedDesktop}</Text>
             : null
         }
         renderItem={({ item }) => (
@@ -157,10 +152,16 @@ export default function NodesScreen() {
             <Card.Title title={item.displayName} subtitle={item.platform} />
             <Card.Content style={styles.row}>
               <Chip icon={item.trusted ? 'shield-check' : 'shield-alert'}>
-                {item.trusted ? 'trusted' : 'untrusted'}
+                {item.trusted ? labels.nodes.trusted : labels.nodes.untrusted}
               </Chip>
               <Chip icon={item.reachability.state === 'online' ? 'check-circle' : 'alert-circle'}>
-                {item.reachability.state}
+                {item.reachability.state === 'online'
+                  ? labels.nodes.online
+                  : item.reachability.state === 'nearby'
+                  ? labels.nodes.nearby
+                  : item.reachability.state === 'offline'
+                  ? labels.nodes.offline
+                  : labels.nodes.unknownReachability}
               </Chip>
             </Card.Content>
             {item.trusted && (
@@ -169,7 +170,7 @@ export default function NodesScreen() {
                   loading={checkingPeerId === item.peerId}
                   onPress={() => void verifyOrchestration(item.peerId)}
                 >
-                  {verifiedPeers[item.peerId] ?? 'Verify access'}
+                  {verifiedPeers[item.peerId] ?? labels.nodes.verifyAccess}
                 </Button>
                 <Button
                   textColor="#b00020"
@@ -178,7 +179,7 @@ export default function NodesScreen() {
                       mobileDeviceNetwork.remove(item.peerId)
                     )}
                 >
-                  Forget
+                  {labels.nodes.forget}
                 </Button>
               </Card.Actions>
             )}
@@ -193,20 +194,18 @@ export default function NodesScreen() {
         disabled={network.status !== 'online'}
         onPress={() => setInviteOpen(true)}
       >
-        Pair Desktop
+        {labels.nodes.pairDesktop}
       </Button>
 
       <Portal>
         <Dialog visible={inviteOpen} onDismiss={() => setInviteOpen(false)}>
-          <Dialog.Title>Pair a Desktop</Dialog.Title>
+          <Dialog.Title>{labels.nodes.pairDialogTitle}</Dialog.Title>
           <Dialog.Content>
             <Text variant="bodyMedium" style={styles.instructions}>
-              Copy the temporary pairing invitation from Desktop and paste it
-              below. Its signature, public key, expiry and PeerId-bound addresses
-              are verified before the pairing request is opened.
+              {labels.nodes.pairInstructions}
             </Text>
             <TextInput
-              label="Pairing invitation"
+              label={labels.nodes.pairingInvitation}
               multiline
               autoCapitalize="none"
               autoCorrect={false}
@@ -218,14 +217,14 @@ export default function NodesScreen() {
             )}
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setInviteOpen(false)}>Cancel</Button>
+            <Button onPress={() => setInviteOpen(false)}>{labels.nodes.cancel}</Button>
             <Button
               mode="contained"
               loading={busy}
               disabled={busy || invite.trim().length === 0}
               onPress={() => void requestPairing()}
             >
-              Connect
+              {labels.nodes.connect}
             </Button>
           </Dialog.Actions>
         </Dialog>
@@ -239,7 +238,7 @@ const styles = StyleSheet.create({
   title: { marginBottom: 8 },
   capabilities: { marginBottom: 16, opacity: 0.7 },
   card: { marginBottom: 12 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   confirmCode: {
     textAlign: 'center',
     letterSpacing: 8,

@@ -20,9 +20,11 @@ import {
   mobileDeviceNetwork,
   type MobileDeviceNetworkState,
 } from '../lib/deviceNetwork';
+import { getMobileLabels } from '../lib/i18n';
 
 function AgentChat({ session }: { session: MobileRemoteAgentSession }) {
   const router = useRouter();
+  const labels = getMobileLabels();
   const adapter = useAgentSessionCoreAdapter({
     conversationId: session.conversationId,
     timelineController: session.timelineController,
@@ -34,47 +36,47 @@ function AgentChat({ session }: { session: MobileRemoteAgentSession }) {
     <NativeAgentChatView
       adapter={adapter}
       title={session.title}
-      placeholder="Message the remote agent"
-      emptyMessage="Start a conversation with this agent."
-      loadingMessage="Loading a bounded conversation window…"
+      placeholder={labels.chat.placeholder}
+      emptyMessage={labels.chat.empty}
+      loadingMessage={labels.chat.loading}
       labels={{
-        user: 'You',
-        agent: 'Agent',
-        waitingPlaceholder: 'Working…',
-        loadDetails: 'Load details',
-        reloadDetails: 'Reload details',
-        noDetails: 'No details available.',
-        attachment: filename => `Attachment: ${filename}`,
-        detailTruncated: 'Only a bounded detail page is displayed.',
-        exportFullMessage: 'Export complete message',
-        close: 'Close',
-        truncatedMessage: characters => `Message shortened for display (${characters} characters).`,
-        diagnosticId: id => `Diagnostic ID: ${id}`,
+        user: labels.chat.user,
+        agent: labels.chat.agent,
+        waitingPlaceholder: labels.chat.waiting,
+        loadDetails: labels.chat.loadDetails,
+        reloadDetails: labels.chat.reloadDetails,
+        noDetails: labels.chat.noDetails,
+        attachment: labels.chat.attachment,
+        detailTruncated: labels.chat.detailTruncated,
+        exportFullMessage: labels.chat.exportFullMessage,
+        close: labels.chat.close,
+        truncatedMessage: labels.chat.truncatedMessage,
+        diagnosticId: labels.chat.diagnosticId,
         timelineTimestamp: timestamp => new Date(timestamp).toLocaleString(),
       }}
       timelineLabels={{
-        navigation: 'Conversation timeline',
-        turn: (index, total) => `Turn ${index} of ${total}`,
-        compacted: count => `${count} compacted messages`,
-        loadEarlier: 'Load earlier',
-        loadLater: 'Load later',
-        seek: 'Open this turn',
-        close: 'Close timeline',
-        newMessages: count => `${count} new messages`,
-        moreResponses: count => `${count} more responses`,
+        navigation: labels.chat.timeline,
+        turn: labels.chat.turn,
+        compacted: labels.chat.compacted,
+        loadEarlier: labels.chat.loadEarlier,
+        loadLater: labels.chat.loadLater,
+        seek: labels.chat.seek,
+        close: labels.chat.closeTimeline,
+        newMessages: labels.chat.newMessages,
+        moreResponses: labels.chat.moreResponses,
       }}
       genericErrorPresentation={{
-        title: 'Agent operation failed',
-        message: 'The request could not be completed safely. Try again or review settings.',
+        title: labels.chat.operationFailedTitle,
+        message: labels.chat.operationFailedMessage,
         actionId: 'open-settings',
-        actionLabel: 'Open settings',
+        actionLabel: labels.chat.settingsAction,
       }}
       resolveErrorPresentation={value => resolveAgentRunErrorPresentation(value, {
         localize: () => ({
-          title: 'Agent operation failed',
-          message: 'The remote agent reported a configuration or runtime problem.',
+          title: labels.chat.operationFailedTitle,
+          message: labels.chat.operationFailedMessage,
         }),
-        settingActionLabel: () => 'Open settings',
+        settingActionLabel: () => labels.chat.settingsAction,
       })}
       onErrorAction={async presentation => {
         if (presentation.actionId === 'agent-run-setting' || presentation.actionId === 'open-settings') {
@@ -87,6 +89,7 @@ function AgentChat({ session }: { session: MobileRemoteAgentSession }) {
 
 export default function ChatScreen() {
   const router = useRouter();
+  const labels = getMobileLabels();
   const [network, setNetwork] = useState<MobileDeviceNetworkState>(mobileDeviceNetwork.getState());
   const [loadState, setLoadState] = useState<{
     key: string;
@@ -147,25 +150,25 @@ export default function ChatScreen() {
         <Card.Content>
           <Text variant="titleMedium">
             {initializationFailed
-              ? 'Could not open agent chat'
+              ? labels.chat.couldNotOpen
               : noTarget
-              ? 'No reachable agent device'
-              : 'Connecting securely…'}
+              ? labels.chat.noReachableDevice
+              : labels.chat.connecting}
           </Text>
           <Text variant="bodyMedium" style={styles.description}>
             {initializationFailed
-              ? 'The authenticated DeviceNetwork session failed. Retry after checking the remote agent and network.'
+              ? labels.chat.initializationFailure
               : noTarget
-              ? 'Pair a trusted Desktop or CLI with Agent capability, then bring it online.'
-              : 'Discovering a trusted Agent-capable peer and loading only the latest bounded page.'}
+              ? labels.chat.noTarget
+              : labels.chat.discovering}
           </Text>
         </Card.Content>
         <Card.Actions>
           {(noTarget || network.status === 'error') && (
-            <Button onPress={() => router.push('/nodes')}>Manage devices</Button>
+            <Button onPress={() => router.push('/nodes')}>{labels.chat.manageDevices}</Button>
           )}
           {initializationFailed && (
-            <Button mode="contained" onPress={() => setRetryGeneration(value => value + 1)}>Retry</Button>
+            <Button mode="contained" onPress={() => setRetryGeneration(value => value + 1)}>{labels.chat.retry}</Button>
           )}
         </Card.Actions>
       </Card>
