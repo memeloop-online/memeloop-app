@@ -8,7 +8,7 @@ import validator from '@rjsf/validator-ajv8';
 /** Same as `@memeloop/react-ui/web` Theme defaults; use local Theme so bundler resolves one @rjsf/mui + React. */
 const baseTemplates = Theme.templates ?? {};
 const baseWidgets = Theme.widgets ?? {};
-import { AgentFrameworkConfig } from '@services/agentInstance/promptConcat/promptConcatSchema';
+import type { AgentFrameworkConfig } from 'memeloop';
 import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ErrorDisplay } from './components/ErrorDisplay';
@@ -19,7 +19,8 @@ import { ArrayFieldItemTemplate, ArrayFieldTemplate, FieldTemplate, ObjectFieldT
 import { widgets } from './widgets';
 
 /** Desktop form context: memeloop core + optional callback for cross-field updates */
-export interface ExtendedFormContext extends MemeloopExtendedFormContext {
+export interface ExtendedFormContext extends Omit<MemeloopExtendedFormContext, 'rootFormData'> {
+  rootFormData?: AgentFrameworkConfig;
   onFormDataChange?: (formData: AgentFrameworkConfig) => void;
 }
 

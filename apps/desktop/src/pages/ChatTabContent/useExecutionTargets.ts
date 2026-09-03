@@ -1,5 +1,5 @@
 import type { AgentExecutionTarget, SetExecutionTargetOptions } from '@memeloop/react-ui/chat';
-import { type AgentAttachmentInput, type ChatMessage, type Device, type RemoteAgentExecutionSnapshot, type RemoteAgentExecutionTarget } from 'memeloop';
+import { type AgentAttachmentInput, type ConversationMessageListProjection, type Device, type RemoteAgentExecutionSnapshot, type RemoteAgentExecutionTarget } from 'memeloop';
 import type { DeviceConnectionGrant } from 'memeloop/device-network';
 import { nanoid } from 'nanoid';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -8,28 +8,9 @@ import { useTranslation } from 'react-i18next';
 import { createDesktopExecutionCoordinator, createDesktopFileAttachmentSource } from './executionCoordinatorAdapter';
 import { mapDesktopFile } from './sessionClients';
 
-const LOCAL_EXECUTION_TARGET_ID = 'local';
-const REMOTE_EXECUTION_TARGET_PREFIX = 'peer:';
-
-function remoteExecutionTargetId(peerId: string): string {
-  return `${REMOTE_EXECUTION_TARGET_PREFIX}${peerId}`;
-}
-
-function peerIdFromExecutionTarget(targetId: string): string | undefined {
-  return targetId.startsWith(REMOTE_EXECUTION_TARGET_PREFIX)
-    ? targetId.slice(REMOTE_EXECUTION_TARGET_PREFIX.length)
-    : undefined;
-}
-
-function coreTarget(targetId: string): RemoteAgentExecutionTarget {
-  const peerId = peerIdFromExecutionTarget(targetId);
-  return peerId ? { kind: 'remote', peerId } : { kind: 'local' };
-}
-
-function targetId(target: RemoteAgentExecutionTarget | undefined): string {
-  return target?.kind === 'remote'
-    ? remoteExecutionTargetId(target.peerId)
-    : LOCAL_EXECUTION_TARGET_ID;
+function targetsEqual(left: RemoteAgentExecutionTarget | undefined, right: RemoteAgentExecutionTarget | undefined): boolean {
+  if (left?.kind !== right?.kind) return false;
+  return left?.kind !== 'remote' || right?.kind !== 'remote' || left.peerId === right.peerId;
 }
 
 function operationIsActive(snapshot: RemoteAgentExecutionSnapshot): boolean {
@@ -66,7 +47,7 @@ async function fenceLocalCall<Result>(
 
 interface UseExecutionTargetsOptions {
   agent: { id: string; agentDefId: string } | null;
-  orderedMessages: ChatMessage[];
+  orderedMessages: readonly ConversationMessageListProjection[];
   refreshAgent: () => Promise<void>;
 }
 
@@ -122,10 +103,16 @@ export function useExecutionTargets({
       createOperationId: nanoid,
       createProvenanceId: nanoid,
       deviceNetwork: {
-        sendRpc: async <Result>(peerId: string, method: string, parameters: unknown, options?: {
+        sendRpc: async (peerId: string, method: string, parameters: unknown, options?: {
           operationId?: string;
           presentedGrant?: DeviceConnectionGrant;
-        }): Promise<Result> => await window.service.deviceNetwork.sendRpc(peerId, method, parameters, options) as Result,
+        }): Promise<unknown> =>
+          options?.operationId === undefined
+            ? window.service.deviceNetwork.sendRpc(peerId, method, parameters, options)
+            : window.service.deviceNetwork.sendRpcForOperation(peerId, method, parameters, {
+              operationId: options.operationId,
+              ...(options.presentedGrant === undefined ? {} : { presentedGrant: options.presentedGrant }),
+            }),
         syncWithDevice: (peerId, options) => window.service.deviceNetwork.syncWithDevice(peerId, options),
         abortOperation: operationId => window.service.deviceNetwork.abortOperation(operationId),
         finishOperation: operationId => window.service.deviceNetwork.finishOperation(operationId),
@@ -208,21 +195,19 @@ export function useExecutionTargets({
 
   const executionTargets = useMemo<AgentExecutionTarget[]>(() => [
     {
-      id: LOCAL_EXECUTION_TARGET_ID,
+      value: { kind: 'local' },
       label: t('Chat.ExecutionTarget.ThisDevice'),
       description: localPeerId
         ? t('Chat.ExecutionTarget.RunOnThisDesktopWithPeerId', { peerId: localPeerId })
         : t('Chat.ExecutionTarget.RunOnThisDesktop'),
-      kind: 'local',
     },
     ...remoteDevices.map(device => ({
-      id: remoteExecutionTargetId(device.peerId),
+      value: { kind: 'remote' as const, peerId: device.peerId },
       label: device.displayName,
       description: t('Chat.ExecutionTarget.RemoteDeviceDescription', {
         platform: t(`Chat.ExecutionTarget.Platform.${device.platform}`),
         reachability: t(`Chat.ExecutionTarget.Reachability.${device.reachability.state}`),
       }),
-      kind: 'remote' as const,
       disabled: device.reachability.state === 'offline',
     })),
   ], [localPeerId, remoteDevices, t]);
@@ -317,12 +302,11 @@ export function useExecutionTargets({
   }, [refreshAfterRemoteMutation, requireOperationContext]);
 
   const setExecutionTarget = useCallback(async (
-    nextTargetId: string,
+    nextTarget: RemoteAgentExecutionTarget,
     setOptions?: SetExecutionTargetOptions,
   ) => {
     const context = requireOperationContext();
-    const nextTarget = coreTarget(nextTargetId);
-    if (targetId(context.target) === nextTargetId) return;
+    if (targetsEqual(context.target, nextTarget)) return;
     if (setOptions?.restartCurrentTurn && operationIsActive(context.snapshot)) {
       const activeProvenance = context.snapshot.provenance;
       if (activeProvenance) {
@@ -348,11 +332,11 @@ export function useExecutionTargets({
     await refreshAfterRemoteMutation(nextTarget);
   }, [orderedMessages, refreshAfterRemoteMutation, requireOperationContext]);
 
-  const activeExecutionTargetId = targetId(executionSnapshot?.target);
+  const activeExecutionTarget = executionSnapshot?.target;
   const remoteRunning = executionSnapshot?.target?.kind === 'remote' && operationIsActive(executionSnapshot);
 
   return {
-    activeExecutionTargetId,
+    activeExecutionTarget,
     cancelSelectedTarget,
     deleteSelectedTurn,
     executionSnapshot,

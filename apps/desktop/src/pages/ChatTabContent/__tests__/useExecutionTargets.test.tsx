@@ -115,6 +115,7 @@ describe('useExecutionTargets', () => {
         reachability: { state: 'online', paths: [] },
       }]),
       sendRpc,
+      sendRpcForOperation: sendRpc,
       syncWithDevice,
       abortOperation: vi.fn().mockResolvedValue(undefined),
       finishOperation: vi.fn().mockResolvedValue(undefined),
@@ -196,7 +197,7 @@ describe('useExecutionTargets', () => {
     await waitFor(() => {
       expect(result.current.executionTargets).toHaveLength(2);
     });
-    await act(async () => result.current.setExecutionTarget('peer:peer-remote'));
+    await act(async () => result.current.setExecutionTarget({ kind: 'remote', peerId: 'peer-remote' }));
     await act(async () => result.current.sendMessage('hello'));
 
     const runCall = sendRpc.mock.calls.find((call: unknown[]) => call[1] === 'memeloop.agent.runTurn');
@@ -301,7 +302,7 @@ describe('useExecutionTargets', () => {
     await waitFor(() => {
       expect(result.current.executionTargets).toHaveLength(2);
     });
-    await act(async () => result.current.setExecutionTarget('peer:peer-remote'));
+    await act(async () => result.current.setExecutionTarget({ kind: 'remote', peerId: 'peer-remote' }));
 
     await act(async () =>
       result.current.sendMessage(

@@ -5,8 +5,8 @@ import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import SaveIcon from '@mui/icons-material/Save';
 import { Box, Button, CircularProgress, Dialog, DialogContent, DialogTitle, Divider, IconButton, List, ListItemButton, ListItemText, Tooltip, Typography } from '@mui/material';
-import type { AgentFrameworkConfig } from '@services/agentInstance/promptConcat/promptConcatSchema';
 import {
+  type AgentFrameworkConfig,
   MAX_PROMPT_PREVIEW_AUDIT_DETAIL_CHUNK_BYTES,
   MAX_PROMPT_PREVIEW_AUDIT_PAGE_BYTES,
   MAX_PROMPT_PREVIEW_AUDIT_PAGE_ENTRIES,
@@ -17,7 +17,7 @@ import {
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { createDesktopPromptPreviewController } from '@/pages/ChatTabContent/promptPreviewClient';
+import { createDesktopPromptPreviewController, toCoreAgentFrameworkConfig } from '@/pages/ChatTabContent/promptPreviewClient';
 import { useAgentFrameworkConfigManagement } from '@/windows/Preferences/sections/ExternalAPI/useAgentFrameworkConfigManagement';
 import { PromptConfigForm } from './PromptConfigForm';
 
@@ -78,7 +78,15 @@ export const PromptPreviewDialog: React.FC<PromptPreviewDialogProps> = ({
     if (!open || configLoading || !config) return;
     let active = true;
     setPreviewFailed(false);
-    void controller.generate(config as never, agentId, inputText).catch((error: unknown) => {
+    let coreConfig: Parameters<typeof controller.generate>[0];
+    try {
+      coreConfig = toCoreAgentFrameworkConfig(config);
+    } catch (error: unknown) {
+      setPreviewFailed(true);
+      void window.service.native.log('warn', 'Prompt preview configuration is invalid', { agentId, error });
+      return;
+    }
+    void controller.generate(coreConfig, agentId, inputText).catch((error: unknown) => {
       if (!active) return;
       setPreviewFailed(true);
       void window.service.native.log('warn', 'Prompt preview generation failed', { agentId, error });

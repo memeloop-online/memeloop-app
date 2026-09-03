@@ -22,12 +22,12 @@ interface DeviceNetworkCallOptions {
 }
 
 export interface DesktopExecutionDeviceNetworkPort {
-  sendRpc<T>(
+  sendRpc(
     peerId: string,
     method: string,
     parameters: unknown,
     options?: DeviceNetworkCallOptions,
-  ): Promise<T>;
+  ): Promise<unknown>;
   syncWithDevice(
     peerId: string,
     options: { conversationIds: string[]; operationId?: string },

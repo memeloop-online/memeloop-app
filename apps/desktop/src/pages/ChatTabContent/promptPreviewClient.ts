@@ -1,5 +1,53 @@
-import { type PromptPreviewClient, PromptPreviewController, type PromptPreviewPreparedExecution } from 'memeloop';
+import {
+  type AgentFrameworkConfig,
+  type PromptNode,
+  type PromptPluginConfig,
+  type PromptPreviewClient,
+  PromptPreviewController,
+  type PromptPreviewPreparedExecution,
+} from 'memeloop';
 import { nanoid } from 'nanoid';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isPromptRole(value: unknown): value is NonNullable<PromptNode['role']> {
+  return value === 'system' || value === 'user' || value === 'assistant' || value === 'tool';
+}
+
+function isPromptNode(value: unknown): value is PromptNode {
+  if (!isRecord(value) || typeof value.id !== 'string' || value.id.length === 0) return false;
+  if (value.text !== undefined && typeof value.text !== 'string') return false;
+  if (value.caption !== undefined && typeof value.caption !== 'string') return false;
+  if (value.role !== undefined && !isPromptRole(value.role)) return false;
+  if (value.enabled !== undefined && typeof value.enabled !== 'boolean') return false;
+  if (value.dynamicPosition !== undefined && value.dynamicPosition !== 'deferToEnd') return false;
+  return value.children === undefined || isArrayOf(value.children, isPromptNode);
+}
+
+function isPromptPluginConfig(value: unknown): value is PromptPluginConfig {
+  return isRecord(value) && typeof value.id === 'string' && value.id.length > 0 &&
+    typeof value.toolId === 'string' && value.toolId.length > 0;
+}
+
+function isArrayOf<T>(value: unknown, guard: (item: unknown) => item is T): value is T[] {
+  return Array.isArray(value) && value.every(guard);
+}
+
+/** Validate and adapt the desktop schema result to Core's required preview shape. */
+export function toCoreAgentFrameworkConfig(
+  config: AgentFrameworkConfig,
+): AgentFrameworkConfig {
+  if (!isArrayOf(config.prompts, isPromptNode) || !isArrayOf(config.plugins, isPromptPluginConfig)) {
+    throw new Error('prompt_preview_framework_config_invalid');
+  }
+  return {
+    prompts: config.prompts,
+    plugins: config.plugins,
+    ...(Array.isArray(config.response) ? { response: config.response } : {}),
+  };
+}
 
 const previewClient: PromptPreviewClient = {
   async generatePreview(_config, execution, onProgress, options) {
@@ -9,8 +57,6 @@ const previewClient: PromptPreviewClient = {
       flatPrompts: execution.initialPage.items.map(item => ({
         role: item.role,
         content: item.preview,
-        entryId: item.entryId,
-        entryIndex: item.entryIndex,
       })),
       processedPrompts: [],
     };

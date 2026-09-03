@@ -71,7 +71,7 @@ function createCoordinator(
     createOperationId: () => `operation-${++operationSequence}`,
     createProvenanceId: () => `id-${operationSequence}`,
     deviceNetwork: {
-      sendRpc: async <Result>(peerId: string, method: string, parameters: unknown) => await sendRpc(peerId, method, parameters) as Result,
+      sendRpc: async (peerId: string, method: string, parameters: unknown) => await sendRpc(peerId, method, parameters),
       syncWithDevice,
       abortOperation,
       finishOperation: vi.fn().mockResolvedValue(undefined),
@@ -121,7 +121,7 @@ describe('createDesktopExecutionCoordinator', () => {
       createOperationId: () => `operation-${++operationSequence}`,
       createProvenanceId: () => `id-${operationSequence}`,
       deviceNetwork: {
-        sendRpc: async <Result>(peerId: string, method: string, parameters: unknown) => await sendRpc(peerId, method, parameters) as Result,
+        sendRpc: async (peerId: string, method: string, parameters: unknown) => await sendRpc(peerId, method, parameters),
         syncWithDevice: vi.fn().mockResolvedValue(undefined),
         abortOperation,
         finishOperation: vi.fn().mockResolvedValue(undefined),

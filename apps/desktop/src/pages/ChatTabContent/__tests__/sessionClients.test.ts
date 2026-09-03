@@ -136,7 +136,12 @@ describe('desktop long-chat conversation bridge', () => {
     expect(page.items).toHaveLength(50);
     const around = await client.getMessageWindowAround({
       conversationId,
-      focus: { kind: 'turn', turnId: 'turn-500000' },
+      focus: {
+        kind: 'message',
+        messageId: 'message-1000000',
+        turnId: 'turn-500000',
+        cursor: 'cursor-500000',
+      },
       expectedRevision: revision,
       maxMessages: DESKTOP_SESSION_MESSAGE_LIMIT,
       maxBytes: DESKTOP_SESSION_BYTE_LIMIT,

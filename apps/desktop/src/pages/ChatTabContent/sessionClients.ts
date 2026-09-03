@@ -2,20 +2,189 @@ import { Sha256 } from '@aws-crypto/sha256-js';
 import { ConversationTimelineWindowController, type MemeLoopMessageDetailLoader, validateMessageDetailPage } from '@memeloop/react-ui/chat';
 import {
   type AgentConversationClient,
+  type AgentConversationUpdate,
   type AgentInstanceClient,
   type AgentRuntimeView,
   AgentSessionController,
   type BeginAttachmentUploadRequest,
   type CommitAttachmentUploadRequest,
   createAttachmentUploadRpcClient,
-  PollingAgentConversationUpdateSource,
+  MAX_AGENT_CONVERSATION_APPENDED_MESSAGE_COUNT,
   type UploadAttachmentChunkRequest,
 } from 'memeloop';
 import { nanoid } from 'nanoid';
 
 import { DEFAULT_AGENT_FRAMEWORK_ID } from '@services/agentInstance/defaultAgentFrameworkId';
 import type { AgentInstanceUpdate } from '@services/agentInstance/interface';
-import type { AgentInstance } from '@services/agentInstance/interface';
+
+interface ConversationHead {
+  revision: string;
+  totalMessages: number;
+}
+
+interface ConversationUpdateSourceContext {
+  conversationId: string;
+  listener: (update: AgentConversationUpdate) => void;
+  abortController: AbortController;
+  timer?: ReturnType<typeof setTimeout>;
+  head?: ConversationHead;
+  readInFlight: boolean;
+  refreshQueued: boolean;
+  consecutiveFailures: number;
+}
+
+/**
+ * Desktop's host-owned revision probe. Core receives only the resulting
+ * bounded invalidation/projection events; no transcript is retained here.
+ */
+class DesktopConversationUpdateSource {
+  private active?: ConversationUpdateSourceContext;
+  private disposed = false;
+
+  public constructor(
+    private readonly readHead: (
+      conversationId: string,
+      signal: AbortSignal,
+    ) => Promise<ConversationHead>,
+  ) {}
+
+  public subscribe(
+    conversationId: string,
+    listener: (update: AgentConversationUpdate) => void,
+  ): () => void {
+    if (this.disposed) {
+      throw new Error('desktop_conversation_update_source_disposed');
+    }
+    this.clearActive();
+    const context: ConversationUpdateSourceContext = {
+      conversationId,
+      listener,
+      abortController: new AbortController(),
+      readInFlight: false,
+      refreshQueued: false,
+      consecutiveFailures: 0,
+    };
+    this.active = context;
+    void this.read(context);
+    return () => {
+      if (this.active !== context) return;
+      this.clearActive();
+    };
+  }
+
+  public wake(conversationId?: string): void {
+    if (this.disposed) return;
+    const context = this.active;
+    if (!context || (conversationId !== undefined && conversationId !== context.conversationId)) return;
+    if (context.readInFlight) {
+      context.refreshQueued = true;
+      return;
+    }
+    this.schedule(context, 0);
+  }
+
+  public dispose(): void {
+    if (this.disposed) return;
+    this.clearActive();
+    this.disposed = true;
+  }
+
+  private async read(context: ConversationUpdateSourceContext): Promise<void> {
+    if (!this.isCurrent(context) || context.readInFlight) return;
+    this.clearTimer(context);
+    context.readInFlight = true;
+    try {
+      const head = await this.readHead(context.conversationId, context.abortController.signal);
+      if (!this.isCurrent(context)) return;
+      this.assertHead(head);
+      const previous = context.head;
+      context.head = head;
+      context.consecutiveFailures = 0;
+      if (previous && previous.revision !== head.revision) {
+        const appendedMessageCount = head.totalMessages - previous.totalMessages;
+        const update: AgentConversationUpdate = appendedMessageCount > 0 && appendedMessageCount <= MAX_AGENT_CONVERSATION_APPENDED_MESSAGE_COUNT
+          ? {
+            kind: 'invalidated',
+            conversationId: context.conversationId,
+            previousRevision: previous.revision,
+            revision: head.revision,
+            reason: 'append',
+            appendedMessageCount,
+          }
+          : {
+            kind: 'invalidated',
+            conversationId: context.conversationId,
+            previousRevision: previous.revision,
+            revision: head.revision,
+            reason: 'reset',
+          };
+        this.emit(context, update);
+      } else if (previous && previous.totalMessages !== head.totalMessages) {
+        // A revision identifies the total. Re-baseline instead of forging an
+        // invalidation with equal revisions.
+        context.head = undefined;
+        context.refreshQueued = true;
+      }
+    } catch {
+      if (this.isCurrent(context)) context.consecutiveFailures = Math.min(context.consecutiveFailures + 1, 5);
+    } finally {
+      context.readInFlight = false;
+      if (this.isCurrent(context)) {
+        if (context.refreshQueued) {
+          context.refreshQueued = false;
+          this.schedule(context, 0);
+        } else {
+          this.schedule(context, DESKTOP_SESSION_UPDATE_FALLBACK_MS * 2 ** context.consecutiveFailures);
+        }
+      }
+    }
+  }
+
+  private emit(context: ConversationUpdateSourceContext, update: AgentConversationUpdate): void {
+    if (!this.isCurrent(context)) return;
+    try {
+      context.listener(update);
+    } catch {
+      // Listener failures cannot break the host probe or cleanup fences.
+      if (this.isCurrent(context)) {
+        context.consecutiveFailures = Math.min(context.consecutiveFailures + 1, 5);
+      }
+    }
+  }
+
+  private schedule(context: ConversationUpdateSourceContext, delayMs: number): void {
+    if (!this.isCurrent(context)) return;
+    this.clearTimer(context);
+    context.timer = setTimeout(() => {
+      context.timer = undefined;
+      void this.read(context);
+    }, delayMs);
+  }
+
+  private clearActive(): void {
+    const context = this.active;
+    this.active = undefined;
+    if (!context) return;
+    context.abortController.abort();
+    this.clearTimer(context);
+  }
+
+  private clearTimer(context: ConversationUpdateSourceContext): void {
+    if (context.timer === undefined) return;
+    clearTimeout(context.timer);
+    context.timer = undefined;
+  }
+
+  private isCurrent(context: ConversationUpdateSourceContext): boolean {
+    return this.active === context && !this.disposed && !context.abortController.signal.aborted;
+  }
+
+  private assertHead(head: ConversationHead): void {
+    if (!head || typeof head.revision !== 'string' || head.revision.length === 0 || !Number.isSafeInteger(head.totalMessages) || head.totalMessages < 0) {
+      throw new Error('invalid_desktop_conversation_head');
+    }
+  }
+}
 
 export const DESKTOP_SESSION_MESSAGE_LIMIT = 50;
 export const DESKTOP_SESSION_BYTE_LIMIT = 256 * 1024;
@@ -31,12 +200,24 @@ function runtimeView(update: AgentInstanceUpdate['agent']): AgentRuntimeView {
     : update.status.state;
   return {
     id: update.id,
-    name: update.name ?? '',
     agentDefId: update.agentDefId,
+    ...(update.name === undefined ? {} : { name: update.name }),
     status: {
       state,
-      ...(update.status.message?.content ? { progress: update.status.message.content } : {}),
+      ...(update.status.progress === undefined
+        ? update.status.message?.content === undefined
+          ? {}
+          : { progress: update.status.message.content }
+        : { progress: update.status.progress }),
     },
+    created: update.created,
+    ...(update.modified === undefined ? {} : { modified: update.modified }),
+    ...(update.modelConfig === undefined ? {} : { modelConfig: update.modelConfig }),
+    ...(update.avatarUrl === undefined ? {} : { avatarUrl: update.avatarUrl }),
+    ...(update.agentFrameworkConfig === undefined ? {} : { agentFrameworkConfig: update.agentFrameworkConfig }),
+    closed: update.closed,
+    volatile: update.volatile,
+    preview: update.preview,
   };
 }
 
@@ -55,15 +236,16 @@ function createAgentInstanceClient(): AgentInstanceClient {
       const agent = await window.service.agentInstance.getAgentMetadata(agentId);
       throwIfAborted(options?.signal);
       if (!agent) throw new Error(`agent_not_found:${agentId}`);
-      const { messages: _messages, ...metadata } = agent;
-      return runtimeView(metadata);
+      return runtimeView(agent);
     },
     async updateAgent(agentId, data, options) {
       throwIfAborted(options?.signal);
-      const agent = await window.service.agentInstance.updateAgent(agentId, data as Partial<AgentInstance>);
+      await window.service.agentInstance.updateAgent(agentId, data);
       throwIfAborted(options?.signal);
-      const { messages: _messages, ...metadata } = agent;
-      return runtimeView(metadata);
+      const agent = await window.service.agentInstance.getAgentMetadata(agentId);
+      throwIfAborted(options?.signal);
+      if (!agent) throw new Error(`agent_not_found:${agentId}`);
+      return runtimeView(agent);
     },
     async cancelAgent(agentId, options) {
       throwIfAborted(options?.signal);
@@ -96,19 +278,16 @@ function createAgentInstanceClient(): AgentInstanceClient {
 }
 
 export function createDesktopConversationClient(): AgentConversationClient {
-  const updateSource = new PollingAgentConversationUpdateSource({
-    pollIntervalMs: DESKTOP_SESSION_UPDATE_FALLBACK_MS,
-    readHead: async ({ conversationId, signal }) => {
-      signal.throwIfAborted();
-      const page = await window.service.agentInstance.getAgentConversationTimelinePage({
-        conversationId,
-        limit: 1,
-        maxBytes: 64 * 1024,
-      });
-      signal.throwIfAborted();
-      if (page.reset) throw new Error('unexpected_conversation_timeline_head_reset');
-      return { revision: page.revision, totalMessages: page.totalMessages };
-    },
+  const updateSource = new DesktopConversationUpdateSource(async (conversationId, signal) => {
+    signal.throwIfAborted();
+    const page = await window.service.agentInstance.getAgentConversationTimelinePage({
+      conversationId,
+      limit: 1,
+      maxBytes: 64 * 1024,
+    });
+    signal.throwIfAborted();
+    if (page.reset) throw new Error('unexpected_conversation_timeline_head_reset');
+    return { revision: page.revision, totalMessages: page.totalMessages };
   });
 
   return {
@@ -130,7 +309,7 @@ export function createDesktopConversationClient(): AgentConversationClient {
       throwIfAborted(callOptions?.signal);
       return result;
     },
-    async sendMessage(conversationId, content, attachment, _hostStructuredAttachments, options) {
+    async sendMessage(conversationId, content, attachment, _wikiTiddlers, options) {
       throwIfAborted(options?.signal);
       if (attachment?.kind === 'source') throw new Error('uncommitted_attachment_send_not_supported');
       await window.service.agentInstance.sendMsgToAgent(conversationId, {

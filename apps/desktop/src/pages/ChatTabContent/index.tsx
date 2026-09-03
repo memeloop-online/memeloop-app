@@ -1,7 +1,7 @@
 import { AgentChatShell, AgentSessionProvider, useAgentSession, useAgentSessionChatAdapter } from '@memeloop/react-ui/agent';
 import type { WebMemeLoopChatAdapter } from '@memeloop/react-ui/chat';
 import { Box, Typography } from '@mui/material';
-import type { AgentInstance } from '@services/agentInstance/interface';
+import type { AgentInstanceMetadata } from '@services/agentInstance/interface';
 import { nanoid } from 'nanoid';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -9,7 +9,6 @@ import { useShallow } from 'zustand/react/shallow';
 
 import { TabListDropdown } from '@/pages/Agent/components/TabBar/TabListDropdown';
 import { useTabStore } from '@/pages/Agent/store/tabStore';
-import { AIModelParametersDialog } from '@/windows/Preferences/sections/ExternalAPI/components/AIModelParametersDialog';
 import { PreferenceSections } from '@services/preferences/interface';
 import { WindowNames } from '@services/windows/WindowProperties';
 import type { TabItem } from '../Agent/types/tab';
@@ -29,8 +28,6 @@ interface ActiveChatTabContentProps extends ChatTabContentProps {
   agentDefId?: string;
   title?: string;
 }
-
-type AgentMetadata = Omit<AgentInstance, 'messages'>;
 
 const PromptPreviewDialog = React.lazy(async () => {
   const module = await import('./components/PromptPreviewDialog');
@@ -66,8 +63,7 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
   const { i18n, t } = useTranslation('agent');
   const { snapshot } = useAgentSession();
   const timelineController = useMemo(() => createDesktopTimelineController(), [agentId]);
-  const [metadata, setMetadata] = useState<AgentMetadata>();
-  const [parametersOpen, setParametersOpen] = useState(false);
+  const [metadata, setMetadata] = useState<AgentInstanceMetadata>();
   const [previewMode, setPreviewMode] = useState<'preview' | 'edit'>();
   const switchGeneration = useRef(0);
   const updateTabData = useTabStore(useShallow(state => state.updateTabData));
@@ -92,8 +88,7 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
     let disposed = false;
     void window.service.agentInstance.getAgentMetadata(agentId).then(agent => {
       if (disposed || !agent) return;
-      const { messages: _messages, ...nextMetadata } = agent;
-      setMetadata(nextMetadata);
+      setMetadata(agent);
     }).catch((error: unknown) => {
       void window.service.native.log('warn', 'Failed to load agent chat metadata', { agentId, error });
     });
@@ -156,7 +151,7 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
   }, [agentId]);
 
   const {
-    activeExecutionTargetId,
+    activeExecutionTarget,
     cancelSelectedTarget,
     deleteSelectedTurn,
     executionTargets,
@@ -176,7 +171,7 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
     isRunning: sessionAdapter.isRunning || remoteRunning,
     error: sessionAdapter.error ?? remoteError,
     executionTargets,
-    activeExecutionTargetId,
+    activeExecutionTarget,
     setExecutionTarget,
     sendMessage: input => sendToExecutionTarget(input.text, input.file),
     cancel: cancelSelectedTarget,
@@ -184,7 +179,7 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
     retryTurn: retrySelectedTurn,
     exportMessage,
   }), [
-    activeExecutionTargetId,
+    activeExecutionTarget,
     cancelSelectedTarget,
     deleteSelectedTurn,
     executionTargets,
@@ -198,18 +193,11 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
   ]);
 
   const renameConversation = useCallback(async (name: string) => {
-    const agent = await window.service.agentInstance.updateAgent(agentId, { name });
-    const { messages: _messages, ...nextMetadata } = agent;
-    setMetadata(nextMetadata);
+    await window.service.agentInstance.updateAgent(agentId, { name });
+    const nextMetadata = await window.service.agentInstance.getAgentMetadata(agentId);
+    if (nextMetadata) setMetadata(nextMetadata);
     updateTabData(tab.id, { title: name });
   }, [agentId, tab.id, updateTabData]);
-
-  const saveModelParameters = useCallback(async (aiApiConfig: NonNullable<AgentMetadata['aiApiConfig']>) => {
-    const agent = await window.service.agentInstance.updateAgent(agentId, { aiApiConfig });
-    const { messages: _messages, ...nextMetadata } = agent;
-    setMetadata(nextMetadata);
-    setParametersOpen(false);
-  }, [agentId]);
 
   return (
     <AgentChatShell
@@ -223,7 +211,9 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
             agentDefId={agentDefId ?? snapshot.agent?.agentDefId}
             loading={adapter.isRunning || adapter.isLoading}
             onOpenParameters={() => {
-              setParametersOpen(true);
+              void window.service.window.open(WindowNames.preferences, {
+                preferenceGotoTab: PreferenceSections.externalAPI,
+              });
             }}
             onOpenPreview={setPreviewMode}
             onSwitchAgent={handleSwitchAgent}
@@ -248,14 +238,13 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
       }}
       timelineLabels={{
         navigation: t('Chat.Timeline.Navigation'),
-        turn: (index, total) => t('Chat.Timeline.Turn', { index, total }),
+        message: (index, total, role) => t('Chat.Timeline.Turn', { index, total, role }),
         compacted: count => t('Chat.Timeline.Compacted', { count }),
         loadEarlier: t('Chat.Timeline.LoadEarlier'),
         loadLater: t('Chat.Timeline.LoadLater'),
         seek: t('Chat.Timeline.Seek'),
         close: t('Chat.Timeline.Close'),
         newMessages: count => t('Chat.Timeline.NewMessages', { count }),
-        moreResponses: count => t('Chat.Timeline.MoreResponses', { count }),
       }}
       formatTimelineTimestamp={formatTimelineTimestamp}
       actionLabels={{
@@ -283,23 +272,6 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
                 initialBaseMode={previewMode}
               />
             </React.Suspense>
-          )}
-          {parametersOpen && (
-            <AIModelParametersDialog
-              open
-              onClose={() => {
-                setParametersOpen(false);
-              }}
-              config={{
-                api: metadata?.aiApiConfig?.api || { provider: 'openai', model: 'gpt-3.5-turbo' },
-                modelParameters: metadata?.aiApiConfig?.modelParameters || {
-                  temperature: 0.7,
-                  maxTokens: 1000,
-                  topP: 0.95,
-                },
-              }}
-              onSave={saveModelParameters}
-            />
           )}
         </>
       }

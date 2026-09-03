@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createDesktopPromptPreviewController } from '../promptPreviewClient';
+import { createDesktopPromptPreviewController, toCoreAgentFrameworkConfig } from '../promptPreviewClient';
 
 function execution() {
   return {
@@ -69,6 +69,25 @@ describe('desktop retained prompt preview client', () => {
   afterEach(() => {
     service.agentInstance = previous;
     vi.restoreAllMocks();
+  });
+
+  it('adapts the desktop form result to Core and rejects malformed nodes', () => {
+    const config = toCoreAgentFrameworkConfig({
+      prompts: [{ id: 'prompt-1', role: 'user', children: [] }],
+      plugins: [{ id: 'plugin-1', toolId: 'tool-1' }],
+      response: [],
+    });
+    expect(config).toEqual({
+      prompts: [{ id: 'prompt-1', role: 'user', children: [] }],
+      plugins: [{ id: 'plugin-1', toolId: 'tool-1' }],
+      response: [],
+    });
+    expect(() =>
+      toCoreAgentFrameworkConfig({
+        prompts: [{ id: '' }],
+        plugins: [],
+      })
+    ).toThrow('prompt_preview_framework_config_invalid');
   });
 
   it('moves only an opaque bounded audit descriptor across renderer IPC', async () => {
