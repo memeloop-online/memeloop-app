@@ -2,7 +2,15 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 
-export const EXPECTED_MEMELOOP_CLI_VERSION = '0.2.9';
+const desktopPackageManifest = fs.readJsonSync(path.resolve(process.cwd(), 'package.json')) as {
+  dependencies?: Record<string, string>;
+};
+const declaredMemeloopCliVersion = desktopPackageManifest.dependencies?.['memeloop-cli'];
+if (typeof declaredMemeloopCliVersion !== 'string') {
+  throw new Error('Desktop package.json must declare memeloop-cli');
+}
+
+export const EXPECTED_MEMELOOP_CLI_VERSION = declaredMemeloopCliVersion.replace(/^[~^]/, '');
 export const MEMELOOP_CLI_CREATE_REQUIRE_ENTRIES = ['index.js', 'runtime.js'] as const;
 export const MEMELOOP_CLI_CREATE_REQUIRE_SOURCE = 'createRequire(import.meta.url)';
 export const MEMELOOP_CLI_CREATE_REQUIRE_REPLACEMENT = 'createRequire(__filename)';
