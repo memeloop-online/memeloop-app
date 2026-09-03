@@ -3,19 +3,19 @@ export interface PackagedStartupContext {
   ci?: boolean;
 }
 
-export function packagedStartupArgs(
+export function packagedStartupArguments(
   userDataDirectory: string,
   scenario: string,
   context: PackagedStartupContext = {},
 ): string[] {
   const platform = context.platform ?? process.platform;
   const isCi = context.ci ?? process.env.CI === 'true';
-  const linuxCiSandboxArgs = platform === 'linux' && isCi
+  const linuxCiSandboxArguments = platform === 'linux' && isCi
     ? ['--no-sandbox', '--disable-setuid-sandbox']
     : [];
 
   return [
-    ...linuxCiSandboxArgs,
+    ...linuxCiSandboxArguments,
     `--user-data-dir=${userDataDirectory}`,
     `--test-scenario=${scenario}`,
   ];
