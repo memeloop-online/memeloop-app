@@ -3,8 +3,22 @@ import { Alert, Box, Button, Card, CardContent, Checkbox, CircularProgress, Form
 import type { SSHHost } from '@services/sshRemote';
 import type { RemoteBootstrapEvidence } from 'memeloop-cli';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+
+const text = {
+  title: 'RemoteSetup.title',
+  description: 'RemoteSetup.description',
+  hosts: 'RemoteSetup.hosts',
+  noHosts: 'RemoteSetup.noHosts',
+  acceptNewHostKey: 'RemoteSetup.acceptNewHostKey',
+  probe: 'RemoteSetup.probe',
+  install: 'RemoteSetup.install',
+  nodeReady: 'RemoteSetup.nodeReady',
+  installReady: 'RemoteSetup.installReady',
+};
 
 export default function RemoteSetup(): React.JSX.Element {
+  const { t } = useTranslation('agent');
   const [hosts, setHosts] = useState<SSHHost[]>([]);
   const [selected, setSelected] = useState<SSHHost>();
   const [acceptNewHostKey, setAcceptNewHostKey] = useState(false);
@@ -23,6 +37,8 @@ export default function RemoteSetup(): React.JSX.Element {
     if (!selected) return;
     setWorking(true);
     setError(undefined);
+    if (!install) setProbe(undefined);
+    else setResult(undefined);
     try {
       const evidence = install
         ? await window.service.sshRemote.bootstrapRemote(selected, acceptNewHostKey)
@@ -40,30 +56,33 @@ export default function RemoteSetup(): React.JSX.Element {
     <Box sx={{ p: 3 }}>
       <Stack spacing={3}>
         <Box>
-          <Typography variant='h4'>Bootstrap remote compute</Typography>
+          <Typography variant='h4'>{t(text.title, { defaultValue: 'Bootstrap remote compute' })}</Typography>
           <Typography color='text.secondary'>
-            Runs the pinned memeloop-cli@0.2.7 SSH bootstrap. The host must already provide Node.js 24+, npm, key-based SSH and a verified host key.
+            {t(text.description, {
+              defaultValue: 'Uses the installed MemeLoop CLI release over SSH. The host must provide Node.js 24+, npm, key-based SSH, and a verified host key.',
+            })}
           </Typography>
         </Box>
-        {error && <Alert severity='error'>{error}</Alert>}
+        {error && <Alert severity='error'>{t('RemoteSetup.error', { defaultValue: error, error })}</Alert>}
         <Card>
           <CardContent>
-            <Typography variant='h6'>SSH hosts</Typography>
+            <Typography variant='h6'>{t(text.hosts, { defaultValue: 'SSH hosts' })}</Typography>
             <List>
-              {hosts.length === 0 && <ListItemText primary='No concrete hosts found in ~/.ssh/config' />}
+              {hosts.length === 0 && <ListItemText primary={t(text.noHosts, { defaultValue: 'No concrete hosts found in ~/.ssh/config' })} />}
               {hosts.map((host) => (
                 <ListItemButton
-                  key={host.host}
+                  key={`${host.host}:${host.port ?? 22}`}
                   selected={selected?.host === host.host}
                   onClick={() => {
                     setSelected(host);
                     setProbe(undefined);
                     setResult(undefined);
+                    setError(undefined);
                   }}
                 >
                   <ListItemText
                     primary={host.host}
-                    secondary={`${host.user ?? 'current user'}@${host.hostname ?? host.host}:${host.port ?? 22}`}
+                    secondary={`${host.user ?? t('RemoteSetup.currentUser', { defaultValue: 'current user' })}@${host.hostname ?? host.host}:${host.port ?? 22}`}
                   />
                 </ListItemButton>
               ))}
@@ -77,27 +96,38 @@ export default function RemoteSetup(): React.JSX.Element {
                   }}
                 />
               }
-              label='Accept a previously unseen host key (first connection only)'
+              label={t(text.acceptNewHostKey, { defaultValue: 'Accept a previously unseen host key (first connection only)' })}
             />
           </CardContent>
         </Card>
         <Stack direction='row' spacing={2}>
           <Button disabled={!selected || working} variant='outlined' onClick={() => void execute(false)}>
-            Verify prerequisites
+            {t(text.probe, { defaultValue: 'Verify prerequisites' })}
           </Button>
           <Button disabled={!selected || working || !probe} variant='contained' onClick={() => void execute(true)}>
-            Install exact CLI version
+            {t(text.install, { defaultValue: 'Install exact CLI release' })}
           </Button>
           {working && <CircularProgress size={28} />}
         </Stack>
         {probe && (
           <Alert severity='success'>
-            Node.js {probe.nodeVersion} is supported. MemeLoop CLI {probe.version} can be bootstrapped without root access.
+            {t(text.nodeReady, {
+              defaultValue: 'Node.js {{nodeVersion}} is supported. MemeLoop CLI {{version}} can be bootstrapped without root access.',
+              nodeVersion: probe.nodeVersion,
+              version: probe.version,
+            })}
           </Alert>
         )}
         {result && (
           <Alert severity='success' icon={<CheckCircleIcon />}>
-            MemeLoop CLI {result.version} is ready at {result.executable}. {result.changed ? 'The pinned version was installed.' : 'The pinned installation was already present.'}
+            {t(text.installReady, {
+              defaultValue: 'MemeLoop CLI {{version}} is ready at {{executable}}. {{status}}',
+              version: result.version,
+              executable: result.executable,
+              status: result.changed
+                ? t('RemoteSetup.installedStatus', { defaultValue: 'The exact release was installed.' })
+                : t('RemoteSetup.existingStatus', { defaultValue: 'The exact release was already present.' }),
+            })}
           </Alert>
         )}
       </Stack>

@@ -8,13 +8,13 @@ vi.mock('memeloop-cli', async importOriginal => {
   const actual = await importOriginal<typeof import('memeloop-cli')>();
   return {
     ...actual,
-    bootstrapRemoteCli: vi.fn(async (options: { version: string; dryRun: boolean }) => ({
+    bootstrapRemoteCli: vi.fn(async (options: { version: string; dryRun?: boolean }) => ({
       ok: true as const,
       version: options.version,
       nodeVersion: '24.4.0',
       executable: '/home/operator/.local/bin/memeloop',
-      changed: !options.dryRun,
-      dryRun: options.dryRun,
+      changed: options.dryRun !== true,
+      dryRun: options.dryRun === true,
     })),
   };
 });
@@ -34,15 +34,14 @@ function installedCliManifest(): CliManifest {
 describe('Desktop SSH bootstrap boundary', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('pins bootstrap to the reviewed memeloop-cli 0.2.7 release', () => {
+  it('uses the installed CLI manifest version as the bootstrap version', () => {
     const manifest = installedCliManifest();
     expect(manifest.name).toBe('memeloop-cli');
-    expect(MEMELOOP_REMOTE_BOOTSTRAP_VERSION).toBe('0.2.7');
     expect(MEMELOOP_REMOTE_BOOTSTRAP_VERSION).toBe(manifest.version);
     expect(MEMELOOP_CLI_VERSION).toBe(manifest.version);
   });
 
-  it('probes through the pinned CLI bootstrap without installing', async () => {
+  it('probes through the exact CLI bootstrap without installing', async () => {
     await bootstrapRemote(
       { host: 'worker', hostname: 'worker.example', user: 'operator', port: 2222 },
       { dryRun: true, acceptNewHostKey: false },
@@ -71,5 +70,13 @@ describe('Desktop SSH bootstrap boundary', () => {
       identityFile: '/keys/worker',
       dryRun: false,
     }));
+  });
+
+  it('rejects hostile targets before invoking the SSH bootstrap', async () => {
+    await expect(bootstrapRemote(
+      { host: 'worker; touch /tmp/pwned' },
+      { dryRun: true, acceptNewHostKey: false },
+    )).rejects.toThrow('concrete alias');
+    expect(bootstrapRemoteCli).not.toHaveBeenCalled();
   });
 });
