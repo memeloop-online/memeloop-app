@@ -56,14 +56,12 @@ function AgentChat({ session }: { session: MobileRemoteAgentSession }) {
       }}
       timelineLabels={{
         navigation: labels.chat.timeline,
-        turn: labels.chat.turn,
         compacted: labels.chat.compacted,
         loadEarlier: labels.chat.loadEarlier,
         loadLater: labels.chat.loadLater,
         seek: labels.chat.seek,
         close: labels.chat.closeTimeline,
         newMessages: labels.chat.newMessages,
-        moreResponses: labels.chat.moreResponses,
       }}
       genericErrorPresentation={{
         title: labels.chat.operationFailedTitle,

@@ -1,13 +1,13 @@
 import {
   type AgentConversationClient,
+  type AgentConversationUpdate,
   type AgentDeviceRpcClient,
   type AgentInstanceClient,
   type AgentRuntimeView,
   AgentSessionController,
   createAgentDeviceRpcClient,
   createAgentDeviceRpcRequestId,
-  PollingAgentConversationUpdateSource,
-  projectConversationMessageForList,
+  MAX_AGENT_CONVERSATION_APPENDED_MESSAGE_COUNT,
 } from 'memeloop/mobile';
 import { ConversationTimelineWindowController } from '@memeloop/react-ui/native';
 
@@ -18,6 +18,171 @@ export const MOBILE_SESSION_MESSAGE_LIMIT = 50;
 export const MOBILE_SESSION_BYTE_LIMIT = 256 * 1024;
 const MOBILE_CONVERSATION_HEAD_POLL_MS = 1_500;
 const MOBILE_REMOTE_RUN_POLL_MS = 750;
+const MOBILE_CONVERSATION_UPDATE_FALLBACK_MS = MOBILE_CONVERSATION_HEAD_POLL_MS;
+
+interface ConversationHead {
+  revision: string;
+  totalMessages: number;
+}
+
+interface MobileConversationUpdateSourceContext {
+  conversationId: string;
+  listener: (update: AgentConversationUpdate) => void;
+  abortController: AbortController;
+  timer?: ReturnType<typeof setTimeout>;
+  head?: ConversationHead;
+  readInFlight: boolean;
+  refreshQueued: boolean;
+  consecutiveFailures: number;
+}
+
+/** Mobile's host-owned revision probe; only bounded invalidations cross the Core adapter boundary. */
+class MobileConversationUpdateSource {
+  private active?: MobileConversationUpdateSourceContext;
+  private disposed = false;
+
+  constructor(
+    private readonly readHead: (
+      conversationId: string,
+      signal: AbortSignal,
+    ) => Promise<ConversationHead>,
+  ) {}
+
+  subscribe(
+    conversationId: string,
+    listener: (update: AgentConversationUpdate) => void,
+  ): () => void {
+    if (this.disposed) throw new Error('mobile_conversation_update_source_disposed');
+    this.clearActive();
+    const context: MobileConversationUpdateSourceContext = {
+      conversationId,
+      listener,
+      abortController: new AbortController(),
+      readInFlight: false,
+      refreshQueued: false,
+      consecutiveFailures: 0,
+    };
+    this.active = context;
+    void this.read(context);
+    return () => {
+      if (this.active !== context) return;
+      this.clearActive();
+    };
+  }
+
+  wake(conversationId?: string): void {
+    if (this.disposed) return;
+    const context = this.active;
+    if (!context || (conversationId !== undefined && conversationId !== context.conversationId)) return;
+    if (context.readInFlight) {
+      context.refreshQueued = true;
+      return;
+    }
+    this.schedule(context, 0);
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.clearActive();
+    this.disposed = true;
+  }
+
+  private async read(context: MobileConversationUpdateSourceContext): Promise<void> {
+    if (!this.isCurrent(context) || context.readInFlight) return;
+    this.clearTimer(context);
+    context.readInFlight = true;
+    try {
+      const head = await this.readHead(context.conversationId, context.abortController.signal);
+      if (!this.isCurrent(context)) return;
+      this.assertHead(head);
+      const previous = context.head;
+      context.head = head;
+      context.consecutiveFailures = 0;
+      if (previous && previous.revision !== head.revision) {
+        const appendedMessageCount = head.totalMessages - previous.totalMessages;
+        const update: AgentConversationUpdate = appendedMessageCount > 0 && appendedMessageCount <= MAX_AGENT_CONVERSATION_APPENDED_MESSAGE_COUNT
+          ? {
+            kind: 'invalidated',
+            conversationId: context.conversationId,
+            previousRevision: previous.revision,
+            revision: head.revision,
+            reason: 'append',
+            appendedMessageCount,
+          }
+          : {
+            kind: 'invalidated',
+            conversationId: context.conversationId,
+            previousRevision: previous.revision,
+            revision: head.revision,
+            reason: 'reset',
+          };
+        this.emit(context, update);
+      } else if (previous && previous.totalMessages !== head.totalMessages) {
+        // A revision identifies the total. Re-baseline instead of forging an
+        // invalidation with equal revisions.
+        context.head = undefined;
+        context.refreshQueued = true;
+      }
+    } catch {
+      if (this.isCurrent(context)) context.consecutiveFailures = Math.min(context.consecutiveFailures + 1, 5);
+    } finally {
+      context.readInFlight = false;
+      if (this.isCurrent(context)) {
+        if (context.refreshQueued) {
+          context.refreshQueued = false;
+          this.schedule(context, 0);
+        } else {
+          this.schedule(context, MOBILE_CONVERSATION_UPDATE_FALLBACK_MS * 2 ** context.consecutiveFailures);
+        }
+      }
+    }
+  }
+
+  private emit(context: MobileConversationUpdateSourceContext, update: AgentConversationUpdate): void {
+    if (!this.isCurrent(context)) return;
+    try {
+      context.listener(update);
+    } catch {
+      // Listener failures cannot break the host probe or cleanup fences.
+      if (this.isCurrent(context)) {
+        context.consecutiveFailures = Math.min(context.consecutiveFailures + 1, 5);
+      }
+    }
+  }
+
+  private schedule(context: MobileConversationUpdateSourceContext, delayMs: number): void {
+    if (!this.isCurrent(context)) return;
+    this.clearTimer(context);
+    context.timer = setTimeout(() => {
+      context.timer = undefined;
+      void this.read(context);
+    }, delayMs);
+  }
+
+  private clearActive(): void {
+    const context = this.active;
+    this.active = undefined;
+    if (!context) return;
+    context.abortController.abort();
+    this.clearTimer(context);
+  }
+
+  private clearTimer(context: MobileConversationUpdateSourceContext): void {
+    if (context.timer === undefined) return;
+    clearTimeout(context.timer);
+    context.timer = undefined;
+  }
+
+  private isCurrent(context: MobileConversationUpdateSourceContext): boolean {
+    return this.active === context && !this.disposed && !context.abortController.signal.aborted;
+  }
+
+  private assertHead(head: ConversationHead): void {
+    if (!head || typeof head.revision !== 'string' || head.revision.length === 0 || !Number.isSafeInteger(head.totalMessages) || head.totalMessages < 0) {
+      throw new Error('invalid_mobile_conversation_head');
+    }
+  }
+}
 
 function throwIfAborted(signal?: AbortSignal): void {
   signal?.throwIfAborted();
@@ -41,24 +206,21 @@ function wait(milliseconds: number, signal: AbortSignal): Promise<void> {
 }
 
 class RemoteAgentRuntimeBridge {
-  private readonly updateSource: PollingAgentConversationUpdateSource;
+  private readonly updateSource: MobileConversationUpdateSource;
   private readonly agentListeners = new Map<string, Set<(update: Partial<AgentRuntimeView>) => void>>();
   private readonly runControllers = new Map<string, AbortController>();
   private readonly activeRunIds = new Map<string, string>();
   private disposed = false;
 
   constructor(readonly client: AgentDeviceRpcClient) {
-    this.updateSource = new PollingAgentConversationUpdateSource({
-      pollIntervalMs: MOBILE_CONVERSATION_HEAD_POLL_MS,
-      readHead: async ({ conversationId, signal }) => {
-        const page = await this.client.getConversationTimelinePage({
-          conversationId,
-          limit: 1,
-          maxBytes: 64 * 1024,
-        }, { signal });
-        if (page.reset) throw new Error('unexpected_conversation_timeline_head_reset');
-        return { revision: page.revision, totalMessages: page.totalMessages };
-      },
+    this.updateSource = new MobileConversationUpdateSource(async (conversationId, signal) => {
+      const page = await this.client.getConversationTimelinePage({
+        conversationId,
+        limit: 1,
+        maxBytes: 64 * 1024,
+      }, { signal });
+      if (page.reset) throw new Error('unexpected_conversation_timeline_head_reset');
+      return { revision: page.revision, totalMessages: page.totalMessages };
     });
   }
 
@@ -77,7 +239,15 @@ class RemoteAgentRuntimeBridge {
           id: meta.conversationId,
           name: meta.title || 'Remote agent',
           agentDefId: meta.definitionId,
-          status: { state: this.activeRunIds.has(agentId) ? 'working' : 'idle' },
+          status: {
+            state: this.activeRunIds.has(agentId) ? 'working' : 'idle',
+            modified: new Date(meta.lastMessageTimestamp),
+          },
+          created: new Date(meta.lastMessageTimestamp),
+          modified: new Date(meta.lastMessageTimestamp),
+          closed: false,
+          volatile: false,
+          preview: false,
         };
       },
       updateAgent: async () => {
@@ -120,15 +290,11 @@ class RemoteAgentRuntimeBridge {
           conversationId,
           limit: options.limit,
           maxBytes: options.maxBytes,
-          ...(options.mode ? { mode: options.mode } : {}),
           ...(options.direction ? { direction: options.direction } : {}),
           ...(options.cursor ? { cursor: options.cursor } : {}),
           ...(options.expectedRevision ? { expectedRevision: options.expectedRevision } : {}),
         }, { signal: callOptions?.signal });
-        return page.reset ? page : {
-          ...page,
-          items: page.items.map(projectConversationMessageForList),
-        };
+        return page;
       },
       getMessageWindowAround: async (request, options) => {
         const result = await this.client.loadAround({
@@ -138,10 +304,7 @@ class RemoteAgentRuntimeBridge {
           maxMessages: request.maxMessages,
           maxBytes: request.maxBytes,
         }, { signal: options?.signal });
-        return result.reset ? result : {
-          ...result,
-          items: result.items.map(projectConversationMessageForList),
-        };
+        return result;
       },
       getTurnDetail: (request, options) => this.client.getTurnDetail(request, { signal: options?.signal }),
       sendMessage: async (conversationId, content, attachment, wikiTiddlers, options) => {
