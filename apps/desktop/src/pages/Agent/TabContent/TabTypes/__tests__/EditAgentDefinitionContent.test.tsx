@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { type IEditAgentDefinitionTab, TabState, TabType } from '@/pages/Agent/types/tab';
 import { ThemeProvider } from '@mui/material/styles';
+import type { AgentDefinition } from '@services/agentDefinition/interface';
 import { lightTheme } from '@services/theme/defaultTheme';
 import { EditAgentDefinitionContent } from '../EditAgentDefinitionContent';
 
@@ -42,7 +43,6 @@ Object.defineProperty(window, 'service', {
       deleteAgent: mockDeleteAgent,
       getFrameworkConfigSchema: mockGetFrameworkConfigSchema,
       getAgentMetadata: vi.fn().mockResolvedValue(undefined),
-      getAgentMessagePage: vi.fn().mockResolvedValue({ items: [], hasMoreBefore: false, hasMoreAfter: false }),
       getAgentConversationTimeline: vi.fn().mockResolvedValue({ anchors: [], totalMessages: 0, totalTurns: 0 }),
     },
     agentDefinition: {
@@ -55,12 +55,15 @@ Object.defineProperty(window, 'service', {
   },
 });
 
-const mockAgentDefinition = {
+const mockAgentDefinition: AgentDefinition = {
   id: 'test-agent-def-id',
   name: 'Test Agent',
   description: 'A test agent for editing',
+  systemPrompt: 'You are a test assistant.',
+  tools: [],
+  version: '1.0.0',
   agentFrameworkID: 'testHandler',
-  config: {},
+  agentFrameworkConfig: { prompts: [], plugins: [] },
 };
 
 const mockSchema = {

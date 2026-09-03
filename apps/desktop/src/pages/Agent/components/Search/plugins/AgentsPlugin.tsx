@@ -194,8 +194,9 @@ function highlightHits({
       } else {
         value = JSON.stringify(attributeValue);
       }
-    } catch {
+    } catch (error) {
       // Conversion failed, keep empty string
+      console.debug('Failed to stringify agent search attribute', { error, attribute });
     }
   }
 

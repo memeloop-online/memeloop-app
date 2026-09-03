@@ -710,6 +710,21 @@
       "Title": "Liste des espaces de travail"
     }
   },
+  "RemoteSetup": {
+    "title": "Initialiser le calcul distant",
+    "description": "Utilise la version installée de MemeLoop CLI via SSH. L'hôte doit fournir Node.js 24+, npm, SSH par clé et une clé d'hôte vérifiée.",
+    "hosts": "Hôtes SSH",
+    "noHosts": "Aucun hôte concret trouvé dans ~/.ssh/config",
+    "acceptNewHostKey": "Accepter une clé d'hôte jamais vue (première connexion uniquement)",
+    "probe": "Vérifier les prérequis",
+    "install": "Installer la version exacte du CLI",
+    "nodeReady": "Node.js {{nodeVersion}} est pris en charge. MemeLoop CLI {{version}} peut être initialisé sans accès root.",
+    "installReady": "MemeLoop CLI {{version}} est prêt à {{executable}}. {{status}}",
+    "error": "Échec de la configuration distante : {{error}}",
+    "currentUser": "utilisateur actuel",
+    "installedStatus": "La version exacte a été installée.",
+    "existingStatus": "La version exacte était déjà présente."
+  },
   "Search": {
     "AvailableAgents": "agents intelligents disponibles",
     "FailedToCreateChatWithAgent": "Impossible de créer une conversation avec l'agent intelligent.",

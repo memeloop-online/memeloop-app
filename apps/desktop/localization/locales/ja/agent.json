@@ -711,6 +711,21 @@
       "Title": "ワークスペースリスト"
     }
   },
+  "RemoteSetup": {
+    "title": "リモート計算ノードをセットアップ",
+    "description": "SSH 経由でインストール済みの MemeLoop CLI を使用します。ホストには Node.js 24+、npm、鍵認証 SSH、検証済みのホスト鍵が必要です。",
+    "hosts": "SSH ホスト",
+    "noHosts": "~/.ssh/config に具体的なホストがありません",
+    "acceptNewHostKey": "未確認のホスト鍵を受け入れる（初回接続のみ）",
+    "probe": "前提条件を確認",
+    "install": "正確な CLI リリースをインストール",
+    "nodeReady": "Node.js {{nodeVersion}} はサポートされています。MemeLoop CLI {{version}} は root 権限なしでセットアップできます。",
+    "installReady": "MemeLoop CLI {{version}} は {{executable}} で使用できます。{{status}}",
+    "error": "リモートセットアップに失敗しました: {{error}}",
+    "currentUser": "現在のユーザー",
+    "installedStatus": "正確なリリースをインストールしました。",
+    "existingStatus": "正確なリリースは既に存在します。"
+  },
   "Search": {
     "AvailableAgents": "利用可能なインテリジェントエージェント",
     "FailedToCreateChatWithAgent": "スマートエージェントとの対話を作成できません",

@@ -711,6 +711,12 @@ export class AgentBrowserService implements IAgentBrowserService {
       };
 
       const createdTab = await this.addTab(chatTab);
+      // `initialMessage` is renderer-only metadata and is intentionally not
+      // persisted with the tab. Deliver the selection after the durable tab
+      // creation so the system-menu Ask AI action cannot silently lose text.
+      await agentInstanceService.sendMsgToAgent(agent.id, {
+        text: selectionText,
+      });
       logger.info('Created new Talk with AI tab', { tabId: createdTab.id });
       return createdTab.id;
     } catch (error) {

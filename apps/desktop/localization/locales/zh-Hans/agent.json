@@ -378,7 +378,9 @@
     "AddScheduledTask": "添加任务",
     "NoScheduledTasks": "没有定时任务。添加一个来定期唤醒智能体。",
     "NodeManagement": "节点管理",
-    "NodeManagementDescription": "通过 PeerId 管理已认证的 MemeLoop 设备"
+    "NodeManagementDescription": "通过 PeerId 管理已认证的 MemeLoop 设备",
+    "RemoteSetup": "远程 SSH 设置",
+    "RemoteSetupDescription": "通过 SSH 验证并引导远程 MemeLoop 计算节点"
   },
   "Prompt": {
     "AutoRefresh": "预览会随输入文本的变化自动刷新",
@@ -734,6 +736,21 @@
       "TargetIdTitle": "目标 ID",
       "Title": "工作区列表"
     }
+  },
+  "RemoteSetup": {
+    "title": "引导远程计算节点",
+    "description": "通过 SSH 使用已安装的 MemeLoop CLI 版本。主机必须提供 Node.js 24+、npm、基于密钥的 SSH 和已验证的主机密钥。",
+    "hosts": "SSH 主机",
+    "noHosts": "~/.ssh/config 中没有找到具体主机",
+    "acceptNewHostKey": "接受此前未见过的主机密钥（仅首次连接）",
+    "probe": "验证前置条件",
+    "install": "安装精确的 CLI 版本",
+    "nodeReady": "Node.js {{nodeVersion}} 受支持。MemeLoop CLI {{version}} 可以在无需 root 权限的情况下完成引导。",
+    "installReady": "MemeLoop CLI {{version}} 已就绪，路径：{{executable}}。{{status}}",
+    "error": "远程设置失败：{{error}}",
+    "currentUser": "当前用户",
+    "installedStatus": "已安装精确版本。",
+    "existingStatus": "精确版本已存在。"
   },
   "Search": {
     "AvailableAgents": "可用的智能体",

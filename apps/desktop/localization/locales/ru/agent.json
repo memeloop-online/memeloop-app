@@ -711,6 +711,21 @@
       "Title": "Список рабочих областей"
     }
   },
+  "RemoteSetup": {
+    "title": "Настройка удалённого вычислительного узла",
+    "description": "Используется установленная версия MemeLoop CLI через SSH. На хосте должны быть Node.js 24+, npm, SSH по ключу и проверенный ключ хоста.",
+    "hosts": "SSH-хосты",
+    "noHosts": "В ~/.ssh/config не найдено конкретных хостов",
+    "acceptNewHostKey": "Принять ранее неизвестный ключ хоста (только при первом подключении)",
+    "probe": "Проверить требования",
+    "install": "Установить точную версию CLI",
+    "nodeReady": "Node.js {{nodeVersion}} поддерживается. MemeLoop CLI {{version}} можно установить без прав root.",
+    "installReady": "MemeLoop CLI {{version}} готов в {{executable}}. {{status}}",
+    "error": "Не удалось настроить удалённый узел: {{error}}",
+    "currentUser": "текущий пользователь",
+    "installedStatus": "Точная версия установлена.",
+    "existingStatus": "Точная версия уже была установлена."
+  },
   "Search": {
     "AvailableAgents": "доступные агенты",
     "FailedToCreateChatWithAgent": "Не удалось создать диалог с агентом.",

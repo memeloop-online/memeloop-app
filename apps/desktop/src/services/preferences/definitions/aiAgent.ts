@@ -22,5 +22,12 @@ export const aiAgentSection: ISectionDefinition = {
       ns: 'agent',
       handler: 'deviceNetwork.openManagement',
     },
+    {
+      type: 'action',
+      titleKey: 'Preference.RemoteSetup',
+      descriptionKey: 'Preference.RemoteSetupDescription',
+      ns: 'agent',
+      handler: 'remoteSetup.open',
+    },
   ],
 };

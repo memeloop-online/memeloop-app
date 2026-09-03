@@ -12,7 +12,6 @@ import type { ICustomSectionProps } from '@services/preferences/definitions/type
 import { usePreferenceObservable } from '@services/preferences/hooks';
 import { Paper, SectionTitle } from '../PreferenceComponents';
 import { ItemRenderer } from '../SchemaRenderer';
-import { ToolApprovalSettingsDialog } from './ExternalAPI/components/ToolApprovalSettingsDialog';
 import { ToolPermissionsDialog } from './ExternalAPI/components/ToolPermissionsDialog';
 
 interface ScheduledAgentOption {
@@ -25,7 +24,6 @@ export function AIAgent(props: ICustomSectionProps): React.JSX.Element {
   const { t } = useTranslation('agent');
   const preference = usePreferenceObservable();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [toolApprovalDialogOpen, setToolApprovalDialogOpen] = useState(false);
   const [toolPermissionsDialogOpen, setToolPermissionsDialogOpen] = useState(false);
   const [agentInfo, setAgentInfo] = useState<{ exists: boolean; size?: number; path?: string }>({ exists: false });
   const [agentOptions, setAgentOptions] = useState<ScheduledAgentOption[]>([]);
@@ -118,18 +116,6 @@ export function AIAgent(props: ICustomSectionProps): React.JSX.Element {
           </ListItemButton>
           <ListItemButton
             onClick={() => {
-              setToolApprovalDialogOpen(true);
-            }}
-          >
-            <SecurityIcon sx={{ mr: 1 }} color='action' />
-            <ListItemText
-              primary={t('Preference.ToolApprovalSettings')}
-              secondary={t('Preference.ToolApprovalSettingsDescription')}
-            />
-            <ChevronRightIcon color='action' />
-          </ListItemButton>
-          <ListItemButton
-            onClick={() => {
               setToolPermissionsDialogOpen(true);
             }}
           >
@@ -187,12 +173,6 @@ export function AIAgent(props: ICustomSectionProps): React.JSX.Element {
         </Box>
       </Paper>
 
-      <ToolApprovalSettingsDialog
-        open={toolApprovalDialogOpen}
-        onClose={() => {
-          setToolApprovalDialogOpen(false);
-        }}
-      />
       <ToolPermissionsDialog
         open={toolPermissionsDialogOpen}
         onClose={() => {

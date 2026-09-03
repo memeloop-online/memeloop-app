@@ -1,6 +1,14 @@
-import type { ScheduledTask as DesktopScheduledTask } from '@services/agentInstance/scheduledTaskTypes';
 import type { Device } from '@services/deviceNetwork/interface';
-import { type ListScheduledTasksOptions, type ScheduledTask, type ScheduledTaskClient, type ScheduledTaskPage, type ScheduledTaskState } from 'memeloop';
+import {
+  createScheduledTaskAggregatePageController,
+  type ListScheduledTasksOptions,
+  normalizeScheduledTaskAggregateStates,
+  type ScheduledTask,
+  type ScheduledTaskAggregateCursorSource,
+  type ScheduledTaskClient,
+  type ScheduledTaskPage,
+  type ScheduledTaskState,
+} from 'memeloop';
 import { createAgentDeviceRpcClient, createScheduledTaskClientFromRpc } from 'memeloop/device-network';
 
 const DEFAULT_LIMIT = 64;
@@ -8,7 +16,6 @@ const MAX_LIMIT = 100;
 const DEFAULT_MAX_BYTES = 256 * 1024;
 const MAX_MAX_BYTES = 256 * 1024;
 const MAX_SOURCES = 64;
-const MAX_CURSOR_CHARACTERS = 2_048;
 
 interface PagePosition {
   updatedAt: string;
@@ -20,71 +27,10 @@ interface CachePosition {
   id: string;
 }
 
-interface HostCursor {
-  version: 1;
-  signature: string;
-  sourceIndex: number;
-  sourceCursor?: string;
-  localAfter?: PagePosition;
-  cacheAfter?: CachePosition;
-  revision?: string;
-}
-
-type HostTask = DesktopScheduledTask;
-
 interface SourceTarget {
   executionNodeId: string;
   path: 'local' | 'live' | 'cache';
 }
-
-const toCoreTask = (task: HostTask): ScheduledTask => ({
-  id: task.id,
-  agentInstanceId: task.agentInstanceId,
-  agentDefinitionId: task.agentDefinitionId,
-  name: task.name,
-  schedule: task.schedule,
-  ...(task.payload === undefined ? {} : { payload: task.payload }),
-  ...(task.activeHoursStart === undefined ? {} : { activeHoursStart: task.activeHoursStart }),
-  ...(task.activeHoursEnd === undefined ? {} : { activeHoursEnd: task.activeHoursEnd }),
-  enabled: task.enabled,
-  ...(task.createdBy === undefined ? {} : { createdBy: task.createdBy }),
-  state: task.state,
-  executionNodeId: task.executionNodeId,
-  ...(task.executionNodeLabel === undefined ? {} : { executionNodeLabel: task.executionNodeLabel }),
-  originNodeId: task.originNodeId,
-  updatedAt: task.updated,
-  executionRevision: task.executionRevision,
-  ...(task.occurrenceId === undefined ? {} : { occurrenceId: task.occurrenceId }),
-  ...(task.occurrenceScheduledFor === undefined ? {} : { occurrenceScheduledFor: task.occurrenceScheduledFor }),
-  occurrenceAttempt: task.occurrenceAttempt,
-});
-
-const toHostTask = (task: ScheduledTask): HostTask => ({
-  id: task.id,
-  agentInstanceId: task.agentInstanceId,
-  agentDefinitionId: task.agentDefinitionId,
-  name: task.name,
-  scheduleKind: task.schedule.kind,
-  schedule: task.schedule,
-  ...(task.payload?.message === undefined ? {} : { payload: { message: task.payload.message } }),
-  enabled: task.enabled,
-  deleteAfterRun: false,
-  ...(task.activeHoursStart === undefined ? {} : { activeHoursStart: task.activeHoursStart }),
-  ...(task.activeHoursEnd === undefined ? {} : { activeHoursEnd: task.activeHoursEnd }),
-  consecutiveFailures: 0,
-  runCount: 0,
-  createdBy: task.createdBy ?? 'remote-device',
-  created: task.updatedAt ?? new Date(0).toISOString(),
-  updated: task.updatedAt ?? new Date(0).toISOString(),
-  state: task.state,
-  executionNodeId: task.executionNodeId,
-  ...(task.executionNodeLabel === undefined ? {} : { executionNodeLabel: task.executionNodeLabel }),
-  originNodeId: task.originNodeId,
-  executionRevision: task.executionRevision ?? 0,
-  ...(task.occurrenceId === undefined ? {} : { occurrenceId: task.occurrenceId }),
-  ...(task.occurrenceScheduledFor === undefined ? {} : { occurrenceScheduledFor: task.occurrenceScheduledFor }),
-  occurrenceAttempt: task.occurrenceAttempt ?? 0,
-});
 
 interface SourceResult {
   items: ScheduledTask[];
@@ -172,33 +118,49 @@ export function createDesktopScheduledTaskClient(): ScheduledTaskClient {
       options.signal?.throwIfAborted();
       const allTargets = buildTargets(identity.peerId, devices, executionNodeIds);
       const targets = allTargets.slice(0, MAX_SOURCES);
-      const signature = targets.map(target => `${target.executionNodeId}:${target.path}`).join('|');
+      if (targets.length === 0) {
+        return { items: [], hasMoreAfter: false, partial: false, sources: [] };
+      }
+      const signature = targetSignature(identity.peerId, targets);
       const generation = reconcileConfiguration(signature);
+      const pageController = createScheduledTaskAggregatePageController({
+        agentInstanceId,
+        scope: signature,
+        states,
+        sourceCount: targets.length,
+      });
       const cursor = options.cursor === undefined
-        ? { version: 1, signature, sourceIndex: 0 } satisfies HostCursor
-        : decodeCursor(options.cursor, signature, targets.length);
+        ? pageController.initial()
+        : pageController.decode(options.cursor);
       const target = targets[cursor.sourceIndex];
       if (!target) {
         return { items: [], hasMoreAfter: false, partial: false, sources: [] };
       }
+      if (
+        cursor.sources.length > 1 ||
+        cursor.sources[0] !== undefined && cursor.sources[0].executionNodeId !== target.executionNodeId
+      ) throw new Error('scheduled_task_cursor_source_mismatch');
+      const source = cursor.sources[0];
 
       const result: SourceResult = target.path === 'local'
-        ? await readLocalSource({ target, cursor, agentInstanceId, states, limit, options })
-        : await readRemoteSource({ target, cursor, agentInstanceId, states, limit, maxBytes, options, remoteClient });
+        ? await readLocalSource({ target, source, agentInstanceId, states, limit, options })
+        : await readRemoteSource({ target, source, agentInstanceId, states, limit, maxBytes, options, remoteClient });
       options.signal?.throwIfAborted();
       if (generation !== configurationGeneration) throw new Error('scheduled_task_configuration_changed');
       const items = result.items.map(task => remember(task, result.fromCache));
       const nextSourceIndex = result.done ? cursor.sourceIndex + 1 : cursor.sourceIndex;
       const hasMoreAfter = !result.done || nextSourceIndex < targets.length;
       const nextCursor = hasMoreAfter
-        ? encodeCursor({
-          version: 1,
-          signature,
+        ? pageController.encodePage({
           sourceIndex: nextSourceIndex,
-          ...(!result.done && result.sourceCursor ? { sourceCursor: result.sourceCursor } : {}),
-          ...(!result.done && result.localAfter ? { localAfter: result.localAfter } : {}),
-          ...(!result.done && result.cacheAfter ? { cacheAfter: result.cacheAfter } : {}),
-          ...(!result.done && result.revision ? { revision: result.revision } : {}),
+          sources: result.done ? [] : [{
+            executionNodeId: target.executionNodeId,
+            done: false,
+            ...(result.sourceCursor ? { cursor: result.sourceCursor } : {}),
+            ...(result.localAfter ? { position: { kind: 'local', ...result.localAfter } } : {}),
+            ...(result.cacheAfter ? { position: { kind: 'cache', ...result.cacheAfter } } : {}),
+            ...(result.revision ? { revision: result.revision } : {}),
+          }],
         })
         : undefined;
       const page: ScheduledTaskPage = {
@@ -222,12 +184,12 @@ export function createDesktopScheduledTaskClient(): ScheduledTaskClient {
       options.signal?.throwIfAborted();
       const identity = await window.service.deviceNetwork.getLocalIdentity();
       const task = input.executionNodeId === identity.peerId
-        ? toCoreTask(await window.service.agentInstance.createScheduledTask(input))
+        ? await window.service.agentInstance.createScheduledTask(input)
         : await (await remoteClient(input.executionNodeId)).createScheduledTask(input, options);
       options.signal?.throwIfAborted();
       remember(task);
       if (input.executionNodeId !== identity.peerId) {
-        await bestEffortProjection(() => window.service.agentInstance.upsertRemoteScheduledTaskProjection(toHostTask(task), Date.now()));
+        await bestEffortProjection(() => window.service.agentInstance.upsertRemoteScheduledTaskProjection(task, Date.now()));
       }
       return task;
     },
@@ -241,12 +203,12 @@ export function createDesktopScheduledTaskClient(): ScheduledTaskClient {
       }
       const identity = await window.service.deviceNetwork.getLocalIdentity();
       const task = executionNodeId === identity.peerId
-        ? toCoreTask(await window.service.agentInstance.updateScheduledTask({ id, ...input }))
+        ? await window.service.agentInstance.updateScheduledTask({ id, ...input })
         : await (await remoteClient(executionNodeId)).updateScheduledTask(id, input, options);
       options.signal?.throwIfAborted();
       remember(task);
       if (executionNodeId !== identity.peerId) {
-        await bestEffortProjection(() => window.service.agentInstance.upsertRemoteScheduledTaskProjection(toHostTask(task), Date.now()));
+        await bestEffortProjection(() => window.service.agentInstance.upsertRemoteScheduledTaskProjection(task, Date.now()));
       }
       return task;
     },
@@ -277,7 +239,7 @@ export function createDesktopScheduledTaskClient(): ScheduledTaskClient {
 
 async function readLocalSource(input: {
   target: SourceTarget;
-  cursor: HostCursor;
+  source: ScheduledTaskAggregateCursorSource | undefined;
   agentInstanceId: string;
   states: ScheduledTaskState[];
   limit: number;
@@ -289,12 +251,12 @@ async function readLocalSource(input: {
     executionNodeId: input.target.executionNodeId,
     states: input.states,
     limit: input.limit,
-    ...(input.cursor.localAfter ? { after: input.cursor.localAfter } : {}),
-    ...(input.cursor.revision ? { expectedRevision: input.cursor.revision } : {}),
+    ...(input.source?.position?.kind === 'local' ? { after: input.source.position } : {}),
+    ...(input.source?.revision ? { expectedRevision: input.source.revision } : {}),
   });
   input.options.signal?.throwIfAborted();
   return {
-    items: page.items.map(toCoreTask),
+    items: page.items,
     done: page.next === undefined,
     localAfter: page.next,
     revision: page.revision,
@@ -306,7 +268,7 @@ async function readLocalSource(input: {
 
 async function readRemoteSource(input: {
   target: SourceTarget;
-  cursor: HostCursor;
+  source: ScheduledTaskAggregateCursorSource | undefined;
   agentInstanceId: string;
   states: ScheduledTaskState[];
   limit: number;
@@ -321,7 +283,7 @@ async function readRemoteSource(input: {
         {
           states: input.states,
           executionNodeIds: [input.target.executionNodeId],
-          ...(input.cursor.sourceCursor ? { cursor: input.cursor.sourceCursor } : {}),
+          ...(input.source?.cursor ? { cursor: input.source.cursor } : {}),
           limit: input.limit,
           maxBytes: input.maxBytes,
           signal: input.options.signal,
@@ -329,16 +291,16 @@ async function readRemoteSource(input: {
       );
       input.options.signal?.throwIfAborted();
       await bestEffortProjection(async () => {
-        if (input.cursor.sourceCursor === undefined && !page.hasMoreAfter) {
+        if (input.source?.cursor === undefined && !page.hasMoreAfter) {
           await window.service.agentInstance.replaceRemoteScheduledTaskProjections(
             input.agentInstanceId,
             input.target.executionNodeId,
-            page.items.map(toHostTask),
+            page.items,
             Date.now(),
           );
         } else {
           for (const task of page.items) {
-            await window.service.agentInstance.upsertRemoteScheduledTaskProjection(toHostTask(task), Date.now());
+            await window.service.agentInstance.upsertRemoteScheduledTaskProjection(task, Date.now());
           }
         }
       });
@@ -355,7 +317,7 @@ async function readRemoteSource(input: {
       // Live and durable-projection cursors are deliberately unrelated. If a
       // live source disappears between pages, finish this source as partial
       // instead of restarting at the cache head and emitting duplicate tasks.
-      if (input.cursor.sourceCursor !== undefined) {
+      if (input.source?.cursor !== undefined) {
         return {
           items: [],
           done: true,
@@ -372,12 +334,12 @@ async function readRemoteSource(input: {
     executionNodeIds: [input.target.executionNodeId],
     states: input.states,
     limit: input.limit,
-    ...(input.cursor.cacheAfter ? { after: input.cursor.cacheAfter } : {}),
-    ...(input.cursor.revision ? { expectedRevision: input.cursor.revision } : {}),
+    ...(input.source?.position?.kind === 'cache' ? { after: input.source.position } : {}),
+    ...(input.source?.revision ? { expectedRevision: input.source.revision } : {}),
   });
   input.options.signal?.throwIfAborted();
   return {
-    items: page.items.map(item => toCoreTask(item.task)),
+    items: page.items.map(item => item.task),
     done: page.next === undefined,
     cacheAfter: page.next,
     revision: page.revision,
@@ -387,7 +349,7 @@ async function readRemoteSource(input: {
   };
 }
 
-async function sendRemoteRpc<T>(peerId: string, method: string, parameters: unknown, signal?: AbortSignal): Promise<T> {
+async function sendRemoteRpc(peerId: string, method: string, parameters: unknown, signal?: AbortSignal): Promise<unknown> {
   signal?.throwIfAborted();
   const operationId = crypto.randomUUID();
   const abort = () => {
@@ -395,13 +357,7 @@ async function sendRemoteRpc<T>(peerId: string, method: string, parameters: unkn
   };
   signal?.addEventListener('abort', abort, { once: true });
   try {
-    const sendRpc = window.service.deviceNetwork.sendRpc as unknown as (
-      targetPeerId: string,
-      targetMethod: string,
-      targetParameters: unknown,
-      options: { operationId: string },
-    ) => Promise<T>;
-    const value = await sendRpc(peerId, method, parameters, { operationId });
+    const value = await window.service.deviceNetwork.sendRpcForOperation(peerId, method, parameters, { operationId });
     signal?.throwIfAborted();
     return value;
   } finally {
@@ -448,61 +404,31 @@ function normalizeMaxBytes(maxBytes = DEFAULT_MAX_BYTES): number {
 }
 
 function normalizeStates(states: readonly ScheduledTaskState[] | undefined): ScheduledTaskState[] {
-  const defaults: ScheduledTaskState[] = ['active', 'paused'];
-  const values: ScheduledTaskState[] = [...(states?.length ? states : defaults)].sort();
-  const allowed = new Set<ScheduledTaskState>(['active', 'paused', 'completed', 'cancelled', 'archived']);
-  if (new Set(values).size !== values.length || values.some(value => !allowed.has(value))) {
-    throw new Error('scheduled_task_invalid_states');
-  }
-  return values;
+  return normalizeScheduledTaskAggregateStates(states);
 }
 
 function normalizeExecutionNodeIds(nodeIds: readonly string[] | undefined): string[] | undefined {
   if (nodeIds === undefined) return undefined;
   const values = [...nodeIds].sort();
-  if (values.length > MAX_SOURCES || new Set(values).size !== values.length || values.some(value => !value)) {
+  if (
+    values.length > MAX_SOURCES ||
+    new Set(values).size !== values.length ||
+    values.some(value => !value || value.length > 512)
+  ) {
     throw new Error('scheduled_task_invalid_execution_nodes');
   }
   return values;
 }
 
-function encodeCursor(cursor: HostCursor): string {
-  const value = JSON.stringify(cursor);
-  if (value.length > MAX_CURSOR_CHARACTERS) throw new Error('scheduled_task_cursor_too_large');
-  return value;
-}
-
-function decodeCursor(value: string, signature: string, sourceCount: number): HostCursor {
-  if (value.length > MAX_CURSOR_CHARACTERS) throw new Error('scheduled_task_invalid_cursor');
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    throw new Error('scheduled_task_invalid_cursor');
+/** Keep the Core cursor scope bounded even when the trusted device directory is large. */
+function targetSignature(localPeerId: string, targets: readonly SourceTarget[]): string {
+  const input = [localPeerId, ...targets.map(target => `${target.executionNodeId}:${target.path}`)].join('\n');
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < input.length; index += 1) {
+    const code = input.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193) >>> 0;
+    second = Math.imul(second ^ code, 0x85ebca6b) >>> 0;
   }
-  const cursor = parsed as Partial<HostCursor>;
-  if (
-    !cursor || cursor.version !== 1 || cursor.signature !== signature ||
-    !Number.isSafeInteger(cursor.sourceIndex) || cursor.sourceIndex! < 0 || cursor.sourceIndex! > sourceCount ||
-    (cursor.sourceCursor !== undefined && (typeof cursor.sourceCursor !== 'string' || cursor.sourceCursor.length < 1 || cursor.sourceCursor.length > 1_024)) ||
-    (cursor.revision !== undefined && (typeof cursor.revision !== 'string' || cursor.revision.length < 1 || cursor.revision.length > 256)) ||
-    (cursor.localAfter !== undefined && !isValidPagePosition(cursor.localAfter)) ||
-    (cursor.cacheAfter !== undefined && !isValidCachePosition(cursor.cacheAfter))
-  ) throw new Error('scheduled_task_cursor_stale');
-  return cursor as HostCursor;
-}
-
-function isValidPagePosition(value: unknown): value is PagePosition {
-  if (!value || typeof value !== 'object') return false;
-  const position = value as Partial<PagePosition>;
-  return typeof position.updatedAt === 'string' && position.updatedAt.length <= 64 &&
-    !Number.isNaN(Date.parse(position.updatedAt)) &&
-    typeof position.id === 'string' && position.id.length > 0 && position.id.length <= 512;
-}
-
-function isValidCachePosition(value: unknown): value is CachePosition {
-  if (!value || typeof value !== 'object') return false;
-  const position = value as Partial<CachePosition>;
-  return Number.isSafeInteger(position.observedAt) && position.observedAt! >= 0 &&
-    typeof position.id === 'string' && position.id.length > 0 && position.id.length <= 512;
+  return `v1-${targets.length}-${first.toString(16)}-${second.toString(16)}`;
 }

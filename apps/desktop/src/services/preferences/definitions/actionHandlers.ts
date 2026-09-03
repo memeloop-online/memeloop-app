@@ -17,6 +17,9 @@ const explicitHandlers: Record<string, (...arguments_: string[]) => Promise<void
   'deviceNetwork.openManagement': async () => {
     await window.service.window.open(WindowNames.nodeManagement);
   },
+  'remoteSetup.open': async () => {
+    await window.service.window.open(WindowNames.remoteSetup);
+  },
   'updater.checkForUpdates': async () => {
     await window.service.updater.checkForUpdates();
   },

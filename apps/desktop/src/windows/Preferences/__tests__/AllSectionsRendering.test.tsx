@@ -111,6 +111,14 @@ describe('Preferences - All Sections Rendering', () => {
       configurable: true,
     });
 
+    Object.defineProperty(window.service, 'agentInstance', {
+      value: {
+        getAgents: vi.fn().mockResolvedValue([]),
+      },
+      writable: true,
+      configurable: true,
+    });
+
     Object.defineProperty(window.service.window, 'updateWindowMeta', {
       value: vi.fn().mockResolvedValue(undefined),
       writable: true,

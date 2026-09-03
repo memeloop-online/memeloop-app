@@ -693,6 +693,21 @@
       "Title": "工作區列表"
     }
   },
+  "RemoteSetup": {
+    "title": "引導遠端計算節點",
+    "description": "透過 SSH 使用已安裝的 MemeLoop CLI 版本。主機必須提供 Node.js 24+、npm、基於金鑰的 SSH 和已驗證的主機金鑰。",
+    "hosts": "SSH 主機",
+    "noHosts": "~/.ssh/config 中沒有找到具體主機",
+    "acceptNewHostKey": "接受先前未見過的主機金鑰（僅首次連線）",
+    "probe": "驗證先決條件",
+    "install": "安裝精確的 CLI 版本",
+    "nodeReady": "Node.js {{nodeVersion}} 受支援。MemeLoop CLI {{version}} 可以在不需要 root 權限的情況下完成引導。",
+    "installReady": "MemeLoop CLI {{version}} 已就緒，路徑：{{executable}}。{{status}}",
+    "error": "遠端設定失敗：{{error}}",
+    "currentUser": "目前使用者",
+    "installedStatus": "已安裝精確版本。",
+    "existingStatus": "精確版本已存在。"
+  },
   "Search": {
     "AvailableAgents": "可用的智慧體",
     "FailedToCreateChatWithAgent": "無法創建與智慧體的對話",

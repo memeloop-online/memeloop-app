@@ -8,7 +8,6 @@ const localTask = (id: string, updated: string): DesktopScheduledTask => ({
   agentInstanceId: 'agent-1',
   agentDefinitionId: 'definition-1',
   name: `Task ${id}`,
-  scheduleKind: 'cron',
   schedule: { kind: 'cron', expression: '0 9 * * *', timezone: 'Asia/Shanghai' },
   payload: { message: 'wake' },
   enabled: true,
@@ -16,8 +15,7 @@ const localTask = (id: string, updated: string): DesktopScheduledTask => ({
   consecutiveFailures: 0,
   runCount: 0,
   createdBy: 'test',
-  created: updated,
-  updated,
+  updatedAt: updated,
   state: 'active',
   executionNodeId: 'local-peer',
   originNodeId: 'local-peer',
@@ -30,11 +28,13 @@ const listProjectionPage = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  const sendRpc = vi.fn();
   window.service = {
     deviceNetwork: {
       getLocalIdentity: vi.fn().mockResolvedValue({ peerId: 'local-peer' }),
       listDevices: vi.fn().mockResolvedValue([]),
-      sendRpc: vi.fn(),
+      sendRpc,
+      sendRpcForOperation: sendRpc,
       abortOperation: vi.fn().mockResolvedValue(undefined),
       finishOperation: vi.fn().mockResolvedValue(undefined),
     },
@@ -61,7 +61,7 @@ describe('DesktopScheduledTaskClient', () => {
       .mockResolvedValueOnce({
         items: [first],
         revision: '7',
-        next: { updatedAt: first.updated, id: first.id },
+        next: { updatedAt: first.updatedAt, id: first.id },
       })
       .mockResolvedValueOnce({ items: [second], revision: '7' });
     const client = createDesktopScheduledTaskClient();
@@ -81,7 +81,7 @@ describe('DesktopScheduledTaskClient', () => {
     expect(page2.items.map(task => task.id)).toEqual(['task-1']);
     expect(page2.hasMoreAfter).toBe(false);
     expect(listLocalPage.mock.calls[1]?.[0]).toMatchObject({
-      after: { updatedAt: first.updated, id: first.id },
+      after: { updatedAt: first.updatedAt, id: first.id },
       expectedRevision: '7',
       limit: 1,
     });

@@ -377,7 +377,9 @@
     "AddScheduledTask": "Add Task",
     "NoScheduledTasks": "No scheduled tasks. Add one to periodically wake an agent.",
     "NodeManagement": "Node Management",
-    "NodeManagementDescription": "Manage authenticated MemeLoop devices by PeerId"
+    "NodeManagementDescription": "Manage authenticated MemeLoop devices by PeerId",
+    "RemoteSetup": "Remote SSH Setup",
+    "RemoteSetupDescription": "Verify and bootstrap a remote MemeLoop compute node over SSH"
   },
   "Prompt": {
     "AutoRefresh": "Preview auto-refreshes with input text changes",
@@ -743,6 +745,21 @@
       "TargetIdTitle": "Target ID",
       "Title": "Workspace List"
     }
+  },
+  "RemoteSetup": {
+    "title": "Bootstrap remote compute",
+    "description": "Uses the installed MemeLoop CLI release over SSH. The host must provide Node.js 24+, npm, key-based SSH, and a verified host key.",
+    "hosts": "SSH hosts",
+    "noHosts": "No concrete hosts found in ~/.ssh/config",
+    "acceptNewHostKey": "Accept a previously unseen host key (first connection only)",
+    "probe": "Verify prerequisites",
+    "install": "Install exact CLI release",
+    "nodeReady": "Node.js {{nodeVersion}} is supported. MemeLoop CLI {{version}} can be bootstrapped without root access.",
+    "installReady": "MemeLoop CLI {{version}} is ready at {{executable}}. {{status}}",
+    "error": "Remote setup failed: {{error}}",
+    "currentUser": "current user",
+    "installedStatus": "The exact release was installed.",
+    "existingStatus": "The exact release was already present."
   },
   "Search": {
     "AvailableAgents": "Available Agents",

@@ -8,15 +8,7 @@ import { languagesSection } from './languages';
 import { notificationsSection } from './notifications';
 import { performanceSection } from './performance';
 import { systemSection } from './system';
-import type {
-  IBooleanPreferenceItem,
-  IEnumPreferenceItem,
-  INumberPreferenceItem,
-  ISectionDefinition,
-  IStringArrayPreferenceItem,
-  IStringPreferenceItem,
-  PreferenceItemDefinition,
-} from './types';
+import type { IBooleanPreferenceItem, IEnumPreferenceItem, ISectionDefinition, IStringPreferenceItem, PreferenceItemDefinition } from './types';
 import { updatesSection } from './updates';
 
 /**
@@ -46,9 +38,7 @@ export const sectionById = new Map<string, ISectionDefinition>(
 export type PreferenceItem =
   | IBooleanPreferenceItem
   | IEnumPreferenceItem
-  | INumberPreferenceItem
-  | IStringPreferenceItem
-  | IStringArrayPreferenceItem;
+  | IStringPreferenceItem;
 
 export function isPreferenceItem(
   item: PreferenceItemDefinition,

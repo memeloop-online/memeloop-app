@@ -13,21 +13,7 @@ interface ScheduledWakeupEditorProps {
   agentInstanceId: string | null;
 }
 
-const toCoreDefinition = (definition: AgentDefinition): CoreAgentDefinition => ({
-  id: definition.id,
-  name: definition.name ?? '',
-  description: definition.description ?? '',
-  systemPrompt: '',
-  tools: (definition.agentTools ?? []).filter(tool => tool.enabled !== false).map(tool => tool.toolId),
-  ...(definition.agentFrameworkConfig === undefined
-    ? {}
-    : { agentFrameworkConfig: definition.agentFrameworkConfig as unknown as CoreAgentDefinition['agentFrameworkConfig'] }),
-  ...(definition.agentTools === undefined ? {} : { agentTools: definition.agentTools }),
-  ...(definition.avatarUrl === undefined ? {} : { avatarUrl: definition.avatarUrl }),
-  ...(definition.agentFrameworkID === undefined ? {} : { agentFrameworkID: definition.agentFrameworkID }),
-  ...(definition.heartbeat === undefined ? {} : { heartbeat: definition.heartbeat }),
-  version: '1',
-});
+const toCoreDefinition = (definition: AgentDefinition): CoreAgentDefinition => definition;
 
 /** Thin Electron binding; the scheduling state machine and responsive editor live upstream. */
 export function ScheduledWakeupEditor({ agentDefinition, agentInstanceId }: ScheduledWakeupEditorProps) {
