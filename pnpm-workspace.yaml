@@ -7,7 +7,7 @@ overrides:
   '@electron/rebuild': 4.2.0
   'git-sync-js>fs-extra': 11.4.0
   '@memeloop/libp2p': ^0.3.0
-  '@memeloop/react-ui': ^0.2.0
+  '@memeloop/react-ui': ^0.2.1
   memeloop: ^0.3.0
   memeloop-cli: ^0.3.0
   node-abi: 4.33.0
@@ -28,7 +28,7 @@ allowBuilds:
 # pnpm 11's release-age policy for every future version.
 minimumReleaseAgeExclude:
   - '@memeloop/libp2p@0.3.0'
-  - '@memeloop/react-ui@0.2.0'
+  - '@memeloop/react-ui@0.2.1'
   - memeloop-cli@0.3.0
   - memeloop@0.3.0
   - '@expo/cli@57.0.19'
