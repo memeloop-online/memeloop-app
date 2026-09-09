@@ -1,0 +1,107 @@
+name: Trial desktop builds
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows x64 trial installer
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.17.0
+          run_install: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Install Desktop workspace
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+      - name: Rebuild native modules
+        working-directory: apps/desktop
+        run: pnpm exec electron-rebuild -f -w better-sqlite3
+      - name: Build Windows installer
+        working-directory: apps/desktop
+        run: pnpm exec electron-forge make --platform=win32 --arch=x64
+        env:
+          NODE_ENV: production
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+      - name: Write checksums
+        working-directory: apps/desktop
+        shell: bash
+        run: find out/make -type f -print0 | sort -z | xargs -0 sha256sum > out/make/SHA256SUMS.txt
+      - name: Upload Windows trial installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: MemeLoop-Desktop-windows-x64-${{ github.sha }}
+          path: apps/desktop/out/make
+          if-no-files-found: error
+          retention-days: 14
+
+  macos:
+    name: macOS ${{ matrix.arch }} trial installer
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            arch: x64
+          - runner: macos-14
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.17.0
+          run_install: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Install Desktop workspace
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+      - name: Rebuild native modules
+        working-directory: apps/desktop
+        run: pnpm exec electron-rebuild -f -w better-sqlite3
+      - name: Build macOS installer
+        working-directory: apps/desktop
+        run: pnpm exec electron-forge make --platform=darwin --arch=${{ matrix.arch }}
+        env:
+          NODE_ENV: production
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+      - name: Write checksums
+        working-directory: apps/desktop
+        run: find out/make -type f -print0 | sort -z | xargs -0 shasum -a 256 > out/make/SHA256SUMS.txt
+      - name: Upload macOS trial installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: MemeLoop-Desktop-macos-${{ matrix.arch }}-${{ github.sha }}
+          path: apps/desktop/out/make
+          if-no-files-found: error
+          retention-days: 14
