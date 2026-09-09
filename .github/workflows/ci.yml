@@ -80,6 +80,14 @@ jobs:
         env:
           PUPPETEER_SKIP_DOWNLOAD: "true"
 
+      - name: Upload Linux trial package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MemeLoop-Desktop-linux-x64-${{ github.sha }}
+          path: apps/desktop/out/MemeLoop Desktop-linux-x64
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Check Desktop types
         working-directory: apps/desktop
         run: pnpm run check
