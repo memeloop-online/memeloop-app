@@ -50,7 +50,7 @@ jobs:
       - name: Write checksums
         working-directory: apps/desktop
         shell: bash
-        run: find out/make -type f -print0 | sort -z | xargs -0 sha256sum > out/make/SHA256SUMS.txt
+        run: find out/make -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > out/make/SHA256SUMS.txt
       - name: Upload Windows trial installer
         uses: actions/upload-artifact@v4
         with:
@@ -65,7 +65,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13
+          - runner: macos-15-intel
             arch: x64
           - runner: macos-14
             arch: arm64
@@ -87,6 +87,10 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Verify macOS runner mapping
+        run: |
+          if [ "${{ matrix.arch }}" = arm64 ]; then test "${{ matrix.runner }}" = macos-14; fi
+          if [ "${{ matrix.arch }}" = x64 ]; then test "${{ matrix.runner }}" = macos-15-intel; fi
       - name: Use HTTPS for GitHub dependencies
         run: git config --global url."https://github.com/".insteadOf "git@github.com:"
       - name: Install Desktop workspace
@@ -105,7 +109,7 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: "true"
       - name: Write checksums
         working-directory: apps/desktop
-        run: find out/make -type f -print0 | sort -z | xargs -0 shasum -a 256 > out/make/SHA256SUMS.txt
+        run: find out/make -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 shasum -a 256 > out/make/SHA256SUMS.txt
       - name: Upload macOS trial installer
         uses: actions/upload-artifact@v4
         with:
