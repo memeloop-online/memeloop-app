@@ -61,7 +61,7 @@ export interface IDatabaseService {
   /**
    * Get database connection for specific key
    */
-  getDatabase(key: string, isRetry?: boolean): Promise<DataSource>;
+  getDatabase(key: string): Promise<DataSource>;
 
   /**
    * Close database connection
