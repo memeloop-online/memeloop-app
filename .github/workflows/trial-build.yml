@@ -31,6 +31,8 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Use HTTPS for GitHub dependencies
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
       - name: Install Desktop workspace
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile
@@ -85,6 +87,8 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Use HTTPS for GitHub dependencies
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
       - name: Install Desktop workspace
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile
