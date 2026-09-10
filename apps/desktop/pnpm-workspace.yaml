@@ -1,7 +1,7 @@
 packages: []
 
 overrides:
-  memeloop: ^0.3.2
+  memeloop: ^0.3.3
   prebuild-install: 7.1.3
   node-addon-api: "^7.1.1"
   # git-sync-js permits fs-extra ^11.3.5. Pin the same version as Desktop's
@@ -87,4 +87,4 @@ minimumReleaseAgeExclude:
   - '@memeloop/libp2p@0.3.0'
   - '@memeloop/react-ui@0.2.1 || 0.2.2'
   - memeloop-cli@0.3.0
-  - memeloop@0.3.0 || 0.3.1 || 0.3.2
+  - memeloop@0.3.0 || 0.3.1 || 0.3.2 || 0.3.3
