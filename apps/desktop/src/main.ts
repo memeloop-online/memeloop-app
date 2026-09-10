@@ -14,6 +14,7 @@ import { container } from '@services/container';
 import { setupUnhandled } from '@services/libs/electronUnhandledBridge';
 import { initRendererI18NHandler } from '@services/libs/i18n';
 import { destroyLogger, logger } from '@services/libs/log';
+import { initializeAgentAndProvider, startAppReadyLifecycle } from '@services/startupLifecycle';
 
 // Initialize loggers for modules that can't directly import logger (to avoid electron in worker bundles)
 initJsonRepairLogger(logger);
@@ -195,11 +196,23 @@ const commonInit = async (): Promise<void> => {
     deviceIdentity,
   );
 
-  // Initialize agent-related services after database is ready
-  await Promise.all([
-    agentDefinitionService.initialize(),
-    providerRegistryService.initialize(),
-  ]);
+  // Agent storage is optional to the host shell. Preserve a damaged Agent
+  // cache and disable only Agent services, while keeping settings and the
+  // provider registry available for recovery. The provider registry remains a
+  // required initializer and its rejection is deliberately propagated.
+  const agentServicesAvailable = await initializeAgentAndProvider({
+    initializeAgent: () => agentDefinitionService.initialize(),
+    initializeProvider: () => providerRegistryService.initialize(),
+    onAgentError: error => {
+      logger.error(
+        'Agent services unavailable; open Settings > AI Agent to inspect or explicitly delete the Agent database, then restart.',
+        {
+          function: 'commonInit.agentInitialization',
+          error,
+        },
+      );
+    },
+  });
 
   // Use a different protocol for test mode to avoid conflicts with production.
   deepLinkService.initializeDeepLink(MEMELOOP_PROTOCOL_SCHEME);
@@ -219,12 +232,18 @@ const commonInit = async (): Promise<void> => {
   ipcMain.emit(MainChannel.commonInitFinished);
 
   try {
-    deviceNetworkService.configureRuntime({
-      buildCapabilities: () => agentInstanceService.getMemeLoopDeviceCapabilities(),
-      orchestrationClient: createDesktopOrchestrationClient(agentInstanceService),
-      rpcHandler: agentInstanceService.getMemeLoopDeviceRpcHandler(),
-      syncStorage: agentInstanceService.getMemeLoopSyncStorage(),
-    });
+    if (agentServicesAvailable) {
+      deviceNetworkService.configureRuntime({
+        buildCapabilities: () => agentInstanceService.getMemeLoopDeviceCapabilities(),
+        orchestrationClient: createDesktopOrchestrationClient(agentInstanceService),
+        rpcHandler: agentInstanceService.getMemeLoopDeviceRpcHandler(),
+        syncStorage: agentInstanceService.getMemeLoopSyncStorage(),
+      });
+    } else {
+      logger.warn(
+        'Agent runtime disabled because the Agent database could not be initialized; existing cache was preserved for explicit recovery.',
+      );
+    }
     await deviceNetworkService.start();
   } catch (error) {
     logger.error('Failed to start DeviceNetworkService', { error });
@@ -233,19 +252,26 @@ const commonInit = async (): Promise<void> => {
   logger.info('[test-id-MEMELOOP_APP_READY] MemeLoop App services initialized');
 };
 
-app.on('ready', async () => {
+app.on('ready', () => {
   powerMonitor.on('shutdown', () => {
     app.quit();
   });
-  await commonInit();
-  try {
-    await updaterService.checkForUpdates();
-  } catch (error) {
-    logger.error('Error during app ready handler', {
-      function: "app.on('ready')",
-      error,
-    });
-  }
+  startAppReadyLifecycle({
+    initialize: commonInit,
+    checkForUpdates: () => updaterService.checkForUpdates(),
+    onInitializationError: error => {
+      logger.error('Error during app ready handler', {
+        function: "app.on('ready')",
+        error,
+      });
+    },
+    onUpdateError: error => {
+      logger.error('Error during app ready handler', {
+        function: "app.on('ready')",
+        error,
+      });
+    },
+  });
 });
 app.on(MainChannel.windowAllClosed, async () => {
   // prevent quit on MacOS. But also quit if we are in test.

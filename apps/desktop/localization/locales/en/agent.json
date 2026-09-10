@@ -31,6 +31,12 @@
     "Untitled": "Untitled"
   },
   "AgentSwitcher": { "Search": "Search agents..." },
+  "AgentRecovery": {
+    "Loading": "Preparing AI Agent...",
+    "Title": "AI Agent is unavailable",
+    "Description": "The AI Agent database could not be opened, so creating and running agents is disabled. Open AI Agent settings to review the database and explicitly delete it if you choose, then restart MemeLoop. The database will not be removed automatically.",
+    "OpenSettings": "Open AI Agent settings"
+  },
   "Browser": {
     "Back": "Step back",
     "Bookmark": "Bookmark",

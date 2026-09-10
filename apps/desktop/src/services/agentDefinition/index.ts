@@ -10,6 +10,7 @@ import type { IDatabaseService } from '@services/database/interface';
 import { AgentDefinitionEntity } from '@services/database/schema/agent';
 import { logger } from '@services/libs/log';
 import serviceIdentifier from '@services/serviceIdentifier';
+import type { AgentInitializationStatus } from '@services/startupLifecycle';
 import { DEFAULT_AGENT_DEFINITION_ID, getOfficialAgentDefinitions } from './builtinAgentDefinitions';
 import type { IAgentDefinitionService } from './interface';
 
@@ -78,14 +79,26 @@ export class AgentDefinitionService implements IAgentDefinitionService {
 
   private dataSource: DataSource | null = null;
   private agentDefRepository: Repository<AgentDefinitionEntity> | null = null;
+  private initializationStatus: AgentInitializationStatus = {
+    state: 'starting',
+    recoveryRequired: false,
+  };
+
+  public getInitializationStatus(): AgentInitializationStatus {
+    return { ...this.initializationStatus };
+  }
 
   public async initialize(): Promise<void> {
+    this.initializationStatus = { state: 'starting', recoveryRequired: false };
     try {
       // Initialize the database
       await this.databaseService.initializeDatabase('agent');
-      logger.debug('Agent database initialized');
       this.dataSource = await this.databaseService.getDatabase('agent');
       this.agentDefRepository = this.dataSource.getRepository(AgentDefinitionEntity);
+      // Only report success after TypeORM has connected and completed schema
+      // setup. `initializeDatabase` intentionally skips existing files, so a
+      // stale cache can still fail during getDatabase().
+      logger.debug('Agent database initialized');
       logger.debug('Agent repositories initialized');
 
       // Check if database is empty and initialize with default agents if needed
@@ -105,7 +118,9 @@ export class AgentDefinitionService implements IAgentDefinitionService {
       } else {
         logger.warn('agentBrowserService not ready yet during AgentDefinitionService initialization');
       }
+      this.initializationStatus = { state: 'ready', recoveryRequired: false };
     } catch (error) {
+      this.initializationStatus = { state: 'unavailable', recoveryRequired: true };
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`Failed to initialize agent service: ${errorMessage}`);
       throw error;

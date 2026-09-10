@@ -31,6 +31,12 @@
     "Untitled": "未命名"
   },
   "AgentSwitcher": { "Search": "搜尋智慧代理..." },
+  "AgentRecovery": {
+    "Loading": "正在準備智慧代理…",
+    "Title": "智慧代理暫時無法使用",
+    "Description": "無法開啟智慧代理資料庫，因此已停用建立及執行智慧代理。請開啟智慧代理設定查看資料庫；如決定刪除，請在設定中明確操作，然後重新啟動 MemeLoop。資料庫不會自動刪除。",
+    "OpenSettings": "開啟智慧代理設定"
+  },
   "Browser": {
     "Back": "後退",
     "Bookmark": "收藏",

@@ -23,6 +23,8 @@ Object.defineProperty(window, 'remote', {
     unregisterUpdateFindInPageMatches: vi.fn(),
     registerAskAIWithSelection: vi.fn(),
     unregisterAskAIWithSelection: vi.fn(),
+    registerWindowMetaUpdated: vi.fn(),
+    unregisterWindowMetaUpdated: vi.fn(),
   },
 });
 

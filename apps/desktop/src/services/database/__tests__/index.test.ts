@@ -34,3 +34,31 @@ describe('DatabaseService.getDatabase', () => {
     expect(dataSource.isInitialized).toBe(false);
   });
 });
+
+describe('DatabaseService.deleteDatabase', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('deletes the SQLite database and its WAL/SHM sidecars', async () => {
+    const previousE2ETest = process.env.E2E_TEST;
+    process.env.E2E_TEST = 'true';
+
+    try {
+      const service = new DatabaseService();
+      const databasePath = await service.getDatabasePath('agent');
+      const pathExists = vi.spyOn(fs, 'pathExists').mockImplementation(async () => true);
+      const unlink = vi.spyOn(fs, 'unlink').mockResolvedValue(undefined);
+
+      await service.deleteDatabase('agent');
+
+      expect(pathExists).toHaveBeenCalledTimes(3);
+      expect(unlink).toHaveBeenCalledWith(databasePath);
+      expect(unlink).toHaveBeenCalledWith(`${databasePath}-wal`);
+      expect(unlink).toHaveBeenCalledWith(`${databasePath}-shm`);
+    } finally {
+      if (previousE2ETest === undefined) delete process.env.E2E_TEST;
+      else process.env.E2E_TEST = previousE2ETest;
+    }
+  });
+});

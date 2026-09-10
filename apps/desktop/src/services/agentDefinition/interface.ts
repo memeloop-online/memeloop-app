@@ -1,4 +1,5 @@
 import { AgentChannel } from '@/constants/channels';
+import type { AgentInitializationStatus } from '@services/startupLifecycle';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
 import type { AgentDefinition, AgentDefinitionToolConfig, AgentHeartbeatConfig, AgentModelConfig, ToolCallingMatch } from 'memeloop';
 
@@ -10,6 +11,8 @@ export interface IAgentDefinitionService {
    * Initialize the service on application startup.
    */
   initialize(): Promise<void>;
+  /** Read-only startup health used by the renderer to fail closed. */
+  getInitializationStatus(): AgentInitializationStatus;
   /**
    * Create a new agent definition and persist it to the database.
    * Generates a new id when `agent.id` is not provided.
@@ -53,6 +56,7 @@ export type { AgentDefinition, AgentDefinitionToolConfig, AgentHeartbeatConfig, 
 export const AgentDefinitionServiceIPCDescriptor = {
   channel: AgentChannel.definition,
   properties: {
+    getInitializationStatus: ProxyPropertyType.Function,
     createAgentDef: ProxyPropertyType.Function,
     updateAgentDef: ProxyPropertyType.Function,
     getAgentDefs: ProxyPropertyType.Function,

@@ -1,4 +1,4 @@
-import { Channels } from '@/constants/channels';
+import { Channels, MetaDataChannel } from '@/constants/channels';
 import { isTest } from '@/constants/environment';
 import type { IPreferenceService } from '@services/preferences/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
@@ -52,6 +52,11 @@ export class AppWindow implements IWindowService {
       this.metadata[windowName] = meta;
       if (existing.isMinimized()) existing.restore();
       if (!isTest) existing.show();
+      // Existing renderer processes do not receive the additional arguments
+      // used when the window is created. Push new metadata so repeated opens
+      // (for example, recovery links to the AI Agent preferences) can update
+      // the already-loaded renderer.
+      this.pushWindowMetaToWindow(existing, { windowName, ...(meta ?? {}) });
       return returnWindow ? existing : undefined;
     }
 
@@ -191,5 +196,11 @@ export class AppWindow implements IWindowService {
     if (key === 'alwaysOnTop' && typeof value === 'boolean') {
       await this.updateWindowProperties(WindowNames.main, { alwaysOnTop: value });
     }
+  }
+
+  private pushWindowMetaToWindow(window: BrowserWindow, meta: unknown): void {
+    if (typeof window.isDestroyed === 'function' && window.isDestroyed()) return;
+    if (typeof window.webContents.isDestroyed === 'function' && window.webContents.isDestroyed()) return;
+    window.webContents.send(MetaDataChannel.pushViewMetaData, meta);
   }
 }

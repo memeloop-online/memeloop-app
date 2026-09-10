@@ -31,6 +31,12 @@
     "Untitled": "未命名"
   },
   "AgentSwitcher": { "Search": "搜索智能体..." },
+  "AgentRecovery": {
+    "Loading": "正在准备智能体…",
+    "Title": "智能体暂不可用",
+    "Description": "无法打开智能体数据库，因此已禁用创建和运行智能体。请打开智能体设置查看数据库；如你决定删除，请在设置中明确操作，然后重启 MemeLoop。数据库不会被自动删除。",
+    "OpenSettings": "打开智能体设置"
+  },
   "Browser": {
     "Back": "后退",
     "Bookmark": "收藏",

@@ -1,4 +1,5 @@
-import { IAskAIWithSelectionData, ViewChannel, WindowChannel } from '@/constants/channels';
+import { IAskAIWithSelectionData, MetaDataChannel, ViewChannel, WindowChannel } from '@/constants/channels';
+import type { IPossibleWindowMeta } from '@services/windows/WindowProperties';
 import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron';
 
 import { windowName } from './browserViewMetaData';
@@ -30,6 +31,10 @@ export const remoteMethods = {
     void ipcRenderer.on(ViewChannel.updateFindInPageMatches, updateFindInPageMatches),
   unregisterUpdateFindInPageMatches: (updateFindInPageMatches: (event: Electron.IpcRendererEvent, activeMatchOrdinal: number, matches: number) => void): void =>
     void ipcRenderer.removeListener(ViewChannel.updateFindInPageMatches, updateFindInPageMatches),
+  registerWindowMetaUpdated: (handleWindowMetaUpdated: (event: Electron.IpcRendererEvent, meta: IPossibleWindowMeta) => void): void =>
+    void ipcRenderer.on(MetaDataChannel.pushViewMetaData, handleWindowMetaUpdated),
+  unregisterWindowMetaUpdated: (handleWindowMetaUpdated: (event: Electron.IpcRendererEvent, meta: IPossibleWindowMeta) => void): void =>
+    void ipcRenderer.removeListener(MetaDataChannel.pushViewMetaData, handleWindowMetaUpdated),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 };
 contextBridge.exposeInMainWorld('remote', remoteMethods);

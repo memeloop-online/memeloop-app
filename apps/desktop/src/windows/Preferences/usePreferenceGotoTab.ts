@@ -1,10 +1,15 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { IPossibleWindowMeta, IPreferenceWindowMeta, WindowNames } from '@services/windows/WindowProperties';
 
 interface UsePreferenceGotoTabOptions {
   /** Skip scrolling while the user is searching. */
   searchQuery?: string;
+}
+
+interface ScrollRequest {
+  requestId: number;
+  sectionId?: string;
 }
 
 /**
@@ -19,17 +24,35 @@ export function usePreferenceGotoTab(
   options: UsePreferenceGotoTabOptions = {},
 ): void {
   const { searchQuery } = options;
+  const [scrollRequest, setScrollRequest] = useState<ScrollRequest>(() => ({
+    requestId: 0,
+    sectionId: (window.meta() as IPossibleWindowMeta<IPreferenceWindowMeta>).preferenceGotoTab,
+  }));
+
+  useEffect(() => {
+    const handleWindowMetaUpdated = (_event: Electron.IpcRendererEvent, meta: IPossibleWindowMeta<IPreferenceWindowMeta>) => {
+      if (meta.windowName !== windowName || meta.preferenceGotoTab === undefined) return;
+      setScrollRequest(previous => ({
+        requestId: previous.requestId + 1,
+        sectionId: meta.preferenceGotoTab,
+      }));
+    };
+    window.remote.registerWindowMetaUpdated(handleWindowMetaUpdated);
+    return () => {
+      window.remote.unregisterWindowMetaUpdated(handleWindowMetaUpdated);
+    };
+  }, [windowName]);
 
   useEffect(() => {
     if (searchQuery?.trim()) return;
-    const scrollTo = (window.meta() as IPossibleWindowMeta<IPreferenceWindowMeta>).preferenceGotoTab;
-    if (scrollTo === undefined) return;
+    const sectionId = scrollRequest.sectionId;
+    if (sectionId === undefined) return;
     const timer = setTimeout(() => {
-      const reference = sectionReferences.get(scrollTo);
+      const reference = sectionReferences.get(sectionId);
       reference?.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 100);
     return () => {
       clearTimeout(timer);
     };
-  }, [sectionReferences, searchQuery, windowName]);
+  }, [sectionReferences, searchQuery, scrollRequest]);
 }

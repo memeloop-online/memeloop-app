@@ -33,23 +33,45 @@ export function AIAgent(props: ICustomSectionProps): React.JSX.Element {
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([
-      window.service.database.getDatabaseInfo('agent'),
-      window.service.database.getDatabasePath('agent'),
-      window.service.agentInstance.getAgents(1, 200, { closed: false }),
-    ]).then(([info, path, agents]) => {
-      if (cancelled) return;
-      setAgentInfo({ ...info, path });
-      const options = agents.map(agent => ({
-        id: agent.id,
-        agentDefId: agent.agentDefId,
-        label: agent.name ?? agent.agentDefId,
-      }));
-      setAgentOptions(options);
-      setSelectedAgentId(previous => previous || options[0]?.id || '');
-    }).catch((error: unknown) => {
-      void window.service.native.log('error', 'AIAgent: initialization failed', { error });
-    });
+
+    const loadDatabaseInfo = async (): Promise<void> => {
+      try {
+        const info = await window.service.database.getDatabaseInfo('agent');
+        if (!cancelled) setAgentInfo(previous => ({ ...previous, ...info }));
+      } catch (error: unknown) {
+        void window.service.native.log('error', 'AIAgent: database info loading failed', { error });
+      }
+    };
+
+    const loadDatabasePath = async (): Promise<void> => {
+      try {
+        const path = await window.service.database.getDatabasePath('agent');
+        if (!cancelled) setAgentInfo(previous => ({ ...previous, path }));
+      } catch (error: unknown) {
+        void window.service.native.log('error', 'AIAgent: database path loading failed', { error });
+      }
+    };
+
+    const loadAgents = async (): Promise<void> => {
+      try {
+        const agents = await window.service.agentInstance.getAgents(1, 200, { closed: false });
+        if (cancelled) return;
+        const options = agents.map(agent => ({
+          id: agent.id,
+          agentDefId: agent.agentDefId,
+          label: agent.name ?? agent.agentDefId,
+        }));
+        setAgentOptions(options);
+        setSelectedAgentId(previous => previous || options[0]?.id || '');
+      } catch (error: unknown) {
+        void window.service.native.log('error', 'AIAgent: initialization failed', { error });
+      }
+    };
+
+    void loadDatabaseInfo();
+    void loadDatabasePath();
+    void loadAgents();
+
     return () => {
       cancelled = true;
     };

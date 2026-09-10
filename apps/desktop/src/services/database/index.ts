@@ -286,9 +286,14 @@ export class DatabaseService implements IDatabaseService {
       }
 
       const databasePath = this.getDatabasePathSync(key);
-      if (databasePath !== ':memory:' && (await fs.pathExists(databasePath))) {
-        await fs.unlink(databasePath);
-        logger.info(`Database file deleted for key: ${key}`);
+      if (databasePath !== ':memory:') {
+        const databaseFiles = [databasePath, `${databasePath}-wal`, `${databasePath}-shm`];
+        for (const databaseFile of databaseFiles) {
+          if (await fs.pathExists(databaseFile)) {
+            await fs.unlink(databaseFile);
+            logger.info(`Database file deleted for key: ${key} at ${databaseFile}`);
+          }
+        }
       }
     } catch (error) {
       logger.error(`deleteDatabase failed for key: ${key}`, { error });

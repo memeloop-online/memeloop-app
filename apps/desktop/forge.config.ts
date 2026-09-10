@@ -81,7 +81,7 @@ const config: ForgeConfig = {
           setupExe: `Install-MemeLoop-Desktop-Windows-${arch}.exe`,
           setupIcon: 'build-resources/icon-installer.ico',
           description,
-          iconUrl: 'https://raw.githubusercontent.com/linonetwo/memeloop-app/master/apps/desktop/build-resources/icon%405x.png',
+          iconUrl: 'https://raw.githubusercontent.com/memeloop-online/memeloop-app/master/apps/desktop/build-resources/icon%405x.png',
         };
       },
     },

@@ -31,6 +31,12 @@
     "Untitled": "Sans titre"
   },
   "AgentSwitcher": { "Search": "Rechercher des agents..." },
+  "AgentRecovery": {
+    "Loading": "Préparation de l’agent IA…",
+    "Title": "L’agent IA n’est pas disponible",
+    "Description": "La base de données de l’agent IA n’a pas pu être ouverte ; la création et l’exécution des agents sont donc désactivées. Ouvrez les paramètres de l’agent IA pour examiner la base et la supprimer explicitement si vous le souhaitez, puis redémarrez MemeLoop. La base ne sera pas supprimée automatiquement.",
+    "OpenSettings": "Ouvrir les paramètres de l’agent IA"
+  },
   "Browser": {
     "Back": "reculer",
     "Bookmark": "collection",
