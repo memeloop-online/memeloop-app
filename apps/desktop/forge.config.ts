@@ -31,6 +31,10 @@ const config: ForgeConfig = {
     tmpdir: path.resolve(__dirname, '..', '..', '.electron-packager'),
     name: MEMELOOP_PRODUCT_NAME,
     executableName: MEMELOOP_EXECUTABLE_NAME,
+    extendInfo: {
+      CFBundleDisplayName: MEMELOOP_PRODUCT_NAME,
+      CFBundleName: MEMELOOP_PRODUCT_NAME,
+    },
     win32metadata: {
       CompanyName: 'MemeLoop',
       FileDescription: MEMELOOP_PRODUCT_NAME,
