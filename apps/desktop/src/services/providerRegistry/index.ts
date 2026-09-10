@@ -27,14 +27,15 @@ export class ProviderRegistryService implements IProviderRegistryService {
   private readonly requestLifecycle: RequestLifecycle;
   private readonly apiLogger: ApiCallLogger;
   private readonly transport: ProviderTransportRegistry;
+  private readonly secretResolver: SecretResolver;
 
   constructor(
     @inject(serviceIdentifier.Preference) preferenceService: IPreferenceService,
     @inject(serviceIdentifier.Database) databaseService: IDatabaseService,
   ) {
     this.catalogService = new CatalogService();
-    const secretResolver = new SecretResolver(databaseService);
-    this.accountStore = new AccountStore(databaseService, secretResolver);
+    this.secretResolver = new SecretResolver(databaseService);
+    this.accountStore = new AccountStore(databaseService, this.secretResolver);
     this.requestLifecycle = new RequestLifecycle();
     this.apiLogger = new ApiCallLogger(preferenceService, databaseService);
     this.transport = new ProviderTransportRegistry(
@@ -45,6 +46,7 @@ export class ProviderRegistryService implements IProviderRegistryService {
   }
 
   async initialize(): Promise<void> {
+    this.secretResolver.initialize();
     this.accountStore.initialize();
     void this.catalogService.refresh().catch((error: unknown) => {
       logger.warn('Official model catalog startup refresh failed', { error });

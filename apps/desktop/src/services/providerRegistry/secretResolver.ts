@@ -14,12 +14,17 @@ type PersistedSecrets = Record<string, string>;
  * copied into ProviderAccountConfig or renderer-facing account projections.
  */
 export class SecretResolver {
-  private readonly secrets: PersistedSecrets;
+  private secrets: PersistedSecrets = {};
+  private initialized = false;
   private changed = false;
 
-  constructor(private readonly databaseService: IDatabaseService) {
-    const stored = databaseService.getSetting('aiProviderSecrets');
+  constructor(private readonly databaseService: IDatabaseService) {}
+
+  initialize(): void {
+    if (this.initialized) return;
+    const stored = this.databaseService.getSetting('aiProviderSecrets');
     this.secrets = stored && typeof stored === 'object' ? { ...stored } : {};
+    this.initialized = true;
   }
 
   prepareProviderUpdate(
