@@ -101,7 +101,7 @@
     "logform": "2.7.0",
     "material-ui-cron": "2.0.1",
     "material-ui-popup-state": "^5.3.7",
-    "memeloop": "^0.3.1",
+    "memeloop": "^0.3.2",
     "memeloop-cli": "^0.3.0",
     "monaco-editor": "^0.56.0",
     "nanoid": "^6.0.0",
