@@ -30,11 +30,10 @@ const config: ForgeConfig = {
     // is an atomic rename and avoids partially-copied application bundles.
     tmpdir: path.resolve(__dirname, '..', '..', '.electron-packager'),
     name: MEMELOOP_PRODUCT_NAME,
-    executableName: MEMELOOP_EXECUTABLE_NAME,
-    extendInfo: {
-      CFBundleDisplayName: MEMELOOP_PRODUCT_NAME,
-      CFBundleName: MEMELOOP_PRODUCT_NAME,
-    },
+    // Electron Packager derives macOS CFBundleDisplayName from executableName.
+    // Keep the CLI-friendly executable on Windows/Linux, but use the product
+    // name for the native macOS app identity and Dock/menu presentation.
+    executableName: process.platform === 'darwin' ? MEMELOOP_PRODUCT_NAME : MEMELOOP_EXECUTABLE_NAME,
     win32metadata: {
       CompanyName: 'MemeLoop',
       FileDescription: MEMELOOP_PRODUCT_NAME,
