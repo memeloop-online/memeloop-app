@@ -24,6 +24,6 @@ describe('UtilityProcess SQLite v2 storage adapter', () => {
     const worker = await readFile(fileURLToPath(new URL('../memeloopWorker.ts', import.meta.url)), 'utf8');
     expect(worker).toContain('await requireDesktopAtomicRetryStore(runtimeResult)');
     expect(worker).toContain("'getMessageById'");
-    expect(worker).toContain('createDesktopRetryTurnHandler(activeRuntime)');
+    expect(worker).toContain('retryTurn: createDesktopRetryTurnHandler(runtime)');
   });
 });

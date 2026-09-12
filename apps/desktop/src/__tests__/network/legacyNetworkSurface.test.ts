@@ -125,7 +125,9 @@ describe('legacy network production surface', () => {
     expect(main).toContain('buildCapabilities: () => agentInstanceService.getMemeLoopDeviceCapabilities()');
     expect(agentService).not.toContain('initializeMemeLoopRuntimeBridge');
     expect(agentService).not.toContain('createMemeLoopRuntime(');
-    expect(worker).toContain('createAgentRuntimeDeviceRpcHandler({');
+    expect(worker).toContain('createDesktopDeviceRpcHandlers({');
+    expect(worker).toContain('deviceRpcHandler = handlers.network');
+    expect(worker).toContain('localDeviceRpcHandler = handlers.local');
     expect(worker).toContain('storageCall: async');
     expect(worker).toContain('runtimeContext.toolApprovals?.onApprovalRequest');
     expect(worker).toContain('runtimeContext?.questionWaits?.resolveQuestionAnswer');
