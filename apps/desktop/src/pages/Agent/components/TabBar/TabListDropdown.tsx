@@ -222,7 +222,7 @@ export const TabListDropdown: React.FC = () => {
           <AddIcon fontSize='small' />
         </IconButton>
       </Tooltip>
-      <Tooltip title={t('Preference.Title', { ns: 'translation' })}>
+      <Tooltip title={t('ContextMenu.Preferences', { ns: 'translation' })}>
         <IconButton
           id='open-preferences-button'
           data-testid='open-preferences-button'

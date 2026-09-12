@@ -167,7 +167,7 @@ export function NewModelDialog({
       <DialogActions>
         <Button onClick={onClose}>{t('Preference.Cancel', { ns: 'agent' })}</Button>
         <Button onClick={onAddModel} variant='contained' disabled={Object.values(validationErrors).some(Boolean)}>
-          {editMode ? t('Preference.Save', { ns: 'agent' }) : t('Preference.AddModel', { ns: 'agent' })}
+          {editMode ? t('Preference.Save', { ns: 'agent' }) : t('Preference.AddNewModel', { ns: 'agent' })}
         </Button>
       </DialogActions>
     </Dialog>

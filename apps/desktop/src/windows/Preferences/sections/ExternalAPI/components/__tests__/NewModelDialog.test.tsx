@@ -22,7 +22,7 @@ describe('NewModelDialog', () => {
     render(<NewModelDialog {...props} />);
     expect(screen.getByDisplayValue('gpt-test')).toBeInTheDocument();
     expect(screen.getByLabelText('Wire model id')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Preference.AddModel' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Preference.AddNewModel' })).toBeInTheDocument();
   });
 
   it('loads selected preset route into the form', () => {

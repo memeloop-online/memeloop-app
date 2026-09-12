@@ -15,4 +15,23 @@ describe('SecretResolver initialization', () => {
     expect(getSetting).toHaveBeenCalledOnce();
     expect(getSetting).toHaveBeenCalledWith('aiProviderSecrets');
   });
+
+  it('retains an existing secret reference when an account-only update omits the API key', () => {
+    const resolver = new SecretResolver({ getSetting: vi.fn() } as unknown as IDatabaseService);
+    resolver.initialize();
+    const account = {
+      providerId: 'configured-provider',
+      providerType: 'openAICompatible',
+      models: [],
+    };
+
+    const configured = resolver.prepareProviderUpdate(account, 'test-secret');
+    const updated = resolver.prepareProviderUpdate(
+      { ...account, models: [{ modelId: 'gpt-5.6-luna', wireModelId: 'gpt-5.6-luna', apiMode: 'responses' as const }] },
+      undefined,
+      configured.secretRef,
+    );
+
+    expect(updated.secretRef).toBe('ai-provider/configured-provider');
+  });
 });

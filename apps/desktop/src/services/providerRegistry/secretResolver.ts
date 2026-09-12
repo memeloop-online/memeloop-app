@@ -32,7 +32,14 @@ export class SecretResolver {
     apiKey: string | undefined,
     existingSecretReference?: string,
   ): ProviderAccountConfig {
-    if (apiKey === undefined) return account;
+    // Account edits such as adding a model do not carry an API key. Keep the
+    // existing opaque reference so those edits cannot silently disconnect an
+    // otherwise configured provider.
+    if (apiKey === undefined) {
+      return account.secretRef === undefined && existingSecretReference !== undefined
+        ? { ...account, secretRef: existingSecretReference }
+        : account;
+    }
     const providerId = account.providerId;
     const normalizedApiKey = apiKey.trim();
     const secretReference = existingSecretReference ?? `ai-provider/${providerId}`;
