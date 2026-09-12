@@ -23,6 +23,6 @@ export function createDesktopDeviceRpcHandlers(
       ...options,
       trustedLocalOnly: true,
     }),
-    network: createAgentRuntimeDeviceRpcHandler(options),
+    network: createAgentRuntimeDeviceRpcHandler({ ...options, trustedLocalOnly: false }),
   };
 }

@@ -40,7 +40,8 @@ const coreImportRequirements = [
   ['apps/desktop/src/services/agentInstance/scheduledTaskManager.ts', /\bScheduledTaskExecutionCoordinator\b/u],
   ['apps/desktop/src/services/agentInstance/scheduledTaskRpcStore.ts', /\bcreateScheduledTaskRpcHandler\b/u],
   ['apps/desktop/src/services/agentInstance/index.ts', /\bcreateChatMessage\b/u],
-  ['apps/desktop/src/services/agentInstance/memeloopWorker.ts', /\bcreateAgentRuntimeDeviceRpcHandler\b/u],
+  ['apps/desktop/src/services/agentInstance/memeloopWorker.ts', /\bcreateDesktopDeviceRpcHandlers\b/u],
+  ['apps/desktop/src/services/agentInstance/desktopDeviceRpcHandlers.ts', /\bcreateAgentRuntimeDeviceRpcHandler\b/u],
   ['apps/desktop/src/pages/Agent/TabContent/TabTypes/ScheduledWakeupEditor.tsx', /\bCoreAgentDefinition\b/u],
   ['apps/desktop/src/pages/Agent/components/TabBar/TabListDropdown.tsx', /\bScheduledTask\b/u],
 ];
