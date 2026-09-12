@@ -253,6 +253,9 @@ export interface IProviderRegistryService {
   /** Get canonical Core provider accounts from the embedded/refreshed catalog. */
   getOfficialProviderAccounts(refresh?: boolean): Promise<readonly ProviderAccountConfig[]>;
 
+  /** Read the saved API key for one configured provider for the Preferences editor. */
+  getProviderApiKey(providerId: string): Promise<string | undefined>;
+
   /**
    * Get readonly AI configuration default values
    */
@@ -316,6 +319,7 @@ export const ProviderRegistryServiceIPCDescriptor = {
     cancelAIRequest: ProxyPropertyType.Function,
     getProviderAccounts: ProxyPropertyType.Function,
     getOfficialProviderAccounts: ProxyPropertyType.Function,
+    getProviderApiKey: ProxyPropertyType.Function,
     getModelAssignments: ProxyPropertyType.Function,
     isAIAvailable: ProxyPropertyType.Function,
     modelAssignments$: ProxyPropertyType.Value$,

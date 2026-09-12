@@ -90,7 +90,6 @@ export class AccountStore {
       accounts,
       modelAssignments: retainAssignmentsForAccounts(this.userSettings.modelAssignments, accounts),
     });
-    this.secretResolver.persist();
     this.save();
     this.reactToConfigChange();
   }
@@ -104,7 +103,6 @@ export class AccountStore {
       modelAssignments: retainAssignmentsForAccounts(this.userSettings.modelAssignments, accounts),
     });
     this.secretResolver.deleteProviderSecret(providerId);
-    this.secretResolver.persist();
     this.save();
   }
 

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { app, safeStorage } from 'electron';
+import { app } from 'electron';
 import settings from 'electron-settings';
 import { injectable } from 'inversify';
 import { BehaviorSubject } from 'rxjs';
@@ -43,6 +43,7 @@ import {
   type TrustedDeviceRecord,
 } from 'memeloop';
 
+import { getLocalAuthStore } from '@services/libs/authFileStore';
 import { logger } from '@services/libs/log';
 
 import { createDesktopCloudConnectionCoordinator, signDesktopCloudHeartbeat } from './cloudCoordinator';
@@ -51,6 +52,8 @@ import type { DeviceNetworkRpcOperationOptions, DeviceNetworkRuntimeOptions, IDe
 const DEVICE_IDENTITY_KEY = 'deviceNetwork.identity.v1';
 const TRUSTED_DEVICES_KEY = 'deviceNetwork.trustedDevices.v2';
 const CLOUD_CONFIGURATION_KEY = 'deviceNetwork.cloudConfiguration.v1';
+const CLOUD_ACCESS_TOKEN_AUTH_KEY = 'deviceNetwork.cloud.accessToken.v1';
+const IDENTITY_PRIVATE_KEY_AUTH_KEY = 'deviceNetwork.identity.privateKeyRawSeed.v1';
 const CLOUD_HEARTBEAT_INTERVAL_MS = 60_000;
 const RELAY_TOKEN_SAFETY_MARGIN_MS = 2 * 60_000;
 const MOBILE_READ_ONLY_RESOURCE_KINDS = [
@@ -61,10 +64,9 @@ const MOBILE_READ_ONLY_RESOURCE_KINDS = [
   'ToolOperation',
 ] as const;
 
-interface EncryptedIdentityRecord {
+interface StoredIdentityRecord {
   peerId: string;
   publicKeyMultibase: string;
-  encryptedPrivateKey: string;
   deviceName: string;
   platform: 'desktop';
   createdAt: number;
@@ -76,9 +78,8 @@ interface TrustedDeviceStoreEnvelope {
   records: TrustedDeviceRecord[];
 }
 
-interface EncryptedCloudConfigurationRecord {
+interface StoredCloudConfigurationRecord {
   cloudUrl: string;
-  encryptedAccessToken: string;
 }
 
 interface DesktopCloudConfiguration {
@@ -174,19 +175,18 @@ function parseTrustedDeviceRecords(value: unknown): TrustedDeviceRecord[] {
   return records;
 }
 
-function isEncryptedIdentityRecord(value: unknown): value is EncryptedIdentityRecord {
+function isStoredIdentityRecord(value: unknown): value is StoredIdentityRecord {
   if (!isRecord(value)) return false;
   return typeof value.peerId === 'string' &&
     typeof value.publicKeyMultibase === 'string' &&
-    typeof value.encryptedPrivateKey === 'string' &&
     typeof value.deviceName === 'string' &&
     value.platform === 'desktop' &&
     typeof value.createdAt === 'number' &&
     Number.isFinite(value.createdAt);
 }
 
-function isEncryptedCloudConfigurationRecord(value: unknown): value is EncryptedCloudConfigurationRecord {
-  return isRecord(value) && typeof value.cloudUrl === 'string' && typeof value.encryptedAccessToken === 'string';
+function isStoredCloudConfigurationRecord(value: unknown): value is StoredCloudConfigurationRecord {
+  return isRecord(value) && typeof value.cloudUrl === 'string';
 }
 
 class ElectronSettingsDeviceTrustStore implements DeviceTrustStore {
@@ -825,33 +825,29 @@ export class DeviceNetworkService implements IDeviceNetworkService {
   private persistCloudConfiguration(config: DesktopCloudConfiguration | undefined): void {
     if (!config) {
       settings.unsetSync(CLOUD_CONFIGURATION_KEY);
+      getLocalAuthStore().delete(CLOUD_ACCESS_TOKEN_AUTH_KEY);
       return;
     }
-    if (!safeStorage.isEncryptionAvailable()) {
-      throw new Error('device_cloud_secure_storage_unavailable');
-    }
-    const record: EncryptedCloudConfigurationRecord = {
+    const record: StoredCloudConfigurationRecord = {
       cloudUrl: config.cloudUrl,
-      encryptedAccessToken: safeStorage.encryptString(config.accessToken).toString('base64'),
     };
     settings.setSync(CLOUD_CONFIGURATION_KEY, toElectronSettingsValue(record));
+    getLocalAuthStore().set(CLOUD_ACCESS_TOKEN_AUTH_KEY, config.accessToken);
   }
 
   private loadPersistedCloudConfiguration(): void {
     if (this.cloudConfig) return;
     const stored = settings.getSync(CLOUD_CONFIGURATION_KEY);
-    if (!isEncryptedCloudConfigurationRecord(stored)) return;
-    if (!safeStorage.isEncryptionAvailable()) {
-      logger.warn('DeviceNetworkService cannot load Cloud credentials because safeStorage is unavailable');
-      return;
-    }
+    if (!isStoredCloudConfigurationRecord(stored)) return;
+    const accessToken = getLocalAuthStore().get(CLOUD_ACCESS_TOKEN_AUTH_KEY);
+    if (!accessToken) return;
     try {
       this.cloudConfig = this.createCloudConfiguration({
         cloudUrl: stored.cloudUrl,
-        accessToken: safeStorage.decryptString(Buffer.from(stored.encryptedAccessToken, 'base64')),
+        accessToken,
       });
     } catch (error) {
-      logger.warn('DeviceNetworkService ignored invalid encrypted Cloud configuration', { error });
+      logger.warn('DeviceNetworkService ignored invalid stored Cloud configuration', { error });
     }
   }
 
@@ -862,7 +858,7 @@ export class DeviceNetworkService implements IDeviceNetworkService {
   private async ensureIdentity(): Promise<void> {
     if (this.identity) return;
     const stored = settings.getSync(DEVICE_IDENTITY_KEY);
-    if (isEncryptedIdentityRecord(stored)) {
+    if (isStoredIdentityRecord(stored)) {
       const identity = this.tryLoadStoredIdentity(stored);
       if (identity) {
         this.identity = identity;
@@ -874,27 +870,18 @@ export class DeviceNetworkService implements IDeviceNetworkService {
     this.identity = identity;
   }
 
-  private tryLoadStoredIdentity(stored: EncryptedIdentityRecord): RawSeedDeviceIdentity | undefined {
-    if (!safeStorage.isEncryptionAvailable()) {
-      logger.warn('DeviceNetworkService safeStorage encryption unavailable; using an ephemeral device identity for this session');
-      return undefined;
-    }
-    try {
-      const encrypted = Buffer.from(stored.encryptedPrivateKey, 'base64');
-      const privateKeyRawSeedBase64Url = safeStorage.decryptString(encrypted);
-      return {
-        peerId: stored.peerId,
-        publicKeyMultibase: stored.publicKeyMultibase,
-        privateKeyRef: 'libp2p-raw-seed',
-        privateKeyRawSeedBase64Url,
-        createdAt: stored.createdAt,
-        deviceName: stored.deviceName,
-        platform: 'desktop',
-      };
-    } catch (error) {
-      logger.warn('DeviceNetworkService failed to decrypt stored identity; rotating device identity', { error });
-      return undefined;
-    }
+  private tryLoadStoredIdentity(stored: StoredIdentityRecord): RawSeedDeviceIdentity | undefined {
+    const privateKeyRawSeedBase64Url = getLocalAuthStore().get(IDENTITY_PRIVATE_KEY_AUTH_KEY);
+    if (!privateKeyRawSeedBase64Url) return undefined;
+    return {
+      peerId: stored.peerId,
+      publicKeyMultibase: stored.publicKeyMultibase,
+      privateKeyRef: 'libp2p-raw-seed',
+      privateKeyRawSeedBase64Url,
+      createdAt: stored.createdAt,
+      deviceName: stored.deviceName,
+      platform: 'desktop',
+    };
   }
 
   private async createIdentity(): Promise<RawSeedDeviceIdentity> {
@@ -902,20 +889,15 @@ export class DeviceNetworkService implements IDeviceNetworkService {
   }
 
   private async saveIdentity(identity: RawSeedDeviceIdentity): Promise<void> {
-    if (!safeStorage.isEncryptionAvailable()) {
-      logger.warn('DeviceNetworkService safeStorage encryption unavailable; generated identity will not be persisted');
-      return;
-    }
-    const encrypted = safeStorage.encryptString(identity.privateKeyRawSeedBase64Url);
-    const record: EncryptedIdentityRecord = {
+    const record: StoredIdentityRecord = {
       peerId: identity.peerId,
       publicKeyMultibase: identity.publicKeyMultibase,
-      encryptedPrivateKey: encrypted.toString('base64'),
       deviceName: identity.deviceName,
       platform: 'desktop',
       createdAt: identity.createdAt,
     };
     settings.setSync(DEVICE_IDENTITY_KEY, toElectronSettingsValue(record));
+    getLocalAuthStore().set(IDENTITY_PRIVATE_KEY_AUTH_KEY, identity.privateKeyRawSeedBase64Url);
   }
 
   private async buildCapabilities(): Promise<DeviceCapabilities> {

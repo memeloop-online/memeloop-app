@@ -20,8 +20,6 @@ export interface ISettingFile {
   analyticsSecrets?: IAnalyticsSecretSettings;
   preferences: IPreferences;
   aiSettings?: ProviderAccountSettings;
-  /** OS-encrypted provider credentials keyed by canonical secretRef. */
-  aiProviderSecrets?: Record<string, string>;
   'toolPermissions.blacklist'?: IToolPermissionEntry[];
   'toolPermissions.whitelist'?: IToolPermissionEntry[];
 }

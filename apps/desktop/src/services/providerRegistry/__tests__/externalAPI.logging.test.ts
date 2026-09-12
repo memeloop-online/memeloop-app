@@ -103,7 +103,7 @@ describe('ExternalAPIService logging', () => {
     expect(externalAPILogs.length).toBeGreaterThan(0);
   });
 
-  it('persists only OS-encrypted provider credentials and exposes only their presence', async () => {
+  it('persists provider credential metadata separately from settings and exposes only its presence', async () => {
     const svc = container.get<import('../interface').IProviderRegistryService>(serviceIdentifier.ProviderRegistry);
     const db = container.get<IDatabaseService>(serviceIdentifier.Database);
     const plaintext = 'unit-test-provider-secret';

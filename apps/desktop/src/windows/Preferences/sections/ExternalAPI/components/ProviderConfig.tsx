@@ -2,7 +2,7 @@ import AddIcon from '@mui/icons-material/Add';
 import { Alert, Box, Button, Snackbar, Tab, Tabs } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import type { ProviderAccountConfig, ProviderModelRoute } from 'memeloop';
-import { Dispatch, SetStateAction, SyntheticEvent, useEffect, useMemo, useState } from 'react';
+import { Dispatch, SetStateAction, SyntheticEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ListItemText } from '@/components/ListItem';
@@ -47,6 +47,8 @@ export function ProviderConfig({ providerAccounts, setProviderAccounts }: Provid
   const [selectedDefaultModel, setSelectedDefaultModel] = useState('');
   const [availableDefaultModels, setAvailableDefaultModels] = useState<readonly ProviderModelRoute[]>([]);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
+  const hydratedApiKeyProviderIds = useRef(new Set<string>());
+  const touchedApiKeyProviderIds = useRef(new Set<string>());
 
   useEffect(() => {
     setProviderForms(previous => {
@@ -62,6 +64,46 @@ export function ProviderConfig({ providerAccounts, setProviderAccounts }: Provid
       });
       return next;
     });
+  }, [providerAccounts]);
+
+  useEffect(() => {
+    const accountsToHydrate = providerAccounts.filter(account => account.secretRef !== undefined && !hydratedApiKeyProviderIds.current.has(account.providerId));
+    if (accountsToHydrate.length === 0) return;
+    let disposed = false;
+    accountsToHydrate.forEach(account => {
+      hydratedApiKeyProviderIds.current.add(account.providerId);
+    });
+
+    const hydrateSavedApiKeys = async () => {
+      const resolvedKeys = await Promise.all(accountsToHydrate.map(async account => {
+        try {
+          return { providerId: account.providerId, apiKey: await window.service.externalAPI.getProviderApiKey(account.providerId) };
+        } catch {
+          void window.service.native.log('warn', 'Failed to load saved provider API key', {
+            function: 'ProviderConfig.hydrateSavedApiKeys',
+            providerId: account.providerId,
+          });
+          return { providerId: account.providerId, apiKey: undefined };
+        }
+      }));
+      if (disposed) return;
+      setProviderForms(previous => {
+        let changed = false;
+        const next = { ...previous };
+        resolvedKeys.forEach(({ providerId, apiKey }) => {
+          const current = next[providerId];
+          if (!current || !apiKey || touchedApiKeyProviderIds.current.has(providerId) || current.apiKey) return;
+          next[providerId] = { ...current, apiKey };
+          changed = true;
+        });
+        return changed ? next : previous;
+      });
+    };
+
+    void hydrateSavedApiKeys();
+    return () => {
+      disposed = true;
+    };
   }, [providerAccounts]);
 
   useEffect(() => {
@@ -106,6 +148,7 @@ export function ProviderConfig({ providerAccounts, setProviderAccounts }: Provid
   const handleProviderFieldChange = async (providerId: string, field: 'apiKey' | 'baseUrl', value: string) => {
     const account = providerAccounts.find(candidate => candidate.providerId === providerId);
     if (!account) return;
+    if (field === 'apiKey') touchedApiKeyProviderIds.current.add(providerId);
     setProviderForms(previous => ({ ...previous, [providerId]: { ...previous[providerId], [field]: value } }));
     const updatedAccount = field === 'baseUrl' ? { ...account, baseUrl: value || undefined } : account;
     try {

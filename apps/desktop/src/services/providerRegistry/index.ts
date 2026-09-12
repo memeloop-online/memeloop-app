@@ -34,7 +34,7 @@ export class ProviderRegistryService implements IProviderRegistryService {
     @inject(serviceIdentifier.Database) databaseService: IDatabaseService,
   ) {
     this.catalogService = new CatalogService();
-    this.secretResolver = new SecretResolver(databaseService);
+    this.secretResolver = new SecretResolver();
     this.accountStore = new AccountStore(databaseService, this.secretResolver);
     this.requestLifecycle = new RequestLifecycle();
     this.apiLogger = new ApiCallLogger(preferenceService, databaseService);
@@ -46,7 +46,6 @@ export class ProviderRegistryService implements IProviderRegistryService {
   }
 
   async initialize(): Promise<void> {
-    this.secretResolver.initialize();
     this.accountStore.initialize();
     void this.catalogService.refresh().catch((error: unknown) => {
       logger.warn('Official model catalog startup refresh failed', { error });
@@ -126,6 +125,10 @@ export class ProviderRegistryService implements IProviderRegistryService {
 
   getOfficialProviderAccounts(refresh = false): Promise<readonly ProviderAccountConfig[]> {
     return this.catalogService.getOfficialProviderAccounts(refresh);
+  }
+
+  getProviderApiKey(providerId: string): Promise<string | undefined> {
+    return Promise.resolve(this.accountStore.getProvider(providerId)?.apiKey);
   }
 
   getModelAssignments(): Promise<ModelAssignments> {
