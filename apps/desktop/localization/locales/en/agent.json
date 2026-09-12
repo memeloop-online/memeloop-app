@@ -65,6 +65,8 @@
     "RunError": {
       "ContextCompactionPending": "MemeLoop is compacting this conversation so the agent can continue with its context. Your conversation history is preserved; wait a moment, then retry.",
       "ContextCompactionPendingTitle": "Preparing the long conversation",
+      "OperationFailed": "The operation could not be completed. Please try again.",
+      "OperationFailedTitle": "Operation failed",
       "UserMessageTooLarge": "This message is {{requested}} bytes, above the {{limit}}-byte limit. Shorten it, split it into several messages, or send the content as an attachment.",
       "UserMessageTooLargeTitle": "Message is too large"
     },

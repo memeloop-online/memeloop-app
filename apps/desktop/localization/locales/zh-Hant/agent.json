@@ -64,6 +64,8 @@
     "RunError": {
       "ContextCompactionPending": "MemeLoop 正在壓縮這段對話，讓智慧代理保留上下文並繼續工作。對話歷史不會遺失，請稍候再重試。",
       "ContextCompactionPendingTitle": "正在整理長對話",
+      "OperationFailed": "無法完成此操作，請重試。",
+      "OperationFailedTitle": "操作失敗",
       "UserMessageTooLarge": "這則訊息為 {{requested}} 位元組，超過 {{limit}} 位元組的上限。請縮短內容、拆分成多則訊息，或改以附件傳送。",
       "UserMessageTooLargeTitle": "訊息過長"
     },

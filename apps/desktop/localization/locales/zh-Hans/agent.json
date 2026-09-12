@@ -65,6 +65,8 @@
     "RunError": {
       "ContextCompactionPending": "MemeLoop 正在压缩这段对话，以便智能体保留上下文并继续工作。对话历史不会丢失，请稍候再重试。",
       "ContextCompactionPendingTitle": "正在整理长对话",
+      "OperationFailed": "无法完成此操作，请重试。",
+      "OperationFailedTitle": "操作失败",
       "UserMessageTooLarge": "这条消息为 {{requested}} 字节，超过 {{limit}} 字节的上限。请缩短内容、拆分成多条消息，或改为附件发送。",
       "UserMessageTooLargeTitle": "消息过长"
     },

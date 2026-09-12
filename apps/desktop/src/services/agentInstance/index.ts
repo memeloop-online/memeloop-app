@@ -1115,8 +1115,8 @@ export class AgentInstanceService implements IAgentInstanceService {
   }
 
   private async callLocalAgentDeviceRpc<T>(method: string, parameters: unknown): Promise<T> {
-    const handler = this.getMemeLoopDeviceRpcHandler();
-    return await handler({
+    const worker = await this.getMemeLoopWorkerProxy();
+    return await worker.handleLocalDeviceRpc({
       remotePeerId: this.requireMemeLoopHostPeerId(),
       method,
       parameters,

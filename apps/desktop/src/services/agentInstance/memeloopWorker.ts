@@ -13,7 +13,6 @@ import {
   type AgentDefinition,
   type AgentRuntimeRpcStorage,
   type ChatMessage,
-  createAgentRuntimeDeviceRpcHandler,
   type DeviceCapabilities,
   type DeviceRpcHandler,
   type DeviceRpcHandlerInput,
@@ -26,6 +25,7 @@ import {
 import type { NodeRuntimeResult } from 'memeloop-cli/runtime';
 import { requireDesktopAtomicRetryStore } from './atomicRetryCapability';
 import { type ConversationMutationWake, installConversationMutationObserver } from './conversationMutationObserver';
+import { createDesktopDeviceRpcHandlers } from './desktopDeviceRpcHandlers';
 import { createDesktopRetryTurnHandler } from './retryTurn';
 import { createDesktopScheduledTaskRpcHandler, type ScheduledTaskServicePort } from './scheduledTaskRpcStore';
 import type {
@@ -619,6 +619,7 @@ let storage: NodeRuntimeResult['storage'] | undefined;
 let runtimeContext: NodeRuntimeResult['context'] | undefined;
 let approvalRequestCleanup: (() => void) | undefined;
 let deviceRpcHandler: DeviceRpcHandler | undefined;
+let localDeviceRpcHandler: DeviceRpcHandler | undefined;
 let scheduledTaskRpcHandler: ReturnType<typeof createDesktopScheduledTaskRpcHandler> | undefined;
 let runtimeToolIds: string[] = [];
 let runtimeAgentDefinitions: AgentDefinition[] = [];
@@ -662,6 +663,30 @@ function isAgentRuntimeRpcStorage(value: unknown): value is AgentRuntimeRpcStora
 
 function isCallable(value: unknown): value is (...arguments_: unknown[]) => unknown {
   return typeof value === 'function';
+}
+
+function getDesktopDeviceRpcHandler(localOnly: boolean): DeviceRpcHandler {
+  const cached = localOnly ? localDeviceRpcHandler : deviceRpcHandler;
+  if (cached) return cached;
+  if (!runtime || !storage) throw new Error('MemeLoop runtime did not initialize');
+  if (!isAgentRuntimeRpcStorage(storage)) {
+    throw new Error('MemeLoop SQLite v2 bounded storage ports are unavailable');
+  }
+  const handlers = createDesktopDeviceRpcHandlers({
+    runtime,
+    storage,
+    projections: createDesktopAgentRuntimeProjectionStore(storage),
+    retryTurn: createDesktopRetryTurnHandler(runtime),
+    getAgentDefinitions: () => runtimeAgentDefinitions,
+    scheduledTaskHandler: scheduledTaskRpcHandler ??= createDesktopScheduledTaskRpcHandler(
+      createMainScheduledTaskServiceBridge(),
+      localNodeId,
+    ),
+    localNodeId,
+  });
+  deviceRpcHandler = handlers.network;
+  localDeviceRpcHandler = handlers.local;
+  return localOnly ? localDeviceRpcHandler : deviceRpcHandler;
 }
 
 function requireHostConfig(): DesktopHostConfig {
@@ -1055,24 +1080,12 @@ const memeloopWorker = {
    */
   handleDeviceRpc: async (input: DeviceRpcHandlerInput) => {
     await ensureRuntimeInitialized();
-    if (!runtime || !storage) throw new Error('MemeLoop runtime did not initialize');
-    const activeRuntime = runtime;
-    if (!isAgentRuntimeRpcStorage(storage)) {
-      throw new Error('MemeLoop SQLite v2 bounded storage ports are unavailable');
-    }
-    deviceRpcHandler ??= createAgentRuntimeDeviceRpcHandler({
-      runtime: activeRuntime,
-      storage,
-      projections: createDesktopAgentRuntimeProjectionStore(storage),
-      retryTurn: createDesktopRetryTurnHandler(activeRuntime),
-      getAgentDefinitions: () => runtimeAgentDefinitions,
-      scheduledTaskHandler: scheduledTaskRpcHandler ??= createDesktopScheduledTaskRpcHandler(
-        createMainScheduledTaskServiceBridge(),
-        localNodeId,
-      ),
-      localNodeId,
-    });
-    return deviceRpcHandler(input);
+    return getDesktopDeviceRpcHandler(false)(input);
+  },
+  /** Main-process-only counterpart: it never accepts DeviceNetwork traffic. */
+  handleLocalDeviceRpc: async (input: DeviceRpcHandlerInput) => {
+    await ensureRuntimeInitialized();
+    return getDesktopDeviceRpcHandler(true)(input);
   },
   /**
    * Typed workerAdapter calls are structured-cloned, so the CLI SQLite handle

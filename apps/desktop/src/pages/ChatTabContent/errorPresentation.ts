@@ -18,18 +18,16 @@ const TITLE_KEYS: Partial<Record<AgentRunErrorCode, string>> = {
 };
 
 /**
- * Localized recovery for the fail-closed configuration state. The provider
- * bridge can only guarantee an opaque failure, but this screen still knows
- * that its safe fallback is the AI configuration flow.
+ * Localized fallback for errors that are not recognized as a typed provider
+ * or agent-run failure. Keep this generic: an opaque bridge/session error is
+ * not evidence that the model configuration is missing.
  */
-export function createDesktopMissingConfigurationPresentation(
+export function createDesktopGenericErrorPresentation(
   translate: Translate,
 ): AgentChatErrorPresentation {
   return {
-    title: translate('Chat.ConfigError.Title'),
-    message: translate('Chat.ConfigError.MissingConfigError'),
-    actionId: 'open-provider-settings',
-    actionLabel: translate('Chat.ConfigError.GoToSettings'),
+    title: translate('Chat.RunError.OperationFailedTitle'),
+    message: translate('Chat.RunError.OperationFailed'),
   };
 }
 
@@ -44,8 +42,8 @@ export function resolveDesktopAgentError(
   const titleKey = TITLE_KEYS[error.code];
   const hasSettingsAction = error.code === 'PROVIDER_CONFIGURATION_MISSING' || error.settingTarget?.kind === 'provider' || error.settingTarget?.kind === 'model';
   return {
-    title: translate(titleKey ?? 'Chat.ConfigError.Title'),
-    message: translate(messageKey ?? 'Chat.ConfigError.MissingConfigError', {
+    title: translate(titleKey ?? (messageKey ? 'Chat.ConfigError.Title' : 'Chat.RunError.OperationFailedTitle')),
+    message: translate(messageKey ?? 'Chat.RunError.OperationFailed', {
       ...error.localizedParams,
       provider: error.providerId ?? error.localizedParams?.providerId ?? '',
       model: error.modelId ?? error.localizedParams?.modelId ?? '',
