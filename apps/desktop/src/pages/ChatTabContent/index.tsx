@@ -224,7 +224,7 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
       }}
       loadingMessage={t('Agent.LoadingChat')}
       emptyMessage={t('Agent.StartConversation')}
-      placeholder={t('InputPlaceholder')}
+      placeholder={t('Chat.InputPlaceholder')}
       resolveErrorPresentation={value => resolveDesktopAgentError(value, t)}
       genericErrorPresentation={createDesktopMissingConfigurationPresentation(t)}
       onErrorAction={async presentation => {
