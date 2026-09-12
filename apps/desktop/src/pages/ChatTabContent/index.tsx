@@ -1,5 +1,5 @@
 import { AgentChatShell, AgentSessionProvider, useAgentSession, useAgentSessionChatAdapter } from '@memeloop/react-ui/agent';
-import type { WebMemeLoopChatAdapter } from '@memeloop/react-ui/chat';
+import type { MemeLoopMessageLabels, WebMemeLoopChatAdapter } from '@memeloop/react-ui/chat';
 import { Box, Typography } from '@mui/material';
 import type { AgentInstanceMetadata } from '@services/agentInstance/interface';
 import { nanoid } from 'nanoid';
@@ -254,8 +254,41 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
         agent: t('Chat.Actions.Agent'),
       }}
       messageLabels={{
+        attachmentAlt: t('Chat.Message.AttachmentAlt'),
+        attachmentLoadFailed: t('Chat.Message.AttachmentLoadFailed'),
+        noDetails: t('Chat.Message.NoDetails'),
+        loadDetails: t('Chat.Message.LoadDetails'),
+        reloadDetails: t('Chat.Message.ReloadDetails'),
+        hideDetails: t('Chat.Message.HideDetails'),
+        showDetails: t('Chat.Message.ShowDetails'),
+        detailTruncated: t('Chat.Message.DetailTruncated'),
+        detailLoadFailed: t('Chat.Message.DetailLoadFailed'),
         exportFullMessage: t('Chat.Message.ExportFullMessage'),
-      }}
+        reasoning: t('Chat.Message.Reasoning'),
+        thinking: t('Chat.Message.Thinking'),
+        showReasoning: t('Chat.Message.ShowReasoning'),
+        hideReasoning: t('Chat.Message.HideReasoning'),
+        loadMoreReasoning: t('Chat.Message.LoadMoreReasoning'),
+        reasoningLoadFailed: t('Chat.Message.ReasoningLoadFailed'),
+        error: t('Chat.Message.Error'),
+        toolResult: t('Chat.Message.ToolResult'),
+        toolCall: toolName => t('Chat.Message.ToolCall', { toolName }),
+        truncated: (count, capability) =>
+          t(
+            capability === 'detail'
+              ? 'Chat.Message.TruncatedDetail'
+              : capability === 'export'
+              ? 'Chat.Message.TruncatedExport'
+              : 'Chat.Message.Truncated',
+            { count },
+          ),
+        askQuestion: {
+          answerPlaceholder: t('Chat.Message.AskQuestion.AnswerPlaceholder'),
+          submit: t('Chat.Message.AskQuestion.Submit'),
+          confirmSelection: t('Chat.Message.AskQuestion.ConfirmSelection'),
+          answered: t('Chat.Message.AskQuestion.Answered'),
+        },
+      } satisfies MemeLoopMessageLabels}
       dialogs={
         <>
           {previewMode !== undefined && (
