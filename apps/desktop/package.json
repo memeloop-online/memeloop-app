@@ -102,7 +102,7 @@
     "material-ui-cron": "2.0.1",
     "material-ui-popup-state": "^5.3.7",
     "memeloop": "^0.3.3",
-    "memeloop-cli": "^0.3.0",
+    "memeloop-cli": "^0.3.1",
     "monaco-editor": "^0.56.0",
     "nanoid": "^6.0.0",
     "new-github-issue-url": "^1.1.0",
