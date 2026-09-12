@@ -40,11 +40,5 @@ export const notificationsSection: ISectionDefinition = {
       titleKey: 'Preference.TestNotification',
       componentId: 'notifications.test',
     },
-    { type: 'divider' },
-    {
-      type: 'custom',
-      titleKey: 'Preference.HowToEnableNotifications',
-      componentId: 'notifications.helpText',
-    },
   ],
 };

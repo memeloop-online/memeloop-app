@@ -1,6 +1,5 @@
 import type { IPreferenceService } from '@services/preferences/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
-import type { IViewService } from '@services/view/interface';
 import { Notification, NotificationConstructorOptions } from 'electron';
 import { inject, injectable } from 'inversify';
 import { BehaviorSubject } from 'rxjs';
@@ -13,7 +12,6 @@ export class NotificationService implements INotificationService {
 
   constructor(
     @inject(serviceIdentifier.Preference) private readonly preferenceService: IPreferenceService,
-    @inject(serviceIdentifier.View) private readonly viewService: IViewService,
   ) {
     this.pauseNotificationsInfo$ = new BehaviorSubject<IPauseNotificationsInfo | undefined>(this.pauseNotificationsInfo);
   }
@@ -138,12 +136,6 @@ export class NotificationService implements INotificationService {
     this.updating = true;
 
     this.pauseNotificationsInfo = await this.calcPauseNotificationsInfo();
-
-    // Send update to webview
-    const shouldPauseNotifications = this.pauseNotificationsInfo !== undefined;
-    const shouldMuteAudio = shouldPauseNotifications && (await this.preferenceService.get('pauseNotificationsMuteAudio'));
-    this.viewService.setViewsAudioPref(shouldMuteAudio);
-    this.viewService.setViewsNotificationsPref(!shouldPauseNotifications);
 
     // set schedule for re-updating
     const pauseNotifications = await this.preferenceService.get('pauseNotifications');

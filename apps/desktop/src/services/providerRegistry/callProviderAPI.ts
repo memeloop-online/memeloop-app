@@ -7,111 +7,136 @@ import { ModelMessage, streamText } from 'ai';
 import { createOllama } from 'ollama-ai-provider-v2';
 
 import { getFormattedContent } from '@/pages/ChatTabContent/components/types';
-import { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema';
-import { AuthenticationError, MissingAPIKeyError, MissingBaseURLError, parseProviderError } from './errors';
-import type { AIProviderConfig } from './interface';
+import type { ModelAssignments, ProviderModelRoute } from 'memeloop';
+import { MissingAPIKeyError, MissingBaseURLError } from './errors';
+import { normalizeOpenAIBaseURL } from './openAIBaseURL';
+import type { ProviderRuntimeConfig } from './runtimeTypes';
 
 type AIStreamResult = ReturnType<typeof streamText>;
 
-export function createProviderClient(providerConfig: { provider: string; providerClass?: string; baseURL?: string }, apiKey?: string) {
+export function createProviderClient(providerConfig: ProviderRuntimeConfig, provider: string) {
   // 首先检查 providerClass，如果没有则回退到基于名称的判断
-  const providerClass = providerConfig.providerClass || providerConfig.provider;
+  const providerClass = providerConfig.account.providerType || provider;
+  const baseURL = providerConfig.account.baseUrl;
+  const apiKey = providerConfig.apiKey;
 
   switch (providerClass) {
     case 'openai':
-      return createOpenAI({ apiKey });
+      return createOpenAI({ apiKey, baseURL: baseURL && normalizeOpenAIBaseURL(baseURL) });
     case 'openAICompatible':
-      if (!providerConfig.baseURL) {
-        throw new MissingBaseURLError(providerConfig.provider);
+      if (!baseURL) {
+        throw new MissingBaseURLError(provider);
       }
       return createOpenAICompatible({
-        name: providerConfig.provider,
+        name: provider,
         apiKey,
-        baseURL: providerConfig.baseURL,
+        baseURL: normalizeOpenAIBaseURL(baseURL),
       });
     case 'deepseek':
       return createDeepSeek({ apiKey });
     case 'anthropic':
       return createAnthropic({ apiKey });
     case 'ollama':
-      if (!providerConfig.baseURL) {
-        throw new MissingBaseURLError(providerConfig.provider);
+      if (!baseURL) {
+        throw new MissingBaseURLError(provider);
       }
       return createOllama({
-        baseURL: providerConfig.baseURL,
+        baseURL,
       });
     default:
-      throw new Error(`Unsupported AI provider: ${providerConfig.provider}`);
+      throw new Error(`Unsupported AI provider: ${provider}`);
   }
 }
 
-export function streamFromProvider(
-  config: AiAPIConfig,
+export function createProviderModel(providerConfig: ProviderRuntimeConfig, model: ProviderModelRoute) {
+  const providerClass = providerConfig.account.providerType || providerConfig.account.providerId;
+  if ((providerClass === 'openAICompatible' || providerClass === 'openai') && model.apiMode === 'responses') {
+    if (!providerConfig.account.baseUrl && providerClass === 'openAICompatible') {
+      throw new MissingBaseURLError(providerConfig.account.providerId);
+    }
+    return createOpenAI({
+      apiKey: providerConfig.apiKey,
+      baseURL: providerConfig.account.baseUrl && normalizeOpenAIBaseURL(providerConfig.account.baseUrl),
+    }).responses(model.wireModelId);
+  }
+  return createProviderClient(providerConfig, providerConfig.account.providerId)(model.wireModelId);
+}
+
+export function resolveModelGenerationSettings(config: ModelAssignments, model: ProviderModelRoute | undefined): {
+  maxOutputTokens?: number;
+  topP?: number;
+} {
+  return {
+    maxOutputTokens: config.default?.parameters?.maxOutputTokens ?? model?.requestDefaults?.maxOutputTokens,
+    topP: config.default?.parameters?.topP ?? model?.requestDefaults?.topP,
+  };
+}
+
+export function createProviderStreamOptions(
+  config: ModelAssignments,
   messages: Array<ModelMessage>,
   signal: AbortSignal,
-  providerConfig?: AIProviderConfig,
+  providerConfig: ProviderRuntimeConfig,
+) {
+  const modelConfig = config.default;
+  if (!modelConfig?.modelId) throw new Error('No default model configured');
+  const selectedModel = providerConfig.account.models.find(candidate => candidate.modelId === modelConfig.modelId) ?? {
+    modelId: modelConfig.modelId,
+    wireModelId: modelConfig.modelId,
+    apiMode: 'chat-completions' as const,
+  };
+  const systemMessage = messages.find(message => message.role === 'system');
+  const systemPrompt = (systemMessage ? getFormattedContent(systemMessage.content) : undefined) || 'You are a helpful assistant.';
+  const nonSystemMessages = messages.filter(message => message.role !== 'system');
+  const finalMessages: Array<ModelMessage> = nonSystemMessages.length > 0 ? nonSystemMessages : [{ role: 'user', content: 'Hi' }];
+  const { maxOutputTokens, topP } = resolveModelGenerationSettings(config, selectedModel);
+
+  return {
+    model: createProviderModel(providerConfig, selectedModel),
+    system: systemPrompt,
+    messages: finalMessages,
+    temperature: config.default?.parameters?.temperature ?? 0.7,
+    maxOutputTokens,
+    topP,
+    abortSignal: signal,
+  };
+}
+
+export function streamFromProvider(
+  config: ModelAssignments,
+  messages: Array<ModelMessage>,
+  signal: AbortSignal,
+  providerConfig?: ProviderRuntimeConfig,
 ): AIStreamResult {
   // Get default model configuration
   const modelConfig = config.default;
-  if (!modelConfig?.provider || !modelConfig?.model) {
+  if (!modelConfig?.providerId || !modelConfig?.modelId) {
     throw new Error('No default model configured');
   }
 
-  const provider = modelConfig.provider;
-  const model = modelConfig.model;
-  const modelParameters = config.modelParameters || {};
-  const { temperature = 0.7 } = modelParameters;
+  const provider = modelConfig.providerId;
+  const model = modelConfig.modelId;
 
   logger.info(`Using AI provider: ${provider}, model: ${model}`);
 
   try {
     // Check if API key is required
-    const isOllama = providerConfig?.providerClass === 'ollama';
-    const isLocalOpenAICompatible = providerConfig?.providerClass === 'openAICompatible' &&
-      providerConfig?.baseURL &&
-      (providerConfig.baseURL.includes('localhost') || providerConfig.baseURL.includes('127.0.0.1'));
+    const isOllama = providerConfig?.account.providerType === 'ollama';
+    const isLocalOpenAICompatible = providerConfig?.account.providerType === 'openAICompatible' &&
+      providerConfig.account.baseUrl &&
+      (providerConfig.account.baseUrl.includes('localhost') || providerConfig.account.baseUrl.includes('127.0.0.1'));
 
     if (!providerConfig?.apiKey && !isOllama && !isLocalOpenAICompatible) {
       // Ollama and local OpenAI-compatible servers don't require API key
       throw new MissingAPIKeyError(provider);
     }
 
-    const client = createProviderClient(
-      providerConfig,
-      providerConfig.apiKey,
-    );
-
-    // Extract system message from messages if present
-    const systemMessage = messages.find(message => message.role === 'system');
-    const systemPrompt = (systemMessage ? getFormattedContent(systemMessage.content) : undefined) || 'You are a helpful assistant.';
-
-    // Filter out system messages from the messages array since we're handling them separately
-    const nonSystemMessages = messages.filter(message => message.role !== 'system');
-
-    // Ensure we have at least one message to avoid AI library errors
-    const finalMessages: Array<ModelMessage> = nonSystemMessages.length > 0 ? nonSystemMessages : [{ role: 'user' as const, content: 'Hi' }];
-
-    const providerModel = client(model);
-    return streamText({
-      model: providerModel,
-      system: systemPrompt,
-      messages: finalMessages,
-      temperature,
-      abortSignal: signal,
-    });
+    return streamText(createProviderStreamOptions(config, messages, signal, providerConfig));
   } catch (error) {
     if (!error) {
-      throw new Error(`${provider} error: Unknown error`);
-    } else if ((error as Error).message.includes('401')) {
-      throw new AuthenticationError(provider);
-    } else if ((error as Error).message.includes('404')) {
-      throw new Error(`${provider} error: Model "${model}" not found`);
-    } else if ((error as Error).message.includes('429')) {
-      throw new Error(`${provider} too many requests: Reduce request frequency or check API limits`);
-    } else {
-      logger.error(`${provider} streaming error:`, error);
-      // Try to parse the error into a more specific type if possible
-      throw parseProviderError(error as Error, provider);
+      throw new Error(`${provider} error: Unknown error`, { cause: error });
     }
+    logger.error(`${provider} streaming error:`, error);
+    throw error;
   }
 }

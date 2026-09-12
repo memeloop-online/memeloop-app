@@ -1,37 +1,40 @@
 import { View, StyleSheet } from 'react-native';
-import { Text, Card, Button } from 'react-native-paper';
+import { Text, Card } from 'react-native-paper';
 import { useRouter } from 'expo-router';
+
+import { getMobileLabels } from '../lib/i18n';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const labels = getMobileLabels();
 
   return (
     <View style={styles.container}>
       <Text variant="headlineMedium" style={styles.title}>
-        MemeLoop Mobile
+        {labels.home.title}
       </Text>
       <Text variant="bodyMedium" style={styles.subtitle}>
-        Distributed AI Agent Companion
+        {labels.home.subtitle}
       </Text>
 
       <Card style={styles.card} onPress={() => router.push('/chat')}>
-        <Card.Title title="Agent Chat" subtitle="Start a conversation" />
+        <Card.Title title={labels.home.chatTitle} subtitle={labels.home.chatSubtitle} titleNumberOfLines={2} subtitleNumberOfLines={2} />
         <Card.Content>
-          <Text>Chat with AI agents running on your local network</Text>
+          <Text style={styles.body}>{labels.home.chatDescription}</Text>
         </Card.Content>
       </Card>
 
       <Card style={styles.card} onPress={() => router.push('/nodes')}>
-        <Card.Title title="Connected Nodes" subtitle="Manage memeloop nodes" />
+        <Card.Title title={labels.home.nodesTitle} subtitle={labels.home.nodesSubtitle} titleNumberOfLines={2} subtitleNumberOfLines={2} />
         <Card.Content>
-          <Text>View and connect to memeloop nodes on your network</Text>
+          <Text style={styles.body}>{labels.home.nodesDescription}</Text>
         </Card.Content>
       </Card>
 
       <Card style={styles.card} onPress={() => router.push('/settings')}>
-        <Card.Title title="Settings" subtitle="Configure your agent" />
+        <Card.Title title={labels.home.settingsTitle} subtitle={labels.home.settingsSubtitle} titleNumberOfLines={2} subtitleNumberOfLines={2} />
         <Card.Content>
-          <Text>Provider settings, cloud auth, and node management</Text>
+          <Text style={styles.body}>{labels.home.settingsDescription}</Text>
         </Card.Content>
       </Card>
     </View>
@@ -52,6 +55,9 @@ const styles = StyleSheet.create({
   subtitle: {
     marginBottom: 24,
     opacity: 0.7,
+  },
+  body: {
+    flexShrink: 1,
   },
   card: {
     marginBottom: 12,

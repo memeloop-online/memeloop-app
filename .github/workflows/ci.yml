@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24.15.0
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            apps/desktop/pnpm-lock.yaml
+
+      - name: Verify repository toolchain contracts
+        run: pnpm run check:repository-contracts
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential xvfb
+
+      - name: Use HTTPS for GitHub dependencies
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+
+      - name: Install Desktop workspace from lockfile
+        working-directory: apps/desktop
+        run: |
+          rm -rf -- node_modules
+          pnpm install --frozen-lockfile
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+
+      - name: Rebuild Electron native modules
+        working-directory: apps/desktop
+        run: ./node_modules/.bin/electron-rebuild -f -w better-sqlite3
+
+      - name: Package Desktop smoke
+        working-directory: apps/desktop
+        run: |
+          ./node_modules/.bin/cross-env NODE_ENV=production ./node_modules/.bin/electron-forge package --platform=linux --arch=x64
+          pnpm run test:package-runtime
+          sudo chown root:root "out/MemeLoop Desktop-linux-x64/chrome-sandbox"
+          sudo chmod 4755 "out/MemeLoop Desktop-linux-x64/chrome-sandbox"
+          xvfb-run --auto-servernum pnpm run test:package-startup
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+
+      - name: Upload Linux trial package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MemeLoop-Desktop-linux-x64-${{ github.sha }}
+          path: apps/desktop/out/MemeLoop Desktop-linux-x64
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Check Desktop types
+        working-directory: apps/desktop
+        run: pnpm run check
+
+      - name: Test Desktop
+        working-directory: apps/desktop
+        run: pnpm run test:unit
+        env:
+          CI: "true"
+          LOCAL_GIT_DIRECTORY: /usr
+          GIT_EXEC_PATH: /usr/lib/git-core
+
+      - name: Check Mobile
+        run: |
+          pnpm --filter @memeloop/mobile run typecheck
+          pnpm --filter @memeloop/mobile run lint
+
+      - name: Verify network boundary and pinned bootstrap
+        working-directory: apps/desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          test_files=(
+            src/__tests__/network/appRuntimeGraph.test.ts
+            src/__tests__/network/legacyNetworkSurface.test.ts
+          )
+          for test_file in "${test_files[@]}"; do
+            test -f "$test_file" || {
+              echo "Required boundary test is missing: $test_file" >&2
+              exit 1
+            }
+            ./node_modules/.bin/cross-env ELECTRON_RUN_AS_NODE=1 \
+              ./node_modules/.bin/electron ./node_modules/vitest/vitest.mjs run \
+              "$test_file"
+          done
+
+      - name: Reject local MemeLoop dependency overrides
+        run: |
+          if git grep -n -E '(\.\./){2,}memeloop|@memeloop/protocol|(file|link|workspace):[^[:space:]"]*memeloop' -- \
+            ':(glob)**/package.json' \
+            ':(glob)**/pnpm-lock.yaml' \
+            ':(glob)**/pnpm-workspace.yaml'; then
+            echo "Local or obsolete MemeLoop dependency reference found"
+            exit 1
+          fi

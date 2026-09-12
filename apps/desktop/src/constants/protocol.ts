@@ -1,4 +1,5 @@
 import { isTest } from './environment';
+import { MEMELOOP_PROTOCOL } from './productIdentity';
 
 /**
  * Protocol scheme used for deep linking
@@ -6,4 +7,4 @@ import { isTest } from './environment';
  *
  * Note: This file is for main process only, not for renderer/shared code
  */
-export const TIDGI_PROTOCOL_SCHEME = isTest ? 'tidgi-test' : 'tidgi';
+export const MEMELOOP_PROTOCOL_SCHEME = isTest ? `${MEMELOOP_PROTOCOL}-test` : MEMELOOP_PROTOCOL;

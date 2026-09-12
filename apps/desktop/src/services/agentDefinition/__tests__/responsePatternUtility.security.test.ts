@@ -1,5 +1,10 @@
+import type { ToolCallingMatch } from '@services/agentDefinition/interface';
 import { describe, expect, it } from 'vitest';
 import { matchToolCalling } from '../responsePatternUtility';
+
+function assertFound(result: ToolCallingMatch): asserts result is Extract<ToolCallingMatch, { found: true }> {
+  expect(result.found).toBe(true);
+}
 
 /**
  * Security tests for agent response parsing
@@ -18,7 +23,7 @@ describe('Agent Response Parsing Security', () => {
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       // The dangerous code should not be executed, fallback to string
       expect(result.parameters).toEqual({
         input: expect.stringContaining('require'),
@@ -36,7 +41,7 @@ describe('Agent Response Parsing Security', () => {
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       expect(result.parameters).toEqual({
         input: expect.stringContaining('process.binding'),
       });
@@ -53,7 +58,7 @@ describe('Agent Response Parsing Security', () => {
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       expect(result.parameters).toEqual({
         input: expect.stringContaining('eval'),
       });
@@ -70,7 +75,7 @@ describe('Agent Response Parsing Security', () => {
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       expect(result.parameters).toEqual({
         input: expect.stringContaining('Function'),
       });
@@ -87,7 +92,7 @@ describe('Agent Response Parsing Security', () => {
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       expect(result.parameters).toEqual({
         input: expect.stringContaining('constructor'),
       });
@@ -104,7 +109,7 @@ describe('Agent Response Parsing Security', () => {
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       expect(result.parameters).toEqual({
         input: expect.stringContaining('global'),
       });
@@ -121,7 +126,7 @@ describe('Agent Response Parsing Security', () => {
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       expect(result.parameters).toEqual({
         input: expect.stringContaining('__dirname'),
       });
@@ -141,7 +146,7 @@ describe('Agent Response Parsing Security', () => {
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       // Should be parsed as JSON (safe path)
       if (result.parameters?.data) {
         expect(typeof result.parameters.data).toBe('string');
@@ -158,7 +163,7 @@ ${longNonJson}
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       if (result.parameters?.input && typeof result.parameters.input === 'string') {
         expect(result.parameters.input.length).toBeLessThanOrEqual(1000);
       }
@@ -179,7 +184,7 @@ ${longNonJson}
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       expect(result.parameters).toEqual({
         name: 'test',
         value: 123,
@@ -196,7 +201,7 @@ ${longNonJson}
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       expect(result.parameters?.key).toBe('value');
       expect(result.parameters?.number).toBe(42);
     });
@@ -215,7 +220,7 @@ ${longNonJson}
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       // Should parse safely as JSON
       expect(result.parameters?.query).toBe('normal query');
       expect(result.parameters?.filter).toBe('[tag[test]]');
@@ -235,7 +240,7 @@ ${longNonJson}
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       // Should parse as JSON, making the attack string just data
       expect(result.parameters?.normal).toBe('value');
       expect(result.parameters?.nested).toEqual({
@@ -253,7 +258,7 @@ ${longNonJson}
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       expect(result.parameters).toEqual({});
     });
 
@@ -267,7 +272,7 @@ ${longNonJson}
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       expect(result.parameters).toEqual({});
     });
 
@@ -282,7 +287,7 @@ ${longNonJson}
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       expect(result.parameters?.text).toContain('quotes');
       expect(result.parameters?.text).toContain('escapes');
     });

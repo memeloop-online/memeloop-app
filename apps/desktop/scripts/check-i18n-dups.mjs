@@ -4,6 +4,7 @@
  * JSON.parse silently picks the last value, so we must scan the raw text.
  */
 import { readFileSync } from 'fs';
+import { exit, stderr, stdout } from 'node:process';
 
 const files = [
   'localization/locales/en/agent.json',
@@ -16,8 +17,10 @@ let hasErrors = false;
 
 for (const f of files) {
   const text = readFileSync(f, 'utf8');
+  /** @type {Map<string, number>[]} */
   const stack = [new Map()]; // each entry = Map<key, firstLine>
-  const dups = [];
+  /** @type {string[]} */
+  const duplicates = [];
   let inStr = false;
   let strBuf = '';
   let lineNo = 1;
@@ -40,8 +43,9 @@ for (const f of files) {
         while (j < text.length && /\s/.test(text[j])) j++;
         if (text[j] === ':') {
           const cur = stack.at(-1);
+          if (!cur) throw new Error('Invalid JSON object nesting');
           if (cur.has(key)) {
-            dups.push(`  line ${lineNo}: duplicate key "${key}" (first at line ${cur.get(key)})`);
+            duplicates.push(`  line ${String(lineNo)}: duplicate key "${key}" (first at line ${String(cur.get(key))})`);
           } else {
             cur.set(key, lineNo);
           }
@@ -61,16 +65,18 @@ for (const f of files) {
     }
   }
 
-  if (dups.length) {
-    console.log(`\n${f} — ${dups.length} duplicate(s):`);
-    dups.forEach(d => console.log(d));
+  if (duplicates.length) {
+    stdout.write(`\n${f} — ${String(duplicates.length)} duplicate(s):\n`);
+    duplicates.forEach(duplicate => {
+      stdout.write(`${duplicate}\n`);
+    });
     hasErrors = true;
   } else {
-    console.log(`${f}: OK`);
+    stdout.write(`${f}: OK\n`);
   }
 }
 
 if (hasErrors) {
-  console.error('\nFailed: duplicate keys found in locale files.');
-  process.exit(1);
+  stderr.write('\nFailed: duplicate keys found in locale files.\n');
+  exit(1);
 }

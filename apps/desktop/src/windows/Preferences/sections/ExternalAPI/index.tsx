@@ -11,13 +11,8 @@ export function ExternalAPI(props: ICustomSectionProps): React.JSX.Element {
   const { t } = useTranslation('agent');
   const {
     loading,
-    providers,
-    setProviders,
-    handleModelChange,
-    handleEmbeddingModelChange,
-    handleSpeechModelChange,
-    handleImageGenerationModelChange,
-    handleTranscriptionsModelChange,
+    providerAccounts,
+    setProviderAccounts,
   } = useAIConfigManagement();
 
   return (
@@ -34,13 +29,8 @@ export function ExternalAPI(props: ICustomSectionProps): React.JSX.Element {
                 secondary={t('Preference.ProviderConfigurationDescription')}
               />
               <ProviderConfig
-                providers={providers}
-                setProviders={setProviders}
-                changeDefaultModel={handleModelChange}
-                changeDefaultEmbeddingModel={handleEmbeddingModelChange}
-                changeDefaultSpeechModel={handleSpeechModelChange}
-                changeDefaultImageGenerationModel={handleImageGenerationModelChange}
-                changeDefaultTranscriptionsModel={handleTranscriptionsModelChange}
+                providerAccounts={providerAccounts}
+                setProviderAccounts={setProviderAccounts}
               />
             </ListItemVertical>
           )}

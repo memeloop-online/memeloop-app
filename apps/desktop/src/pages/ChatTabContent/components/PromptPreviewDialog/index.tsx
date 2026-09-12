@@ -1,279 +1,285 @@
-import { useAgentFrameworkConfigManagement } from '@/windows/Preferences/sections/ExternalAPI/useAgentFrameworkConfigManagement';
 import ArticleIcon from '@mui/icons-material/Article';
 import CloseIcon from '@mui/icons-material/Close';
 import EditIcon from '@mui/icons-material/Edit';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import SaveIcon from '@mui/icons-material/Save';
-import ViewSidebarIcon from '@mui/icons-material/ViewSidebar';
-import Box from '@mui/material/Box';
-import Dialog from '@mui/material/Dialog';
-import MuiDialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
-import IconButton from '@mui/material/IconButton';
-import Snackbar from '@mui/material/Snackbar';
-import Tooltip from '@mui/material/Tooltip';
-import React, { useCallback, useEffect, useState } from 'react';
+import { Box, Button, CircularProgress, Dialog, DialogContent, DialogTitle, Divider, IconButton, List, ListItemButton, ListItemText, Tooltip, Typography } from '@mui/material';
+import {
+  type AgentFrameworkConfig,
+  MAX_PROMPT_PREVIEW_AUDIT_DETAIL_CHUNK_BYTES,
+  MAX_PROMPT_PREVIEW_AUDIT_PAGE_BYTES,
+  MAX_PROMPT_PREVIEW_AUDIT_PAGE_ENTRIES,
+  type PromptPreviewAuditEntrySummary,
+  type PromptPreviewAuditPage,
+  type PromptPreviewDialogState,
+} from 'memeloop';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useShallow } from 'zustand/react/shallow';
-import { useAgentChatStore } from '../../../Agent/store/agentChatStore/index';
-import { EditView } from './EditView';
-import { PreviewProgressBar } from './PreviewProgressBar';
-import { PreviewTabsView } from './PreviewTabsView';
+
+import { createDesktopPromptPreviewController, toCoreAgentFrameworkConfig } from '@/pages/ChatTabContent/promptPreviewClient';
+import { useAgentFrameworkConfigManagement } from '@/windows/Preferences/sections/ExternalAPI/useAgentFrameworkConfigManagement';
+import { PromptConfigForm } from './PromptConfigForm';
 
 interface PromptPreviewDialogProps {
   open: boolean;
   onClose: () => void;
+  agentId: string;
+  agentDefId?: string;
   inputText?: string;
   initialBaseMode?: 'preview' | 'edit';
 }
 
+interface AuditDetailState {
+  entry: PromptPreviewAuditEntrySummary;
+  text: string;
+  nextCursor?: string;
+}
+
+/** Bounded UI over a worker-retained exact model request. */
 export const PromptPreviewDialog: React.FC<PromptPreviewDialogProps> = ({
   open,
   onClose,
-  inputText = '',
+  agentId,
+  agentDefId,
+  inputText,
   initialBaseMode = 'preview',
 }) => {
   const { t } = useTranslation('agent');
-  const agent = useAgentChatStore(state => state.agent);
-
+  const controller = useMemo(() => createDesktopPromptPreviewController(), [agentId]);
+  const [controllerState, setControllerState] = useState<PromptPreviewDialogState>(() => controller.getState());
+  const [page, setPage] = useState<PromptPreviewAuditPage>();
+  const [detail, setDetail] = useState<AuditDetailState>();
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [previewFailed, setPreviewFailed] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [baseMode, setBaseMode] = useState<'preview' | 'edit'>(initialBaseMode);
-  const [showSideBySide, setShowSideBySide] = useState(false);
-  const [baseModeBeforeSideBySide, setBaseModeBeforeSideBySide] = useState<'preview' | 'edit'>(initialBaseMode);
-  const [savedSnackbarOpen, setSavedSnackbarOpen] = useState(false);
 
   const {
-    loading: agentFrameworkConfigLoading,
-    config: agentFrameworkConfig,
-  } = useAgentFrameworkConfigManagement({
-    agentDefId: agent?.agentDefId,
-    agentId: agent?.id,
-  });
+    loading: configLoading,
+    config,
+    schema,
+    handleConfigChange,
+  } = useAgentFrameworkConfigManagement({ agentDefId, agentId });
 
-  /** Copy current instance prompt config to the agent definition */
-  const handleSaveToDefinition = useCallback(async () => {
-    if (!agent?.agentDefId || !agentFrameworkConfig) return;
-    try {
-      const agentDefinition = await window.service.agentDefinition.getAgentDef(agent.agentDefId);
-      if (agentDefinition) {
-        await window.service.agentDefinition.updateAgentDef({
-          ...agentDefinition,
-          agentFrameworkConfig,
-        });
-        setSavedSnackbarOpen(true);
-      }
-    } catch (error) {
-      void window.service.native.log('error', 'Failed to save config to definition', { error });
-    }
-  }, [agent?.agentDefId, agentFrameworkConfig]);
-
-  const {
-    getPreviewPromptResult,
-    previewLoading,
-  } = useAgentChatStore(
-    useShallow((state) => ({
-      getPreviewPromptResult: state.getPreviewPromptResult,
-      previewLoading: state.previewLoading,
-    })),
-  );
-  useEffect(() => {
-    const fetchInitialPreview = async () => {
-      if (!agent?.agentDefId || agentFrameworkConfigLoading || !agentFrameworkConfig || !open) {
-        return;
-      }
-      try {
-        await getPreviewPromptResult(inputText, agentFrameworkConfig);
-      } catch (error) {
-        console.error('PromptPreviewDialog: Error fetching initial preview:', error);
-      }
-    };
-    void fetchInitialPreview();
-  }, [agent?.agentDefId, agentFrameworkConfig, agentFrameworkConfigLoading, inputText, open]); // 移除 getPreviewPromptResult
-
-  const handleToggleFullScreen = useCallback((): void => {
-    setIsFullScreen(previous => !previous);
-  }, []);
-
-  const handleToggleEditMode = useCallback((): void => {
-    setShowSideBySide(previous => {
-      if (!previous) {
-        // Entering side-by-side, save current baseMode
-        setBaseModeBeforeSideBySide(baseMode);
-      } else {
-        // Exiting side-by-side, restore previous baseMode
-        setBaseMode(baseModeBeforeSideBySide);
-      }
-      return !previous;
-    });
-  }, [baseMode, baseModeBeforeSideBySide]);
-
-  // Listen for form field scroll targets to automatically switch to side-by-side mode
-  const { formFieldsToScrollTo } = useAgentChatStore(
-    useShallow((state) => ({
-      formFieldsToScrollTo: state.formFieldsToScrollTo,
-    })),
-  );
-  useEffect(() => {
-    if (formFieldsToScrollTo.length > 0) {
-      // Save current baseMode before switching to side-by-side
-      setBaseModeBeforeSideBySide(baseMode);
-      setBaseMode('edit');
-      setShowSideBySide(true); // Show side-by-side when clicking from PromptTree
-    }
-  }, [formFieldsToScrollTo, baseMode]);
+  useEffect(() => controller.subscribe(setControllerState), [controller]);
+  useEffect(() => () => {
+    controller.close();
+  }, [controller]);
 
   useEffect(() => {
     if (open) {
       setBaseMode(initialBaseMode);
-      setShowSideBySide(false);
+      controller.open(initialBaseMode);
+    } else controller.close();
+  }, [controller, initialBaseMode, open]);
+
+  useEffect(() => {
+    if (!open || configLoading || !config) return;
+    let active = true;
+    setPreviewFailed(false);
+    let coreConfig: Parameters<typeof controller.generate>[0];
+    try {
+      coreConfig = toCoreAgentFrameworkConfig(config);
+    } catch (error: unknown) {
+      setPreviewFailed(true);
+      void window.service.native.log('warn', 'Prompt preview configuration is invalid', { agentId, error });
+      return;
     }
-  }, [initialBaseMode, open]);
+    void controller.generate(coreConfig, agentId, inputText).catch((error: unknown) => {
+      if (!active) return;
+      setPreviewFailed(true);
+      void window.service.native.log('warn', 'Prompt preview generation failed', { agentId, error });
+    });
+    return () => {
+      active = false;
+    };
+  }, [agentId, config, configLoading, controller, inputText, open]);
 
-  const showPreview = showSideBySide || baseMode === 'preview';
-  const showEdit = showSideBySide || baseMode === 'edit';
-  const isSideBySide = showSideBySide;
+  useEffect(() => {
+    const initialPage = controllerState.result?.audit.initialPage;
+    if (initialPage) {
+      setPage(initialPage);
+      setDetail(undefined);
+    }
+  }, [controllerState.result]);
 
-  const sideBySideTooltip = isSideBySide
-    ? t('Prompt.ExitSideBySide')
-    : baseMode === 'edit'
-    ? t('Prompt.EnterPreviewSideBySide')
-    : t('Prompt.EnterEditSideBySide');
+  const saveToDefinition = useCallback(async () => {
+    if (!agentDefId || !config) return;
+    const definition = await window.service.agentDefinition.getAgentDef(agentDefId);
+    if (definition) await window.service.agentDefinition.updateAgentDef({ ...definition, agentFrameworkConfig: config });
+  }, [agentDefId, config]);
+
+  const close = useCallback(() => {
+    controller.close();
+    onClose();
+  }, [controller, onClose]);
+
+  const loadPage = useCallback(async (mode: 'before' | 'after') => {
+    const audit = controllerState.result?.audit;
+    const cursor = mode === 'before' ? page?.previousCursor : page?.nextCursor;
+    if (!audit || !cursor || auditLoading) return;
+    setAuditLoading(true);
+    try {
+      setPage(
+        await controller.getAuditPage({
+          sessionId: audit.sessionId,
+          expectedRevision: audit.revision,
+          mode,
+          cursor,
+          limit: MAX_PROMPT_PREVIEW_AUDIT_PAGE_ENTRIES,
+          maxBytes: MAX_PROMPT_PREVIEW_AUDIT_PAGE_BYTES,
+        }),
+      );
+      setDetail(undefined);
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [auditLoading, controller, controllerState.result?.audit, page?.nextCursor, page?.previousCursor]);
+
+  const loadDetail = useCallback(async (entry: PromptPreviewAuditEntrySummary, cursor?: string) => {
+    const audit = controllerState.result?.audit;
+    if (!audit || auditLoading) return;
+    setAuditLoading(true);
+    try {
+      const chunk = await controller.getAuditDetail({
+        sessionId: audit.sessionId,
+        expectedRevision: audit.revision,
+        target: { kind: 'entry', entryId: entry.entryId, entryIndex: entry.entryIndex },
+        ...(cursor === undefined ? {} : { cursor }),
+        maxBytes: MAX_PROMPT_PREVIEW_AUDIT_DETAIL_CHUNK_BYTES,
+      });
+      setDetail({
+        entry,
+        text: new TextDecoder('utf-8', { fatal: true }).decode(chunk.canonicalUtf8),
+        ...(chunk.nextCursor === undefined ? {} : { nextCursor: chunk.nextCursor }),
+      });
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [auditLoading, controller, controllerState.result?.audit]);
 
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      maxWidth={isFullScreen ? false : 'md'}
-      fullWidth
-      fullScreen={isFullScreen}
-      slotProps={{
-        paper: {
-          sx: {
-            ...(isFullScreen && {
-              m: 0,
-              width: '100%',
-              height: '100%',
-              maxHeight: '100%',
-              maxWidth: '100%',
-              borderRadius: 0,
-            }),
-          },
-        },
-      }}
-    >
+    <Dialog open={open} onClose={close} maxWidth={isFullScreen ? false : 'md'} fullWidth fullScreen={isFullScreen}>
       <DialogTitle>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-          <Box>{t('Prompt.Preview')}</Box>
-          <Box sx={{ display: 'flex' }}>
-            {/* Save to definition button — only in edit mode */}
-            {(showEdit || showSideBySide) && agent?.agentDefId && (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box>{baseMode === 'edit' ? t('Prompt.Edit') : t('Prompt.Preview')}</Box>
+          <Box>
+            {baseMode === 'edit' && agentDefId && (
               <Tooltip title={t('Preference.SaveToDefinition')}>
                 <IconButton
                   aria-label='save-to-definition'
                   onClick={() => {
-                    void handleSaveToDefinition();
+                    void saveToDefinition();
                   }}
-                  sx={{ mr: 1 }}
-                  data-testid='save-to-definition-button'
                 >
                   <SaveIcon />
                 </IconButton>
               </Tooltip>
             )}
-            <Tooltip title={sideBySideTooltip}>
-              <IconButton
-                aria-label={sideBySideTooltip}
-                onClick={handleToggleEditMode}
-                sx={{ mr: 1 }}
-                color={isSideBySide ? 'primary' : 'default'}
-              >
-                {isSideBySide ? <ViewSidebarIcon /> : baseMode === 'edit' ? <ArticleIcon /> : <EditIcon />}
-              </IconButton>
-            </Tooltip>
+            <IconButton
+              onClick={() => {
+                setBaseMode(mode => mode === 'preview' ? 'edit' : 'preview');
+              }}
+            >
+              {baseMode === 'preview' ? <EditIcon /> : <ArticleIcon />}
+            </IconButton>
             <IconButton
               aria-label='toggle-fullscreen'
-              onClick={handleToggleFullScreen}
-              sx={{ mr: 1 }}
-              title={isFullScreen ? t('Prompt.ExitFullScreen') : t('Prompt.EnterFullScreen')}
+              onClick={() => {
+                setIsFullScreen(value => !value);
+              }}
             >
               {isFullScreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
             </IconButton>
-            <IconButton
-              aria-label='close'
-              onClick={onClose}
-            >
+            <IconButton aria-label='close' onClick={close}>
               <CloseIcon />
             </IconButton>
           </Box>
         </Box>
       </DialogTitle>
-      <MuiDialogContent
-        sx={{
-          ...(isFullScreen && {
-            padding: 0,
-            overflow: 'hidden',
-            height: 'calc(100vh - 64px)',
-          }),
-        }}
-      >
-        {showPreview && showEdit && (
-          <Box sx={{ display: 'flex', gap: 2, height: isFullScreen ? '100%' : '70vh' }}>
-            <Box
-              sx={{
-                flex: '1',
-                overflow: 'hidden',
-                display: 'flex',
-                flexDirection: 'column',
+      <DialogContent sx={{ minHeight: isFullScreen ? 0 : '65vh', display: 'flex', flexDirection: 'column' }}>
+        {baseMode === 'edit'
+          ? (
+            <PromptConfigForm
+              schema={schema}
+              formData={config}
+              loading={configLoading}
+              onChange={(next: AgentFrameworkConfig) => {
+                void handleConfigChange(next);
               }}
-            >
-              <PreviewProgressBar show={previewLoading} />
-              <PreviewTabsView
-                isFullScreen={isFullScreen}
-              />
-            </Box>
-            <Box
-              sx={{
-                flex: '0 0 50%',
-                overflow: 'hidden',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              <EditView
-                isFullScreen={isFullScreen}
-                inputText={inputText}
-              />
-            </Box>
-          </Box>
-        )}
-
-        {showPreview && !showEdit && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', height: isFullScreen ? '100%' : '70vh' }}>
-            <PreviewProgressBar show={previewLoading} />
-            <PreviewTabsView
-              isFullScreen={isFullScreen}
             />
-          </Box>
-        )}
-
-        {showEdit && !showPreview && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', height: isFullScreen ? '100%' : '70vh' }}>
-            <EditView
-              isFullScreen={isFullScreen}
-              inputText={inputText}
-            />
-          </Box>
-        )}
-      </MuiDialogContent>
-      <Snackbar
-        open={savedSnackbarOpen}
-        autoHideDuration={2000}
-        onClose={() => {
-          setSavedSnackbarOpen(false);
-        }}
-        message={t('Preference.SaveToDefinitionDescription')}
-      />
+          )
+          : previewFailed
+          ? (
+            <Box sx={{ p: 2 }}>
+              <Typography color='error'>{t('Chat.ConfigError.MissingConfigError')}</Typography>
+            </Box>
+          )
+          : controllerState.loading || !page
+          ? (
+            <Box sx={{ flex: 1, display: 'grid', placeItems: 'center' }}>
+              <CircularProgress />
+            </Box>
+          )
+          : (
+            <Box sx={{ minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <Typography variant='caption' color='text.secondary' sx={{ pb: 1 }}>
+                {page.totalEntries} · {controllerState.result?.audit.route.providerId} / {controllerState.result?.audit.route.logicalModelId}
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, pb: 1 }}>
+                <Button
+                  disabled={!page.hasMoreBefore || auditLoading}
+                  onClick={() => {
+                    void loadPage('before');
+                  }}
+                >
+                  {t('Chat.Timeline.LoadEarlier')}
+                </Button>
+                <Button
+                  disabled={!page.hasMoreAfter || auditLoading}
+                  onClick={() => {
+                    void loadPage('after');
+                  }}
+                >
+                  {t('Chat.Timeline.LoadLater')}
+                </Button>
+              </Box>
+              <Box sx={{ minHeight: 0, flex: 1, display: 'grid', gridTemplateColumns: detail ? 'minmax(240px, 40%) 1fr' : '1fr', gap: 2 }}>
+                <List dense sx={{ overflow: 'auto' }}>
+                  {page.items.map(entry => (
+                    <ListItemButton
+                      key={`${entry.entryId}:${entry.entryIndex}`}
+                      onClick={() => {
+                        void loadDetail(entry);
+                      }}
+                    >
+                      <ListItemText primary={`${entry.role} · ${entry.source}`} secondary={entry.preview} />
+                    </ListItemButton>
+                  ))}
+                </List>
+                {detail && (
+                  <Box sx={{ minWidth: 0, overflow: 'auto' }}>
+                    <Divider sx={{ mb: 1 }} />
+                    <Typography component='pre' sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0, fontFamily: 'monospace' }}>
+                      {detail.text}
+                    </Typography>
+                    {detail.nextCursor && (
+                      <Button
+                        disabled={auditLoading}
+                        onClick={() => {
+                          void loadDetail(detail.entry, detail.nextCursor);
+                        }}
+                      >
+                        {t('Chat.Timeline.LoadLater')}
+                      </Button>
+                    )}
+                  </Box>
+                )}
+              </Box>
+            </Box>
+          )}
+      </DialogContent>
     </Dialog>
   );
 };

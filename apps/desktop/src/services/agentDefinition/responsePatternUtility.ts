@@ -32,8 +32,10 @@ function parseToolParameters(parametersText: string): Record<string, unknown> {
   // Try standard JSON parsing first (fastest and most secure)
   try {
     return JSON.parse(trimmedText) as Record<string, unknown>;
-  } catch {
-    // JSON parsing failed, try JSON5
+  } catch (jsonError) {
+    logger.debug('Failed to parse tool parameters as JSON; trying JSON5', {
+      error: jsonError instanceof Error ? jsonError.message : String(jsonError),
+    });
   }
 
   // Try JSON5 parsing (handles relaxed JSON syntax)

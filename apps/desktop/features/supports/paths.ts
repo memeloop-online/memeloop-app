@@ -12,21 +12,20 @@ export function getPackedAppPath(): string {
   switch (platform) {
     case 'win32':
       possiblePaths.push(
-        path.join(outputDirectory, 'TidGi-win32-x64', 'tidgi.exe'),
-        path.join(outputDirectory, 'TidGi-win32-arm64', 'tidgi.exe'),
-        path.join(outputDirectory, 'TidGi-win32-ia32', 'tidgi.exe'),
+        path.join(outputDirectory, 'MemeLoop Desktop-win32-x64', 'memeloop-desktop.exe'),
+        path.join(outputDirectory, 'MemeLoop Desktop-win32-arm64', 'memeloop-desktop.exe'),
       );
       break;
     case 'darwin':
       possiblePaths.push(
-        path.join(outputDirectory, 'TidGi-darwin-x64', 'TidGi.app', 'Contents', 'MacOS', 'TidGi'),
-        path.join(outputDirectory, 'TidGi-darwin-arm64', 'TidGi.app', 'Contents', 'MacOS', 'TidGi'),
+        path.join(outputDirectory, 'MemeLoop Desktop-darwin-x64', 'MemeLoop Desktop.app', 'Contents', 'MacOS', 'memeloop-desktop'),
+        path.join(outputDirectory, 'MemeLoop Desktop-darwin-arm64', 'MemeLoop Desktop.app', 'Contents', 'MacOS', 'memeloop-desktop'),
       );
       break;
     case 'linux':
       possiblePaths.push(
-        path.join(outputDirectory, 'TidGi-linux-x64', 'tidgi'),
-        path.join(outputDirectory, 'TidGi-linux-arm64', 'tidgi'),
+        path.join(outputDirectory, 'MemeLoop Desktop-linux-x64', 'memeloop-desktop'),
+        path.join(outputDirectory, 'MemeLoop Desktop-linux-arm64', 'memeloop-desktop'),
       );
       break;
     default:
@@ -41,7 +40,7 @@ export function getPackedAppPath(): string {
   }
 
   throw new Error(
-    `TidGi executable not found. Checked paths:\n${possiblePaths.join('\n')}\n\nYou should run \`pnpm run test:prepare-e2e\` before running the tests to ensure the app is built.`,
+    `MemeLoop executable not found. Checked paths:\n${possiblePaths.join('\n')}\n\nRun \`pnpm run test:prepare-e2e\` before the E2E suite.`,
   );
 }
 
@@ -96,17 +95,10 @@ export function getSettingsPath(world: ApplicationWorld): string {
 }
 
 /**
- * Get path to wiki-test root folder for a scenario
+ * Get a scenario-owned directory for temporary files.
  */
-export function getWikiTestRootPath(world: ApplicationWorld): string {
-  return getTestArtifactsPath(world, 'wiki-test');
-}
-
-/**
- * Get path to the main wiki folder (wiki-test/wiki) for a scenario
- */
-export function getWikiTestWikiPath(world: ApplicationWorld): string {
-  return getTestArtifactsPath(world, 'wiki-test', 'wiki');
+export function getScenarioFilesPath(world: ApplicationWorld): string {
+  return getTestArtifactsPath(world, 'files');
 }
 
 /**

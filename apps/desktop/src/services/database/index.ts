@@ -5,7 +5,6 @@ import { injectable } from 'inversify';
 import { debounce } from 'lodash';
 import path from 'path';
 import * as rotateFs from 'rotating-file-stream';
-import * as sqliteVec from 'sqlite-vec';
 import { DataSource } from 'typeorm';
 
 import { CACHE_DATABASE_FOLDER } from '@/constants/appPaths';
@@ -14,13 +13,11 @@ import { DEBOUNCE_SAVE_SETTING_BACKUP_FILE, DEBOUNCE_SAVE_SETTING_FILE } from '@
 import { SQLITE_BINARY_PATH } from '@/constants/paths';
 import { logger } from '@services/libs/log';
 import { BaseDataSourceOptions } from 'typeorm/data-source/BaseDataSourceOptions.js';
-import { ensureSettingFolderExist, fixSettingFileWhenError, readTidgiConfig } from './configSetting';
-import type { DatabaseInitOptions, IDatabaseService, ISettingFile } from './interface';
-import { AgentDefinitionEntity, AgentInstanceEntity, AgentInstanceMessageEntity, ScheduledTaskEntity } from './schema/agent';
+import type { IDatabaseService, ISettingFile } from './interface';
+import { AgentDefinitionEntity, AgentInstanceEntity, AgentInstanceMessageEntity, RemoteScheduledTaskProjectionEntity, ScheduledTaskEntity } from './schema/agent';
 import { AgentBrowserTabEntity } from './schema/agentBrowser';
 import { ExternalAPILogEntity } from './schema/externalAPILog';
-import { WikiTiddler } from './schema/wiki';
-import { WikiEmbeddingEntity, WikiEmbeddingStatusEntity } from './schema/wikiEmbedding';
+import { ensureSettingFolderExist, fixSettingFileWhenError } from './settingsInit';
 
 // Schema config interface
 interface SchemaConfig {
@@ -28,6 +25,44 @@ interface SchemaConfig {
   migrations?: BaseDataSourceOptions['migrations'];
   synchronize: boolean;
   migrationsRun: boolean;
+}
+
+type ElectronSettingsValue = Parameters<typeof settings.setSync>[1];
+type ElectronSettingsObject = Record<string, ElectronSettingsValue>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isSettingFile(value: unknown): value is ISettingFile {
+  if (!isRecord(value)) return false;
+  const preferences = value.preferences;
+  return preferences === undefined || (preferences !== null && typeof preferences === 'object' && !Array.isArray(preferences));
+}
+
+function toElectronSettingsValue(value: unknown): ElectronSettingsValue {
+  if (value === null || typeof value === 'boolean' || typeof value === 'string' || typeof value === 'number') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(toElectronSettingsValue);
+  }
+  if (typeof value === 'object') {
+    const object: Record<string, ElectronSettingsValue> = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if (nestedValue !== undefined) object[key] = toElectronSettingsValue(nestedValue);
+    }
+    return object;
+  }
+  throw new TypeError(`Unsupported settings value type: ${typeof value}`);
+}
+
+function toElectronSettingsObject(value: ISettingFile): ElectronSettingsObject {
+  const object: ElectronSettingsObject = {};
+  for (const [key, nestedValue] of Object.entries(value)) {
+    if (nestedValue !== undefined) object[key] = toElectronSettingsValue(nestedValue);
+  }
+  return object;
 }
 
 @injectable()
@@ -52,8 +87,8 @@ export class DatabaseService implements IDatabaseService {
     // Guard against corrupted settings files that contain a non-object root value (e.g. a JSON string).
     // Such files pass JSON.parse without error but cause "Cannot create property 'x' on string" when
     // setSetting() tries to write into them.
-    this.settingFileContent = (rawSettings !== null && typeof rawSettings === 'object' && !Array.isArray(rawSettings))
-      ? rawSettings as unknown as ISettingFile
+    this.settingFileContent = isSettingFile(rawSettings)
+      ? rawSettings
       : {} as ISettingFile;
     // Initialize settings backup stream
     try {
@@ -76,16 +111,6 @@ export class DatabaseService implements IDatabaseService {
       synchronize: false,
       migrationsRun: true,
     });
-    this.registerSchema('wiki', {
-      entities: [WikiTiddler], // Wiki related entities
-      synchronize: true,
-      migrationsRun: false,
-    });
-    this.registerSchema('wikiEmbedding', {
-      entities: [WikiEmbeddingEntity, WikiEmbeddingStatusEntity],
-      synchronize: true,
-      migrationsRun: false,
-    });
     this.registerSchema('agent', {
       entities: [
         AgentDefinitionEntity,
@@ -93,6 +118,7 @@ export class DatabaseService implements IDatabaseService {
         AgentInstanceMessageEntity,
         AgentBrowserTabEntity,
         ScheduledTaskEntity,
+        RemoteScheduledTaskProjectionEntity,
       ],
       synchronize: true,
       migrationsRun: false,
@@ -107,7 +133,7 @@ export class DatabaseService implements IDatabaseService {
   /**
    * Register schema config for a specific key prefix
    */
-  public registerSchema(keyPrefix: string, config: SchemaConfig): void {
+  private registerSchema(keyPrefix: string, config: SchemaConfig): void {
     this.schemaRegistry.set(keyPrefix, config);
     logger.debug(`Schema registered for prefix: ${keyPrefix}`);
   }
@@ -126,11 +152,11 @@ export class DatabaseService implements IDatabaseService {
   /**
    * Initialize database for a given key
    */
-  public async initializeDatabase(key: string, options: DatabaseInitOptions = {}): Promise<void> {
+  public async initializeDatabase(key: string): Promise<void> {
     const databasePath = this.getDatabasePathSync(key);
 
     // Skip if database already exists (except in test environment where we always use fresh in-memory DB)
-    if (!isTest && await fs.exists(databasePath)) {
+    if (!isTest && (await fs.exists(databasePath))) {
       logger.debug(`Database already exists for key: ${key} at ${databasePath}`);
       return;
     }
@@ -162,19 +188,6 @@ export class DatabaseService implements IDatabaseService {
 
       await dataSource.initialize();
 
-      // Load sqlite-vec extension for embedding databases if enabled
-      if (options.enableVectorSearch) {
-        try {
-          logger.info(`Attempting to load sqlite-vec extension for database key: ${key}`);
-          await this.loadSqliteVecExtension(dataSource);
-        } catch (error) {
-          logger.warn(`sqlite-vec extension failed to load during initialization for key: ${key}, continuing without vector search functionality`, {
-            error,
-          });
-          // Don't throw - allow the database to work without vector functionality
-        }
-      }
-
       if (schemaConfig.migrationsRun) {
         await dataSource.runMigrations();
       }
@@ -190,7 +203,7 @@ export class DatabaseService implements IDatabaseService {
   /**
    * Get database connection for a given key
    */
-  public async getDatabase(key: string, options: DatabaseInitOptions = {}, isRetry = false): Promise<DataSource> {
+  public async getDatabase(key: string): Promise<DataSource> {
     if (!this.dataSources.has(key)) {
       try {
         const schemaConfig = this.getSchemaConfigForKey(key);
@@ -215,41 +228,14 @@ export class DatabaseService implements IDatabaseService {
 
         await dataSource.initialize();
 
-        // Load sqlite-vec extension if vector search is enabled
-        if (options.enableVectorSearch) {
-          try {
-            await this.loadSqliteVecExtension(dataSource);
-          } catch (error) {
-            logger.warn(`sqlite-vec extension failed to load for key: ${key}, continuing without vector search functionality`, {
-              error,
-            });
-          }
-        }
-
         this.dataSources.set(key, dataSource);
         logger.debug(`Database connection established for key: ${key}`);
 
         return dataSource;
       } catch (error) {
         logger.error(`Failed to get database for key: ${key}`, { error });
-
-        if (!isRetry) {
-          try {
-            // Try to fix database lock issue
-            await this.fixDatabaseLock(key);
-            return await this.getDatabase(key, {}, true);
-          } catch (retryError) {
-            logger.error(`Failed to retry getting database for key: ${key}`, { error: retryError });
-          }
-        }
-
-        try {
-          await this.dataSources.get(key)?.destroy();
-          this.dataSources.delete(key);
-        } catch (closeError) {
-          logger.error(`Failed to close database in error handler for key: ${key}`, { error: closeError });
-        }
-
+        // TypeORM.initialize() destroys the connection when schema setup fails.
+        // Preserve the original error so the host can run its recovery flow.
         throw error;
       }
     }
@@ -300,18 +286,19 @@ export class DatabaseService implements IDatabaseService {
       }
 
       const databasePath = this.getDatabasePathSync(key);
-      if (databasePath !== ':memory:' && await fs.pathExists(databasePath)) {
-        await fs.unlink(databasePath);
-        logger.info(`Database file deleted for key: ${key}`);
+      if (databasePath !== ':memory:') {
+        const databaseFiles = [databasePath, `${databasePath}-wal`, `${databasePath}-shm`];
+        for (const databaseFile of databaseFiles) {
+          if (await fs.pathExists(databaseFile)) {
+            await fs.unlink(databaseFile);
+            logger.info(`Database file deleted for key: ${key} at ${databaseFile}`);
+          }
+        }
       }
     } catch (error) {
       logger.error(`deleteDatabase failed for key: ${key}`, { error });
       throw error;
     }
-  }
-
-  public async readWikiConfig(wikiFolderLocation: string) {
-    return readTidgiConfig(wikiFolderLocation);
   }
 
   /**
@@ -400,12 +387,6 @@ export class DatabaseService implements IDatabaseService {
       return this.schemaRegistry.get(key)!;
     }
 
-    // Special handling for wiki databases: extract prefix, e.g. "wiki-123" => "wiki"
-    const prefix = key.split('-')[0];
-    if (prefix === 'wiki' && this.schemaRegistry.has(prefix)) {
-      return this.schemaRegistry.get(prefix)!;
-    }
-
     // If no schema config found, return default config
     logger.warn(`No schema config found for key: ${key}, using default config`);
     return {
@@ -413,25 +394,6 @@ export class DatabaseService implements IDatabaseService {
       synchronize: false,
       migrationsRun: false,
     };
-  }
-
-  /**
-   * Fix database lock issue
-   */
-  private async fixDatabaseLock(key: string): Promise<void> {
-    const databasePath = this.getDatabasePathSync(key);
-    const temporaryPath = `${databasePath}.temp`;
-
-    try {
-      await fs.copy(databasePath, temporaryPath);
-      await fs.unlink(databasePath);
-      await fs.copy(temporaryPath, databasePath);
-      await fs.unlink(temporaryPath);
-      logger.info(`Fixed database lock for key: ${key}`);
-    } catch (error) {
-      logger.error(`Failed to fix database lock for key: ${key}`, { error });
-      throw error;
-    }
   }
 
   // Settings related methods
@@ -445,41 +407,6 @@ export class DatabaseService implements IDatabaseService {
     void this.debouncedStoreSettingsToFile();
     // Make infrequent backup of setting file, preventing re-install/upgrade from corrupting the file.
     this.debouncedStoreSettingsToBackupFile();
-  }
-
-  /**
-   * Load sqlite-vec extension for vector operations
-   */
-  private async loadSqliteVecExtension(dataSource: DataSource): Promise<void> {
-    try {
-      // Get the underlying better-sqlite3 database instance
-      const driver = dataSource.driver as { databaseConnection?: Database };
-      const database = driver.databaseConnection;
-
-      if (!database) {
-        throw new Error('Could not get underlying SQLite database connection');
-      }
-
-      // Load sqlite-vec extension
-      logger.debug('Loading sqlite-vec extension...');
-      sqliteVec.load(database);
-
-      // Test that sqlite-vec is working
-      const result: unknown = await dataSource.query('SELECT vec_version() as version');
-      const version = Array.isArray(result) && result.length > 0 && result[0] && typeof result[0] === 'object' && 'version' in result[0]
-        ? String((result[0] as { version: unknown }).version)
-        : 'unknown';
-      logger.info(`sqlite-vec loaded successfully, version: ${version}`);
-
-      // The vec0 virtual tables will be created dynamically by WikiEmbeddingService
-      // based on the dimensions needed
-    } catch (error) {
-      logger.error('Failed to load sqlite-vec extension:', {
-        error,
-        sqliteVecAvailable: typeof sqliteVec !== 'undefined',
-      });
-      throw new Error(`sqlite-vec extension failed to load: ${(error as Error).message}`);
-    }
   }
 
   public setSettingImmediately<K extends keyof ISettingFile>(key: K, value: ISettingFile[K]) {
@@ -513,7 +440,6 @@ export class DatabaseService implements IDatabaseService {
   }
 
   public async immediatelyStoreSettingsToFile() {
-    /* eslint-disable @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any */
     if (!this.settingFileContent) {
       logger.error('immediatelyStoreSettingsToFile called before initializeForApp()');
       return;
@@ -521,11 +447,11 @@ export class DatabaseService implements IDatabaseService {
     try {
       if (this.storeSettingsToFileLock) return;
       this.storeSettingsToFileLock = true;
-      await settings.set(this.settingFileContent as any);
+      await settings.set(toElectronSettingsObject(this.settingFileContent));
     } catch (error) {
       logger.error('Setting file format bad in debouncedSetSettingFile, will try force writing', { error, settingFileContent: JSON.stringify(this.settingFileContent) });
       ensureSettingFolderExist();
-      fixSettingFileWhenError(error as Error);
+      fixSettingFileWhenError(error instanceof Error ? error : new Error(String(error)));
       fs.writeJSONSync(settings.file(), this.settingFileContent);
     } finally {
       this.storeSettingsToFileLock = false;

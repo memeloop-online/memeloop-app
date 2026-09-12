@@ -4,7 +4,7 @@ import type { ForgeConfig } from '@electron-forge/shared-types';
 import { readJsonSync } from 'fs-extra';
 import path from 'path';
 import afterPack from './scripts/afterPack';
-import beforeAsar from './scripts/beforeAsar';
+import { MEMELOOP_EXECUTABLE_NAME, MEMELOOP_PACKAGE_ID, MEMELOOP_PRODUCT_NAME, MEMELOOP_PROTOCOL } from './src/constants/productIdentity';
 
 const packageJson = readJsonSync(path.join(__dirname, 'package.json')) as { description: string };
 const supportedLanguages = readJsonSync(path.join(__dirname, 'localization', 'supportedLanguages.json')) as Record<string, string>;
@@ -15,30 +15,52 @@ const supportedLanguageCodes = Object.keys(supportedLanguages);
 
 const config: ForgeConfig = {
   rebuildConfig: {
-    // Prevent @electron/rebuild from traversing symlinks into sibling projects (e.g. memeloop-cloud)
-    // that share the same pnpm store. Only rebuild the native modules actually used by TidGi.
+    // Prevent @electron/rebuild from traversing symlinks into sibling projects
+    // that share the same pnpm store. Only rebuild App runtime native modules.
     projectRootPath: __dirname,
-    onlyModules: ['better-sqlite3', 'bufferutil', 'nsfw', 'registry-js', 'utf-8-validate'],
+    onlyModules: ['bufferutil', 'utf-8-validate'],
   },
   packagerConfig: {
-    name: 'TidGi',
-    executableName: 'tidgi',
+    // Offline/restricted builders may point at a directory containing the
+    // exact `electron-v<version>-<platform>-<arch>.zip` artifact.
+    ...(process.env.MEMELOOP_ELECTRON_ZIP_DIR
+      ? { electronZipDir: path.resolve(process.env.MEMELOOP_ELECTRON_ZIP_DIR) }
+      : {}),
+    // Keep staging on the same filesystem as `out`; same-device finalization
+    // is an atomic rename and avoids partially-copied application bundles.
+    tmpdir: path.resolve(__dirname, '..', '..', '.electron-packager'),
+    name: MEMELOOP_PRODUCT_NAME,
+    // Electron Packager derives macOS CFBundleDisplayName from executableName.
+    // Keep the CLI-friendly executable on Windows/Linux, but use the product
+    // name for the native macOS app identity and Dock/menu presentation.
+    executableName: process.platform === 'darwin' ? MEMELOOP_PRODUCT_NAME : MEMELOOP_EXECUTABLE_NAME,
     win32metadata: {
-      CompanyName: 'TiddlyWiki Community',
-      OriginalFilename: 'TidGi Desktop',
+      CompanyName: 'MemeLoop',
+      FileDescription: MEMELOOP_PRODUCT_NAME,
+      InternalName: MEMELOOP_EXECUTABLE_NAME,
+      OriginalFilename: `${MEMELOOP_EXECUTABLE_NAME}.exe`,
+      ProductName: MEMELOOP_PRODUCT_NAME,
     },
     protocols: [
       {
-        name: 'TidGi Launch Protocol',
-        schemes: ['tidgi'],
+        name: 'MemeLoop Desktop Launch Protocol',
+        schemes: [MEMELOOP_PROTOCOL],
       },
     ],
     icon: 'build-resources/icon.ico',
     asar: {
-      // Unpack worker files, native modules path, and ALL .node binaries (including better-sqlite3)
-      unpack: '{**/.webpack/main/*.worker.*,**/.webpack/main/native_modules/path.txt,**/{.**,**}/**/*.node}',
+      // Unpack worker files, utility process files, native modules path, and ALL .node binaries (including better-sqlite3)
+      // UtilityProcess files must be unpacked because utilityProcess.fork() reads from the
+      // real filesystem, unlike Worker which can read from inside an asar.
+      // Vite emits UtilityProcess entries plus their shared chunks under
+      // `.vite/build`. Unpack the complete directory: unpacking only the
+      // entry file leaves its relative imports trapped inside app.asar.
+      // `unpackDir` marks this directory and every descendant unpacked. It is
+      // more reliable than `unpack` for Vite's direct build chunks, whose
+      // parent directory is what @electron/asar pattern-matches.
+      unpackDir: '.vite/build',
     },
-    extraResource: ['localization', 'template/wiki', 'build-resources/tidgiMiniWindow@2x.png', 'build-resources/tidgiMiniWindowTemplate@2x.png'],
+    extraResource: ['localization'],
     // @ts-expect-error - mac config is valid
     mac: {
       category: 'productivity',
@@ -46,9 +68,10 @@ const config: ForgeConfig = {
       icon: 'build-resources/icon.icns',
       electronLanguages: supportedLanguageCodes,
     },
-    appBundleId: 'com.tidgi',
-    afterPrune: [afterPack],
-    beforeAsar: [beforeAsar],
+    appBundleId: MEMELOOP_PACKAGE_ID,
+  },
+  hooks: {
+    packageAfterPrune: afterPack,
   },
   makers: [
     {
@@ -56,10 +79,12 @@ const config: ForgeConfig = {
       platforms: ['win32'],
       config: (arch: string) => {
         return {
-          setupExe: `Install-TidGi-Windows-${arch}.exe`,
+          name: MEMELOOP_EXECUTABLE_NAME,
+          exe: `${MEMELOOP_EXECUTABLE_NAME}.exe`,
+          setupExe: `Install-MemeLoop-Desktop-Windows-${arch}.exe`,
           setupIcon: 'build-resources/icon-installer.ico',
           description,
-          iconUrl: 'https://raw.githubusercontent.com/tiddly-gittly/TidGi-Desktop/master/build-resources/icon%405x.png',
+          iconUrl: 'https://raw.githubusercontent.com/memeloop-online/memeloop-app/master/apps/desktop/build-resources/icon%405x.png',
         };
       },
     },
@@ -68,9 +93,14 @@ const config: ForgeConfig = {
       platforms: ['win32'],
       config: {
         packageAssets: 'build-resources/icon.ico',
+        packageName: 'MemeLoop-Desktop.msix',
         sign: false,
         manifestVariables: {
-          publisher: 'CN=TiddlyWiki Community',
+          packageIdentity: MEMELOOP_PACKAGE_ID,
+          packageDisplayName: MEMELOOP_PRODUCT_NAME,
+          appExecutable: `${MEMELOOP_EXECUTABLE_NAME}.exe`,
+          appDisplayName: MEMELOOP_PRODUCT_NAME,
+          publisher: 'CN=MemeLoop',
         },
       },
     },
@@ -85,7 +115,7 @@ const config: ForgeConfig = {
       config: {
         options: {
           maintainer: 'Lin Onetwo <linonetwo012@gmail.com>',
-          mimeType: ['x-scheme-handler/tidgi'],
+          mimeType: [`x-scheme-handler/${MEMELOOP_PROTOCOL}`],
         },
       },
     },
@@ -95,7 +125,7 @@ const config: ForgeConfig = {
       config: {
         options: {
           maintainer: 'Lin Onetwo <linonetwo012@gmail.com>',
-          mimeType: ['x-scheme-handler/tidgi'],
+          mimeType: [`x-scheme-handler/${MEMELOOP_PROTOCOL}`],
         },
       },
     },

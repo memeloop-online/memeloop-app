@@ -13,6 +13,14 @@ import { ArrayItemProvider, useArrayItemContext } from '../context/ArrayItemCont
 import { ExtendedFormContext } from '../index';
 import { useArrayFieldStore } from '../store/arrayFieldStore';
 
+function isRecord(value: unknown): value is Record<string | number, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
 /**
  * Custom animateLayoutChanges that always animates when wasDragging is true.
  * This ensures smooth transitions after drag ends when items are reordered.
@@ -80,15 +88,14 @@ export function ArrayFieldItemTemplate<T = unknown, S extends RJSFSchema = RJSFS
 
   // 获取当前项的数据来显示 caption
   const itemCaption = useMemo(() => {
-    if (itemData && typeof itemData === 'object') {
-      const data = itemData as Record<string, unknown>;
-      const caption = data.caption || data.title || '';
+    if (isRecord(itemData)) {
+      const caption = itemData.caption || itemData.title || '';
       return typeof caption === 'string' ? caption : '';
     }
     return '';
   }, [itemData]);
 
-  const itemEnabled = useMemo(() => (itemData as Record<string, unknown> | undefined)?.enabled !== false, [itemData]);
+  const itemEnabled = useMemo(() => !isRecord(itemData) || itemData.enabled !== false, [itemData]);
 
   const handleToggleEnabled = useCallback(() => {
     const pathSegments: Array<string | number> | null = Array.isArray(arrayItemContext.arrayFieldPathSegments)
@@ -99,24 +106,24 @@ export function ArrayFieldItemTemplate<T = unknown, S extends RJSFSchema = RJSFS
     }
 
     const newRootData = structuredClone(formContext.rootFormData);
-    let parent: Record<string | number, unknown> | undefined = newRootData as Record<string | number, unknown>;
+    let parent: unknown = newRootData;
     for (let pathIndex = 0; pathIndex < pathSegments.length - 1; pathIndex += 1) {
-      parent = parent?.[pathSegments[pathIndex]] as Record<string | number, unknown> | undefined;
-      if (!parent) return;
+      if (!isRecord(parent)) return;
+      parent = parent[pathSegments[pathIndex]];
     }
+    if (!isRecord(parent)) return;
 
     const arrayKey = pathSegments[pathSegments.length - 1];
-    const targetArray = Array.isArray(parent?.[arrayKey]) ? [...(parent?.[arrayKey] as unknown[])] : undefined;
-    if (!targetArray || targetArray[index] === undefined) {
-      return;
-    }
+    const arrayValue = parent[arrayKey];
+    if (!isArray(arrayValue) || arrayValue[index] === undefined) return;
+    const targetArray = [...arrayValue];
 
-    const currentItem = { ...(targetArray[index] as Record<string, unknown> ?? {}) };
+    const currentItem = isRecord(targetArray[index]) ? { ...targetArray[index] } : {};
     currentItem.enabled = !itemEnabled;
     targetArray[index] = currentItem;
     parent[arrayKey] = targetArray;
 
-    formContext.onFormDataChange(newRootData as never);
+    formContext.onFormDataChange(newRootData);
   }, [arrayItemContext.arrayFieldPathSegments, formContext, index, itemEnabled]);
 
   // Get the ArrayFieldItemButtonsTemplate to render buttons

@@ -1,7 +1,7 @@
 import i18next from 'i18next';
 import { nanoid } from 'nanoid';
 import { StateCreator } from 'zustand';
-import { IChatTab, ICreateNewAgentTab, IEditAgentDefinitionTab, INewTab, ISplitViewTab, IWebTab, IWikiEmbedTab, TabItem, TabState, TabType } from '../../../types/tab';
+import { IChatTab, ICreateNewAgentTab, IEditAgentDefinitionTab, INewTab, ISplitViewTab, IWebTab, TabItem, TabState, TabType } from '../../../types/tab';
 import { TabsState } from '../types';
 
 /**
@@ -71,7 +71,7 @@ export const createBasicActions = (): Pick<
         currentStep: (dataWithoutPosition as Partial<ICreateNewAgentTab>).currentStep || 0,
         templateAgentDefId: (dataWithoutPosition as Partial<ICreateNewAgentTab>).templateAgentDefId,
         agentDefId: (dataWithoutPosition as Partial<ICreateNewAgentTab>).agentDefId,
-      } as ICreateNewAgentTab;
+      };
     } else if (tabType === TabType.EDIT_AGENT_DEFINITION) {
       newTab = {
         ...tabBase,
@@ -79,14 +79,14 @@ export const createBasicActions = (): Pick<
         title: dataWithoutPosition.title || i18next.t('Tab.Title.EditAgentDefinition'),
         agentDefId: (dataWithoutPosition as Partial<IEditAgentDefinitionTab>).agentDefId!,
         currentStep: (dataWithoutPosition as Partial<IEditAgentDefinitionTab>).currentStep || 0,
-      } as IEditAgentDefinitionTab;
+      };
     } else if (tabType === TabType.WEB) {
       newTab = {
         ...tabBase,
         type: TabType.WEB,
         title: dataWithoutPosition.title || i18next.t('Tab.Title.NewWeb'),
         url: (dataWithoutPosition as Partial<IWebTab>).url || 'about:blank',
-      } as IWebTab;
+      };
     } else if (tabType === TabType.SPLIT_VIEW) {
       // Properly handle SPLIT_VIEW type
       const splitViewData = dataWithoutPosition as Partial<ISplitViewTab>;
@@ -96,16 +96,7 @@ export const createBasicActions = (): Pick<
         title: dataWithoutPosition.title || i18next.t('Tab.Title.SplitView'),
         childTabs: splitViewData.childTabs ? [...splitViewData.childTabs] : [],
         splitRatio: splitViewData.splitRatio ?? 50,
-      } as ISplitViewTab;
-    } else if (tabType === TabType.WIKI_EMBED) {
-      // Handle WIKI_EMBED type for embedding wiki BrowserView in split view
-      const wikiEmbedData = dataWithoutPosition as Partial<IWikiEmbedTab>;
-      newTab = {
-        ...tabBase,
-        type: TabType.WIKI_EMBED,
-        title: dataWithoutPosition.title || i18next.t('Tab.Title.WikiEmbed'),
-        workspaceId: wikiEmbedData.workspaceId || '',
-      } as IWikiEmbedTab;
+      };
     } else {
       newTab = {
         ...tabBase,
@@ -114,7 +105,7 @@ export const createBasicActions = (): Pick<
         favorites: (dataWithoutPosition as Partial<INewTab>).favorites
           ? [...(dataWithoutPosition as Partial<INewTab>).favorites!]
           : [],
-      } as INewTab;
+      };
     }
 
     return newTab;
@@ -293,7 +284,7 @@ export const basicActionsMiddleware: StateCreator<
         // and hide the chat input.
         const createdTabId = createdTab?.id;
         const nextTabs = (createdTabId && !tabs.some(t => t.id === createdTabId))
-          ? [...tabs, createdTab as TabItem]
+          ? [...tabs, createdTab]
           : tabs;
         // Prefer the created tab id (the new tab is created with ACTIVE state).
         // In some timing/race cases getActiveTabId() can temporarily return null,

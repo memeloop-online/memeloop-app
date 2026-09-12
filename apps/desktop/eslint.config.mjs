@@ -23,6 +23,18 @@ export default [
     },
   },
   {
+    files: ['**/*.{js,jsx,ts,tsx}'],
+    rules: {
+      // Vite resolves these query imports and returns worker factories. ESLint's
+      // filesystem resolver must not treat the query string as part of the path;
+      // scripts/verifyViteQueryImports.mjs separately verifies every backing file.
+      'import-x/no-unresolved': [
+        'error',
+        { caseSensitive: true, ignore: ['\\$:/', '\\?(?:nodeWorker|utilityProcess)$'] },
+      ],
+    },
+  },
+  {
     files: ['**/*.test.ts', '**/*.test.tsx', '**/*.spec.ts', '**/*.spec.tsx', '*.env.d.ts'],
     rules: {
       '@typescript-eslint/unbound-method': 'off',

@@ -30,6 +30,13 @@
     "ThinkingProcess": "Размышляю",
     "Untitled": "без названия"
   },
+  "AgentSwitcher": { "Search": "Найти агента..." },
+  "AgentRecovery": {
+    "Loading": "Подготовка ИИ-агента…",
+    "Title": "ИИ-агент недоступен",
+    "Description": "Не удалось открыть базу данных ИИ-агента, поэтому создание и запуск агентов отключены. Откройте настройки ИИ-агента, проверьте базу и при необходимости явно удалите её, затем перезапустите MemeLoop. База данных не будет удалена автоматически.",
+    "OpenSettings": "Открыть настройки ИИ-агента"
+  },
   "Browser": {
     "Back": "назад",
     "Bookmark": "коллекционировать",
@@ -55,12 +62,70 @@
       "ProviderNotFound": "Провайдер {{provider}} не найден. Пожалуйста, настройте его в настройках.",
       "Title": "Проблема с конфигурацией"
     },
+    "RunError": {
+      "ContextCompactionPending": "MemeLoop сжимает этот диалог, чтобы агент мог продолжить работу с сохранённым контекстом. История не потеряется; немного подождите и повторите попытку.",
+      "ContextCompactionPendingTitle": "Подготовка длинного диалога",
+      "UserMessageTooLarge": "Размер сообщения — {{requested}} байт, что превышает лимит {{limit}} байт. Сократите его, разделите на несколько сообщений или отправьте содержимое как вложение.",
+      "UserMessageTooLargeTitle": "Сообщение слишком большое"
+    },
     "FileValidation": {
       "NotAnImage": "Выбранный файл не является изображением ({{fileType}}). Пожалуйста, выберите файл изображения.",
       "TooLarge": "Размер файла {{size}}МБ превышает лимит ({{maxSize}}МБ). Пожалуйста, выберите файл меньшего размера."
     },
     "InputPlaceholder": "Введите сообщение, Ctrl+Enter для отправки",
-    "Send": "Отправить"
+    "Message": {
+      "AttachmentAlt": "Вложение",
+      "AttachmentLoadFailed": "Не удалось загрузить предварительный просмотр вложения.",
+      "NoDetails": "Нет доступных сведений.",
+      "LoadDetails": "Загрузить сведения",
+      "ReloadDetails": "Повторно загрузить сведения",
+      "HideDetails": "Скрыть сведения",
+      "ShowDetails": "Показать сведения",
+      "DetailTruncated": "Показан только ограниченный фрагмент сведений. Экспортируйте диалог, чтобы получить полное содержимое.",
+      "DetailLoadFailed": "Не удалось загрузить сведения.",
+      "ExportFullMessage": "Экспортировать сообщение целиком",
+      "Reasoning": "Рассуждение",
+      "Thinking": "Размышляю…",
+      "ShowReasoning": "Показать рассуждение",
+      "HideReasoning": "Скрыть рассуждение",
+      "LoadMoreReasoning": "Загрузить больше рассуждений",
+      "ReasoningLoadFailed": "Не удалось загрузить рассуждение.",
+      "Error": "Ошибка",
+      "ToolResult": "Результат инструмента",
+      "ToolCall": "Вызов инструмента: {{toolName}}",
+      "Truncated": "Сообщение сокращено для отображения ({{count}} символов).",
+      "TruncatedDetail": "Сообщение сокращено для отображения ({{count}} символов). Откройте сведения, чтобы увидеть полное содержимое.",
+      "TruncatedExport": "Сообщение сокращено для отображения ({{count}} символов). Экспортируйте его, чтобы получить полное содержимое.",
+      "AskQuestion": {
+        "AnswerPlaceholder": "Ваш ответ…",
+        "Submit": "Отправить",
+        "ConfirmSelection": "Подтвердить выбор",
+        "Answered": "Отвечено"
+      }
+    },
+    "Send": "Отправить",
+    "Actions": { "Retry": "Повторить", "DeleteTurn": "Удалить ход", "Copy": "Копировать", "CopyAll": "Копировать всё", "User": "Пользователь", "Agent": "Агент" },
+    "Timeline": {
+      "Navigation": "Хронология разговора",
+      "Turn": "Ход {{index}} из {{total}}",
+      "MoreResponses": "Ещё ответов: {{count}}",
+      "Compacted": "Сжато предыдущих сообщений: {{count}}",
+      "LoadEarlier": "Загрузить предыдущие сообщения",
+      "LoadLater": "Загрузить следующие сообщения",
+      "Seek": "Перейти по хронологии разговора",
+      "Close": "Закрыть",
+      "NewMessages": "Новых сообщений: {{count}}"
+    },
+    "ExecutionTarget": {
+      "NoActiveAgent": "Нет доступного активного агента.",
+      "Platform": { "cli": "Командная строка", "desktop": "Компьютер", "mobile": "Мобильное устройство" },
+      "Reachability": { "connecting": "подключение", "nearby": "рядом", "offline": "не в сети", "online": "в сети" },
+      "RemoteDeviceDescription": "{{platform}} · {{reachability}}",
+      "RemoteAttachmentsUnsupported": "Вложения пока не поддерживаются при удалённом выполнении. Переключитесь на это устройство или отправьте только текст.",
+      "RunOnThisDesktop": "Запустить на этом компьютере",
+      "RunOnThisDesktopWithPeerId": "Запустить на этом компьютере ({{peerId}})",
+      "ThisDevice": "Это устройство"
+    }
   },
   "Common": {
     "None": "не выбрано"
@@ -108,6 +173,52 @@
     "Loading": "Загрузка Wiki..."
   },
   "EditAgent": {
+    "SchedulePersistentTitle": "Расписания выполняются в постоянных диалогах",
+    "SchedulePersistentDescription": "Предпросмотр в этом редакторе временный и удаляется автоматически. Создайте настоящий диалог, затем настройте расписание в параметрах ИИ-агента.",
+    "ScheduleCreateConversation": "Создать диалог",
+    "ScheduleCreatingConversation": "Создание…",
+    "ActiveHoursEnd": "Конец активного времени (необязательно)",
+    "ActiveHoursStart": "Начало активного времени (необязательно)",
+    "Hours": "Часы",
+    "Minutes": "Минуты",
+    "ScheduleCron": "Расширенное выражение Cron",
+    "ScheduleCronExpr": "Выражение Cron",
+    "ScheduleCronHelp": "Cron из 5 полей: минута час день месяц день-недели",
+    "ScheduleCronPreview": "Следующие запуски:",
+    "ScheduleExecutionTarget": "Устройство выполнения",
+    "ScheduleExecutionTargetUnavailable": "Выбранное устройство недоступно. Перед изменением расписания выберите доступное устройство.",
+    "ScheduleIdentityLoading": "Загрузка защищённого идентификатора этого устройства…",
+    "ScheduleIdentityError": "Защищённый идентификатор этого устройства недоступен. Планирование отключено, пока сеть устройств не будет готова.",
+    "ScheduleDefaultTaskName": "Расписание: {{agentName}}",
+    "ScheduleInvalidCron": "Введите корректное расписание Cron.",
+    "ScheduleInvalidTimezone": "Выберите поддерживаемый часовой пояс.",
+    "ScheduleNoPreview": "Будущие запуски не найдены.",
+    "SchedulePreviewLoading": "Проверка расписания...",
+    "ScheduleDaily": "Ежедневно (в заданное время)",
+    "ScheduleDailyTime": "Время пробуждения",
+    "ScheduledWakeup": "Запланированное пробуждение",
+    "ScheduledWakeupDescription": "Настройте повторяющееся расписание для автоматического пробуждения агента и отправки напоминания.",
+    "ScheduleInterval": "Интервал (каждые N секунд/минут/часов)",
+    "ScheduleIntervalUnit": "Единица",
+    "ScheduleIntervalValue": "Каждые",
+    "ScheduleMessage": "Сообщение пробуждения",
+    "ScheduleMessagePlaceholder": "[Расписание] Периодическая проверка. Проверьте задачи и выполните ожидающие действия.",
+    "ScheduleMode": "Режим",
+    "ScheduleNone": "Нет (без запланированного пробуждения)",
+    "ScheduleSave": "Сохранить расписание",
+    "ScheduleSaveWait": "Загрузка агента предпросмотра...",
+    "ScheduleSaving": "Сохранение...",
+    "ScheduleTaskSelection": "Запланированная задача",
+    "ScheduleNewTask": "Новая запланированная задача",
+    "ScheduleOperationFailed": "Не удалось выполнить операцию с запланированной задачей.",
+    "ScheduleSourceIncomplete": "Некоторые устройства не предоставили полное актуальное расписание. Изменения отключены, пока не будут доступны все источники.",
+    "ScheduleSourceOnline": "{{executionTarget}} в сети.",
+    "ScheduleSourceOffline": "{{executionTarget}} не в сети.",
+    "ScheduleSourceDegraded": "{{executionTarget}} работает с ограничениями.",
+    "ScheduleSourceCached": "{{executionTarget}} показывает кэшированные данные расписания.",
+    "ScheduleTimezone": "Часовой пояс",
+    "ScheduleUpdate": "Обновить расписание",
+    "Seconds": "Секунды",
     "AgentDescription": "описание агента",
     "AgentDescriptionHelper": "Опишите функции и назначение вашего агента.",
     "AgentDescriptionPlaceholder": "Введите описание интеллектуального агента...",
@@ -155,6 +266,8 @@
     "SearchPlaceholder": "Поиск вкладок или интеллектуальных агентов..."
   },
   "Preference": {
+    "NoScheduledTaskAgents": "Создайте или откройте диалог с агентом перед настройкой расписания.",
+    "ScheduledTaskAgent": "Агент",
     "AIAgent": "агент",
     "AIAgentDescription": "Управление базой данных записей диалогов AI Agent",
     "AIAgentDescriptionDetail": "Здесь можно просмотреть и удалить информацию о размере и местоположении базы данных записей диалогов AI Agent.",
@@ -630,6 +743,21 @@
       "TargetIdTitle": "ID цели",
       "Title": "Список рабочих областей"
     }
+  },
+  "RemoteSetup": {
+    "title": "Настройка удалённого вычислительного узла",
+    "description": "Используется установленная версия MemeLoop CLI через SSH. На хосте должны быть Node.js 24+, npm, SSH по ключу и проверенный ключ хоста.",
+    "hosts": "SSH-хосты",
+    "noHosts": "В ~/.ssh/config не найдено конкретных хостов",
+    "acceptNewHostKey": "Принять ранее неизвестный ключ хоста (только при первом подключении)",
+    "probe": "Проверить требования",
+    "install": "Установить точную версию CLI",
+    "nodeReady": "Node.js {{nodeVersion}} поддерживается. MemeLoop CLI {{version}} можно установить без прав root.",
+    "installReady": "MemeLoop CLI {{version}} готов в {{executable}}. {{status}}",
+    "error": "Не удалось настроить удалённый узел: {{error}}",
+    "currentUser": "текущий пользователь",
+    "installedStatus": "Точная версия установлена.",
+    "existingStatus": "Точная версия уже была установлена."
   },
   "Search": {
     "AvailableAgents": "доступные агенты",

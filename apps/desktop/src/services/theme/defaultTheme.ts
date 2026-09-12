@@ -27,9 +27,6 @@ export const lightTheme = merge(cloneDeep(createTheme({
       default: '#fafafa',
     },
   },
-  sidebar: {
-    width: 68,
-  },
   searchBar: {
     width: 300,
   },
@@ -46,7 +43,6 @@ export const darkTheme = merge(
         text: { primary: 'rgba(255, 255, 255, 0.87)', secondary: 'rgba(255, 255, 255, 0.6)', disabled: 'rgba(255, 255, 255, 0.35)' },
         primary: { main: '#3f51b5', light: '#757de8', dark: '#002984', contrastText: '#fff' },
       },
-      sidebar: lightTheme.sidebar,
       searchBar: lightTheme.searchBar,
       workflow,
     }),

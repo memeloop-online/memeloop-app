@@ -3,15 +3,10 @@ import { WindowNames } from '@services/windows/WindowProperties';
 import { lazy, useEffect } from 'react';
 import { Route, Switch, useLocation } from 'wouter';
 
-const AboutPage = lazy(() => import('./About'));
-const GitHistory = lazy(() => import('./GitLog'));
 const Main = lazy(() => import('../pages/Main'));
-const DialogNotifications = lazy(() => import('./Notifications'));
 const DialogPreferences = lazy(() => import('./Preferences'));
-const RemoteTerminal = lazy(() => import('./RemoteTerminal'));
 const RemoteSetup = lazy(() => import('./RemoteSetup'));
 const NodeManagement = lazy(() => import('./NodeManagement'));
-const SpellcheckLanguages = lazy(() => import('./SpellcheckLanguages'));
 
 export function Pages(): React.JSX.Element {
   const [location, setLocation] = useLocation();
@@ -27,19 +22,9 @@ export function Pages(): React.JSX.Element {
   return (
     <HelmetProvider>
       <Switch>
-        <Route path={`/${WindowNames.about}`} component={AboutPage} />
-        <Route path={`/${WindowNames.gitHistory}`} component={GitHistory} />
-        <Route
-          path={`/${WindowNames.notifications}`}
-          component={DialogNotifications}
-        />
         <Route
           path={`/${WindowNames.preferences}`}
           component={DialogPreferences}
-        />
-        <Route
-          path={`/${WindowNames.remoteTerminal}`}
-          component={RemoteTerminal}
         />
         <Route
           path={`/${WindowNames.remoteSetup}`}
@@ -48,10 +33,6 @@ export function Pages(): React.JSX.Element {
         <Route
           path={`/${WindowNames.nodeManagement}`}
           component={NodeManagement}
-        />
-        <Route
-          path={`/${WindowNames.spellcheck}`}
-          component={SpellcheckLanguages}
         />
         <Route path={`/${WindowNames.main}`} component={Main} nest />
         <Route path='/' component={Main} nest />

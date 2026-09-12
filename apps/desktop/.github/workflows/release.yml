@@ -17,7 +17,10 @@ on:
       - ".vscode"
 
 concurrency:
-  group: release-ci-group
+  # Per-branch group so PRs/branches run in parallel without cancelling each other.
+  # Same-branch pushes still cancel stale same-branch runs. GitHub Actions usage is
+  # well below the limit, so we prefer isolation over aggressive cross-branch cancellation.
+  group: release-ci-group-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -27,6 +30,7 @@ jobs:
   build:
     needs: test
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -44,10 +48,13 @@ jobs:
           - os: macos-latest
             platform: mac
             arch: arm64
-          - os: windows-latest
+          - os: windows-2022
             platform: win
             arch: x64
-          - os: windows-latest
+          # Pin to windows-2022 (VS 17.x / 2022) because windows-latest
+          # ships VS 18 (2026 preview) which node-gyp cannot detect.
+          # ARM64 cross-compiles via MSVC — no native ARM64 runner needed.
+          - os: windows-2022
             platform: win
             arch: arm64
 
@@ -60,36 +67,47 @@ jobs:
           submodules: recursive
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           run_install: false
       - name: Install Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: lts/*
+          # Node 24.16.0 breaks extract-zip/yauzl, causing Electron packaging to exit 0 with no output.
+          node-version: 24.15.0
 
-      # Windows specific: Set up CV dependency for pngquant-bin
-      # Also sets up MSVC (Microsoft Visual C++) compiler for native modules (nsfw, better-sqlite3)
-      - name: Set up CV dependency for pngquant-bin
+      # Set up MSVC compiler for native modules: nsfw, better-sqlite3
+      - name: Set up MSVC compiler (Windows)
         if: matrix.platform == 'win'
         uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.arch == 'arm64' && 'amd64_arm64' || 'x64' }}
       # Install C++ build tools for native modules (Linux only)
       # macOS: GitHub Actions runners come with Xcode Command Line Tools pre-installed
-      # Windows: MSVC is set up by msvc-dev-cmd action above
       - name: Install build dependencies (Linux)
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential
 
-      - name: Install dependencies
-        run: pnpm install
-      - name: Rebuild native modules for Electron
-        run: pnpm exec electron-rebuild -f -w better-sqlite3,nsfw --arch=${{ matrix.arch }}
-      - name: Remove windows only deps
-        if: matrix.platform != 'win'
-        run: pnpm remove registry-js
+      # pnpm git deps (e.g. @electron/node-gyp) resolve to git@github.com on Windows CI
+      - name: Use HTTPS for GitHub git dependencies
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
 
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Rebuild native modules for Electron (non-Windows)
+        if: matrix.platform != 'win'
+        run: |
+          rm -rf node_modules/better-sqlite3/prebuilds
+          pnpm exec electron-rebuild -f -w better-sqlite3,nsfw --arch=${{ matrix.arch }}
+      - name: Rebuild native modules for Electron (Windows)
+        if: matrix.platform == 'win'
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.arch == 'arm64' && 'amd64_arm64' || 'x64' }}
+          rmdir /s /q node_modules\better-sqlite3\prebuilds 2>nul
+          pnpm exec electron-rebuild -f -w better-sqlite3,nsfw --arch=${{ matrix.arch }}
       - name: Build plugins
         run: pnpm run build:plugin
       - name: Make ${{ matrix.platform }} (${{ matrix.arch }})
@@ -112,13 +130,37 @@ jobs:
           ANALYZE: ${{ matrix.platform == 'linux' && matrix.arch == 'x64' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify packaged runtime resources
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "mac" ]; then
+            ARCHIVE="out/MemeLoop Desktop-darwin-${{ matrix.arch }}/MemeLoop Desktop.app/Contents/Resources/app.asar"
+          elif [ "${{ matrix.platform }}" = "win" ]; then
+            ARCHIVE="out/MemeLoop Desktop-win32-${{ matrix.arch }}/resources/app.asar"
+          else
+            ARCHIVE="out/MemeLoop Desktop-linux-${{ matrix.arch }}/resources/app.asar"
+          fi
+          pnpm run test:package-runtime -- "$ARCHIVE"
+
+      - name: Verify packaged startup (macOS)
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          pnpm run test:package-startup -- "out/MemeLoop Desktop-darwin-${{ matrix.arch }}/MemeLoop Desktop.app/Contents/MacOS/memeloop-desktop"
+
+      - name: Verify packaged startup (Windows x64)
+        if: matrix.platform == 'win' && matrix.arch == 'x64'
+        shell: bash
+        run: |
+          pnpm run test:package-startup -- "out/MemeLoop Desktop-win32-x64/memeloop-desktop.exe"
+
       # Repackage macOS ZIP using ditto to preserve symlinks (cross-zip doesn't preserve symlinks properly on CI) To prevent dugite git binary symlink dereference issues
       - name: Repackage macOS ZIP with ditto
         if: matrix.platform == 'mac'
         run: |
           cd out/make/zip/darwin/${{ matrix.arch }}
           ZIP_FILE=$(ls *.zip | head -1)
-          APP_NAME="TidGi.app"
+          APP_NAME="MemeLoop Desktop.app"
           # Extract the original zip
           unzip -q "$ZIP_FILE" -d temp_extract
           # Remove the original zip
@@ -132,7 +174,7 @@ jobs:
       # Upload analyzer reports and packaged apps as workflow artifacts (only linux x64)
       - name: Upload analyzer reports
         if: matrix.platform == 'linux' && matrix.arch == 'x64'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: analyzer-reports-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
@@ -142,7 +184,7 @@ jobs:
 
       - name: Upload packaged apps
         if: (matrix.platform == 'mac' && matrix.arch == 'x64') || (matrix.platform == 'win' && matrix.arch == 'x64')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: packaged-apps-${{ matrix.platform }}-${{ matrix.arch }}
           path: out/make/**

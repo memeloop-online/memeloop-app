@@ -1,120 +1,181 @@
-import { useState } from 'react';
-import { View, FlatList, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
-import { TextInput, IconButton, Card, Text } from 'react-native-paper';
+import {
+  AgentSessionProvider,
+  NativeAgentChatView,
+  useAgentSessionCoreAdapter,
+} from '@memeloop/react-ui/native';
+import { resolveAgentRunErrorPresentation } from '@memeloop/react-ui/chat/core';
+import { useRouter } from 'expo-router';
+import { createAgentDeviceRpcRequestId } from 'memeloop/mobile';
+import { useEffect, useMemo, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { Button, Card, Text } from 'react-native-paper';
 
-interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: number;
+import {
+  createMobileRemoteAgentSession,
+  MOBILE_ATTACHMENT_HOST,
+  type MobileRemoteAgentSession,
+  selectMobileAgentDevice,
+} from '../lib/agentSession';
+import {
+  mobileDeviceNetwork,
+  type MobileDeviceNetworkState,
+} from '../lib/deviceNetwork';
+import { getMobileLabels } from '../lib/i18n';
+
+function AgentChat({ session }: { session: MobileRemoteAgentSession }) {
+  const router = useRouter();
+  const labels = getMobileLabels();
+  const adapter = useAgentSessionCoreAdapter({
+    conversationId: session.conversationId,
+    timelineController: session.timelineController,
+    createId: createAgentDeviceRpcRequestId,
+    prepareSendMessage: MOBILE_ATTACHMENT_HOST.prepareSendMessage,
+  });
+
+  return (
+    <NativeAgentChatView
+      adapter={adapter}
+      title={session.title}
+      placeholder={labels.chat.placeholder}
+      emptyMessage={labels.chat.empty}
+      loadingMessage={labels.chat.loading}
+      labels={{
+        user: labels.chat.user,
+        agent: labels.chat.agent,
+        waitingPlaceholder: labels.chat.waiting,
+        loadDetails: labels.chat.loadDetails,
+        reloadDetails: labels.chat.reloadDetails,
+        noDetails: labels.chat.noDetails,
+        attachment: labels.chat.attachment,
+        detailTruncated: labels.chat.detailTruncated,
+        exportFullMessage: labels.chat.exportFullMessage,
+        close: labels.chat.close,
+        truncatedMessage: labels.chat.truncatedMessage,
+        diagnosticId: labels.chat.diagnosticId,
+        timelineTimestamp: timestamp => new Date(timestamp).toLocaleString(),
+      }}
+      timelineLabels={{
+        navigation: labels.chat.timeline,
+        compacted: labels.chat.compacted,
+        loadEarlier: labels.chat.loadEarlier,
+        loadLater: labels.chat.loadLater,
+        seek: labels.chat.seek,
+        close: labels.chat.closeTimeline,
+        newMessages: labels.chat.newMessages,
+      }}
+      genericErrorPresentation={{
+        title: labels.chat.operationFailedTitle,
+        message: labels.chat.operationFailedMessage,
+        actionId: 'open-settings',
+        actionLabel: labels.chat.settingsAction,
+      }}
+      resolveErrorPresentation={value => resolveAgentRunErrorPresentation(value, {
+        localize: () => ({
+          title: labels.chat.operationFailedTitle,
+          message: labels.chat.operationFailedMessage,
+        }),
+        settingActionLabel: () => labels.chat.settingsAction,
+      })}
+      onErrorAction={async presentation => {
+        if (presentation.actionId === 'agent-run-setting' || presentation.actionId === 'open-settings') {
+          router.push('/settings');
+        }
+      }}
+    />
+  );
 }
 
 export default function ChatScreen() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
+  const router = useRouter();
+  const labels = getMobileLabels();
+  const [network, setNetwork] = useState<MobileDeviceNetworkState>(mobileDeviceNetwork.getState());
+  const [loadState, setLoadState] = useState<{
+    key: string;
+    session?: MobileRemoteAgentSession;
+    failed?: boolean;
+  }>();
+  const [retryGeneration, setRetryGeneration] = useState(0);
+  const target = useMemo(() => selectMobileAgentDevice(network.devices), [network.devices]);
+  const targetPeerId = target?.peerId;
+  const loadKey = `${targetPeerId ?? 'none'}:${retryGeneration}`;
 
-  const sendMessage = () => {
-    if (!input.trim()) return;
+  useEffect(() => {
+    const unsubscribe = mobileDeviceNetwork.subscribe(setNetwork);
+    void mobileDeviceNetwork.start().catch(() => undefined);
+    return unsubscribe;
+  }, []);
 
-    const userMsg: Message = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: input,
-      timestamp: Date.now(),
+  useEffect(() => {
+    const controller = new AbortController();
+    let current: MobileRemoteAgentSession | undefined;
+    if (!targetPeerId) return () => controller.abort();
+
+    void createMobileRemoteAgentSession(targetPeerId, controller.signal)
+      .then(async next => {
+        current = next;
+        await next.start();
+        controller.signal.throwIfAborted();
+        setLoadState({ key: loadKey, session: next });
+      })
+      .catch(() => {
+        current?.dispose();
+        if (!controller.signal.aborted) setLoadState({ key: loadKey, failed: true });
+      });
+
+    return () => {
+      controller.abort();
+      current?.dispose();
     };
+  }, [loadKey, targetPeerId]);
 
-    setMessages(prev => [...prev, userMsg]);
-    setInput('');
+  const session = loadState?.key === loadKey ? loadState.session : undefined;
+  const initializationFailed = loadState?.key === loadKey && loadState.failed === true;
 
-    // TODO: Connect to memeloop-node via WebSocket
-    // const assistantMsg: Message = {
-    //   id: `assistant-${Date.now()}`,
-    //   role: 'assistant',
-    //   content: 'Response from agent...',
-    //   timestamp: Date.now(),
-    // };
-    // setTimeout(() => setMessages(prev => [...prev, assistantMsg]), 1000);
-  };
-
-  const renderMessage = ({ item }: { item: Message }) => (
-    <Card style={[
-      styles.messageCard,
-      item.role === 'user' ? styles.userMessage : styles.assistantMessage,
-    ]}>
-      <Card.Content>
-        <Text style={styles.messageContent}>{item.content}</Text>
-      </Card.Content>
-    </Card>
-  );
-
-  return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <FlatList
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={item => item.id}
-        style={styles.messageList}
-        contentContainerStyle={styles.messageListContent}
-      />
-      <View style={styles.inputRow}>
-        <TextInput
-          style={styles.input}
-          mode="outlined"
-          placeholder="Type a message..."
-          value={input}
-          onChangeText={setInput}
-          onSubmitEditing={sendMessage}
-        />
-        <IconButton
-          icon="send"
-          mode="contained"
-          onPress={sendMessage}
-          disabled={!input.trim()}
-        />
+  if (session) {
+    return (
+      <View style={styles.chat}>
+        <AgentSessionProvider controller={session.controller}>
+          <AgentChat session={session} />
+        </AgentSessionProvider>
       </View>
-    </KeyboardAvoidingView>
+    );
+  }
+
+  const noTarget = network.status === 'online' && !target;
+  return (
+    <View style={styles.container}>
+      <Card>
+        <Card.Content>
+          <Text variant="titleMedium">
+            {initializationFailed
+              ? labels.chat.couldNotOpen
+              : noTarget
+              ? labels.chat.noReachableDevice
+              : labels.chat.connecting}
+          </Text>
+          <Text variant="bodyMedium" style={styles.description}>
+            {initializationFailed
+              ? labels.chat.initializationFailure
+              : noTarget
+              ? labels.chat.noTarget
+              : labels.chat.discovering}
+          </Text>
+        </Card.Content>
+        <Card.Actions>
+          {(noTarget || network.status === 'error') && (
+            <Button onPress={() => router.push('/nodes')}>{labels.chat.manageDevices}</Button>
+          )}
+          {initializationFailed && (
+            <Button mode="contained" onPress={() => setRetryGeneration(value => value + 1)}>{labels.chat.retry}</Button>
+          )}
+        </Card.Actions>
+      </Card>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  messageList: {
-    flex: 1,
-  },
-  messageListContent: {
-    padding: 16,
-  },
-  messageCard: {
-    marginBottom: 8,
-    maxWidth: '85%',
-  },
-  userMessage: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#e3f2fd',
-  },
-  assistantMessage: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#fff',
-  },
-  messageContent: {
-    fontSize: 14,
-  },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 8,
-    backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-  },
-  input: {
-    flex: 1,
-    marginRight: 8,
-  },
+  chat: { flex: 1 },
+  container: { flex: 1, padding: 16, backgroundColor: '#f5f5f5' },
+  description: { marginTop: 8 },
 });

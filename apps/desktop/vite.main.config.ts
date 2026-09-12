@@ -1,132 +1,89 @@
-import { workerPlugin } from '@fetsorn/vite-node-worker';
 import fs from 'fs-extra';
 import path from 'path';
 import swc from 'unplugin-swc';
 import { defineConfig } from 'vite';
 import { analyzer } from 'vite-bundle-analyzer';
+import { utilityProcessPlugin } from 'vite-plugin-electron-utility-process';
+import { viteEtcd3ProtoPlugin } from './scripts/viteEtcd3ProtoPlugin';
+import { memeloopCliCreateRequirePlugin } from './scripts/viteMemeloopCliCreateRequirePlugin';
+import { viteMemeLoopSourceAliases } from './scripts/viteMemeLoopSourceAliases';
 
 // Dynamically read TypeORM's optional peer dependencies to avoid hardcoding
-const typeormPackageJson = fs.readJsonSync(
-  path.resolve(__dirname, 'node_modules/typeorm/package.json'),
-) as Record<string, unknown>;
-const typeormOptionalDepNames = Object.keys(
-  typeormPackageJson.peerDependenciesMeta || {},
-).filter(
-  // Keep better-sqlite3 as we use it; external others
+const typeormPackageJson = fs.readJsonSync(path.resolve(__dirname, 'node_modules/typeorm/package.json')) as Record<string, unknown>;
+const typeormOptionalDepNames = Object.keys(typeormPackageJson.peerDependenciesMeta || {}).filter(
   (dep) => dep !== 'better-sqlite3',
 );
 
-// Convert to RegExp to match both package name and sub-paths (e.g., @sap/hana-client/extension/Stream)
-// Escape special regex characters in package names (e.g., @, /, -)
+// Convert to RegExp to match both package name and sub-paths
 const typeormOptionalDepsRegex = typeormOptionalDepNames.map(
   (dep) => new RegExp(`^${dep.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(/.*)?$`),
 );
 
 export default defineConfig({
   define: {
-    // Preserve NODE_ENV at build time so it's available at runtime
-    'process.env.NODE_ENV': JSON.stringify(
-      process.env.NODE_ENV || 'production',
-    ),
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'production'),
   },
   plugins: [
+    // memeloop-cli's ESM distribution bundles typescript-language-server,
+    // whose loader calls createRequire(import.meta.url). This plugin anchors
+    // that one exact source occurrence to the CommonJS main bundle filename.
+    memeloopCliCreateRequirePlugin(__dirname),
+    viteEtcd3ProtoPlugin(__dirname),
     ...(process.env.ANALYZE === 'true'
-      ? [
-        analyzer({
-          analyzerMode: 'static',
-          openAnalyzer: false,
-          fileName: 'bundle-analyzer-main',
-        }),
-      ]
+      ? [analyzer({ analyzerMode: 'static', openAnalyzer: false, fileName: 'bundle-analyzer-main' })]
       : []),
-    workerPlugin(),
+    // The agent runtime is isolated in an Electron UtilityProcess for
+    // process-level crash isolation.
+    utilityProcessPlugin(),
     swc.vite({
       jsc: {
-        parser: {
-          syntax: 'typescript',
-          decorators: true,
-        },
-        transform: {
-          legacyDecorator: true,
-          decoratorMetadata: true,
-        },
+        parser: { syntax: 'typescript', decorators: true },
+        transform: { legacyDecorator: true, decoratorMetadata: true },
         target: 'es2021',
       },
     }),
   ],
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-      '@services': path.resolve(__dirname, './src/services'),
-      // Linked monorepo packages: use sources so main/worker bundles work without a prior `pnpm build` in each package.
-      memeloop: path.resolve(__dirname, '../../../memeloop/packages/memeloop/src'),
-      'memeloop-cli': path.resolve(
-        __dirname,
-        '../../../memeloop/packages/memeloop-cli/dist',
-      ),
-      '@memeloop/protocol': path.resolve(
-        __dirname,
-        '../../../memeloop/packages/memeloop-protocol/src',
-      ),
-      // Force use CommonJS version of i18next-fs-backend to avoid top-level await in ESM version
-      'i18next-fs-backend': path.resolve(
-        __dirname,
-        './node_modules/i18next-fs-backend/cjs/index.js',
-      ),
-      'i18next-electron-fs-backend': path.resolve(
-        __dirname,
-        './node_modules/i18next-electron-fs-backend/cjs/index.js',
-      ),
-    },
+    alias: [
+      ...viteMemeLoopSourceAliases(__dirname),
+      { find: '@', replacement: path.resolve(__dirname, './src') },
+      { find: '@services', replacement: path.resolve(__dirname, './src/services') },
+      { find: 'i18next-fs-backend', replacement: path.resolve(__dirname, './node_modules/i18next-fs-backend/cjs/index.js') },
+      { find: 'i18next-electron-fs-backend', replacement: path.resolve(__dirname, './node_modules/i18next-electron-fs-backend/cjs/index.js') },
+    ],
   },
   build: {
     commonjsOptions: {
-      // Don't transpile dynamic requires in better-sqlite3 (it dynamically loads .node files). "Ignore" means leave them as-is.
-      // The .node files will be handled by `scripts/afterPack.js` and `SQLITE_BINARY_PATH` in `src/constants/paths.ts`
       ignoreDynamicRequires: true,
     },
     rollupOptions: {
       external: [
-        // Native binary modules (keep JS code, but .node files will be handled by asar unpack)
-        // Do NOT external better-sqlite3 - let Vite bundle its JS code, .node file will be unpacked
-        'sqlite-vec',
-        'registry-js',
-        'dugite',
-
-        // Large libraries with __filename/__dirname usage - must be external
-        'tiddlywiki',
-
-        // Build tools with binary - must be external
-        'zx',
+        // Electron is a runtime builtin in main and UtilityProcess chunks.
+        // Never bundle the npm launcher package (it contains host __dirname).
+        'electron',
         'esbuild',
-
-        // MCP SDK is dynamically imported and may not be installed
         '@modelcontextprotocol/sdk',
         /^@modelcontextprotocol\/sdk\//,
-
-        // Linked monorepo packages — resolve at runtime, don't bundle
-        'memeloop',
-        'memeloop-cli',
-        /^memeloop-cli\//,
-        '@memeloop/protocol',
-
-        // TypeORM's optional peer dependencies (dynamically read from package.json)
-        // Use RegExp to match both package name and sub-paths (e.g., @sap/hana-client/extension/Stream)
-        // We only use better-sqlite3, so external all others to avoid "module not found" errors
+        // default-gateway v7 / electron-unhandled v5 are pure ESM, used via dynamic import().
+        // External so the dynamic import() runs at Node.js runtime. electron-unhandled
+        // has top-level await, which cannot be emitted in this CommonJS main bundle;
+        // afterPack copies its exact production dependency closure instead.
+        'default-gateway',
+        'electron-unhandled',
+        // rotating-file-stream@3 is pure ESM ("type":"module") but has a CJS dist.
+        // External it so Node.js native require() uses its "exports.require" CJS entry.
+        'rotating-file-stream',
         ...typeormOptionalDepsRegex,
-
-        // `ws` optionally uses these native modules. They are not required for correctness,
-        // and bundlers may try to resolve them eagerly and fail in packaged Electron.
+        'expo-sqlite',
+        // Optional native accelerators used by ws. afterPack copies them when
+        // installed and ws otherwise falls back to its portable implementation.
         'bufferutil',
         'utf-8-validate',
-
-        // Preserve package-relative native addon loading for memeloop peer crypto.
-        'sodium-universal',
-        /^sodium-universal\/.*$/,
-        'sodium-native',
-        /^sodium-native\/.*$/,
-        'require-addon',
-        /^require-addon\/.*$/,
+        // Optional OS-keyring native bindings are selected at runtime. Keeping
+        // the platform package external prevents Rolldown from parsing `.node`
+        // binaries; memeloop-cli already fails closed to its 0600 file store
+        // when a platform binding is unavailable.
+        /^@napi-rs\/keyring-/,
       ],
     },
   },

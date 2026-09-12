@@ -3,31 +3,25 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import AddIcon from '@mui/icons-material/Add';
 import ChatIcon from '@mui/icons-material/Chat';
 import CloseIcon from '@mui/icons-material/Close';
+import SettingsIcon from '@mui/icons-material/Settings';
 import SplitscreenIcon from '@mui/icons-material/Splitscreen';
 import TabIcon from '@mui/icons-material/Tab';
 import WebIcon from '@mui/icons-material/Web';
 import { Box, ClickAwayListener, Divider, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Paper, Popper, Tooltip, Typography } from '@mui/material';
 import { styled } from '@mui/material/styles';
+import type { ScheduledTask } from 'memeloop';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { createDesktopScheduledTaskClient } from '@/pages/Agent/adapters/DesktopScheduledTaskClient';
+import { WindowNames } from '@services/windows/WindowProperties';
 import { useTabStore } from '../../store/tabStore';
 import { TabItem, TabType } from '../../types/tab';
 
-interface TabBackgroundTask {
-  agentId: string;
-  agentName?: string;
-  type: 'heartbeat' | 'alarm';
-  intervalSeconds?: number;
-  wakeAtISO?: string;
-  nextWakeAtISO?: string;
-  message?: string;
-  repeatIntervalMinutes?: number;
-}
+type TabBackgroundTask = ScheduledTask;
 
 const DropdownPaper = styled(Paper)(({ theme }) => ({
-  minWidth: 260,
-  maxWidth: 400,
+  width: 'min(400px, calc(100vw - 16px))',
   maxHeight: 420,
   borderRadius: 8,
   boxShadow: theme.shadows[8],
@@ -68,44 +62,36 @@ const formatWakeTime = (iso?: string): string => {
   }).format(date);
 };
 
-const normalizeBackgroundTasks = (raw: unknown): TabBackgroundTask[] => {
-  if (!Array.isArray(raw)) return [];
-  return raw.flatMap((item) => {
-    if (!item || typeof item !== 'object') return [];
-    const record = item as Record<string, unknown>;
-    const agentId = record.agentId;
-    if (typeof agentId !== 'string') return [];
-    return [{
-      agentId,
-      agentName: typeof record.agentName === 'string' ? record.agentName : undefined,
-      type: record.type === 'alarm' ? 'alarm' : 'heartbeat',
-      intervalSeconds: typeof record.intervalSeconds === 'number' ? record.intervalSeconds : undefined,
-      wakeAtISO: typeof record.wakeAtISO === 'string' ? record.wakeAtISO : undefined,
-      nextWakeAtISO: typeof record.nextWakeAtISO === 'string' ? record.nextWakeAtISO : undefined,
-      message: typeof record.message === 'string' ? record.message : undefined,
-      repeatIntervalMinutes: typeof record.repeatIntervalMinutes === 'number' ? record.repeatIntervalMinutes : undefined,
-    }];
-  });
-};
+const taskWakeAt = (task: ScheduledTask): string | undefined => task.nextRunAt ?? (task.schedule.kind === 'at' ? task.schedule.wakeAtISO : undefined);
 
 export const TabListDropdown: React.FC = () => {
   const { t } = useTranslation('agent');
   const { tabs, activeTabId, setActiveTab, closeTab, addTab } = useTabStore();
   const [anchorElement, setAnchorElement] = useState<HTMLElement | null>(null);
   const [backgroundTasks, setBackgroundTasks] = useState<TabBackgroundTask[]>([]);
+  const scheduledTaskClient = useMemo(() => createDesktopScheduledTaskClient(), []);
   const open = Boolean(anchorElement);
 
   const refreshBackgroundTasks = useCallback(async () => {
     try {
-      const agentInstanceService = window.service.agentInstance as {
-        getBackgroundTasks: () => Promise<unknown>;
-      };
-      const rawTasks = await agentInstanceService.getBackgroundTasks();
-      setBackgroundTasks(normalizeBackgroundTasks(rawTasks));
-    } catch {
-      // Ignore transient IPC errors during startup.
+      const chatTabs = tabs.filter((tab): tab is Extract<TabItem, { type: TabType.CHAT }> & { agentId: string } => tab.type === TabType.CHAT && typeof tab.agentId === 'string');
+      const tasks = await Promise.all(chatTabs
+        .map(async tab => {
+          try {
+            const page = await scheduledTaskClient.listScheduledTasksForAgent(tab.agentId, {
+              states: ['active', 'paused'],
+              limit: 32,
+            });
+            return page.items;
+          } catch {
+            return [];
+          }
+        }));
+      setBackgroundTasks(tasks.flat());
+    } catch (error) {
+      console.debug('Failed to refresh scheduled task tabs', { error });
     }
-  }, []);
+  }, [scheduledTaskClient, tabs]);
 
   useEffect(() => {
     void refreshBackgroundTasks();
@@ -120,9 +106,9 @@ export const TabListDropdown: React.FC = () => {
   const backgroundTasksByAgent = useMemo(() => {
     const map = new Map<string, TabBackgroundTask[]>();
     for (const task of backgroundTasks) {
-      const existing = map.get(task.agentId) ?? [];
+      const existing = map.get(task.agentInstanceId) ?? [];
       existing.push(task);
-      map.set(task.agentId, existing);
+      map.set(task.agentInstanceId, existing);
     }
     return map;
   }, [backgroundTasks]);
@@ -166,15 +152,15 @@ export const TabListDropdown: React.FC = () => {
   const activeTab = tabs.find(tab => tab.id === activeTabId);
   const activeTabTasks = activeTab ? getTasksForTab(activeTab) : [];
   const sortedActiveTasks = [...activeTabTasks].sort((a, b) => {
-    const aWake = a.nextWakeAtISO ?? a.wakeAtISO;
-    const bWake = b.nextWakeAtISO ?? b.wakeAtISO;
+    const aWake = taskWakeAt(a);
+    const bWake = taskWakeAt(b);
     const aTime = aWake ? new Date(aWake).getTime() : Number.MAX_SAFE_INTEGER;
     const bTime = bWake ? new Date(bWake).getTime() : Number.MAX_SAFE_INTEGER;
     return aTime - bTime;
   });
   const nearestActiveTask = sortedActiveTasks[0];
   const activeTaskTooltip = nearestActiveTask
-    ? `Next wake: ${formatWakeTime(nearestActiveTask.nextWakeAtISO ?? nearestActiveTask.wakeAtISO)}${activeTabTasks.length > 1 ? ` (+${activeTabTasks.length - 1} more)` : ''}`
+    ? `Next wake: ${formatWakeTime(taskWakeAt(nearestActiveTask))}${activeTabTasks.length > 1 ? ` (+${activeTabTasks.length - 1} more)` : ''}`
     : '';
 
   return (
@@ -236,6 +222,18 @@ export const TabListDropdown: React.FC = () => {
           <AddIcon fontSize='small' />
         </IconButton>
       </Tooltip>
+      <Tooltip title={t('ContextMenu.Preferences', { ns: 'translation' })}>
+        <IconButton
+          id='open-preferences-button'
+          data-testid='open-preferences-button'
+          size='small'
+          onClick={() => {
+            void window.service.window.open(WindowNames.preferences);
+          }}
+        >
+          <SettingsIcon fontSize='small' />
+        </IconButton>
+      </Tooltip>
 
       <Popper
         open={open}
@@ -250,14 +248,14 @@ export const TabListDropdown: React.FC = () => {
               {sortedTabs.map((tab: TabItem) => {
                 const tabTasks = getTasksForTab(tab);
                 const sortedTabTasks = [...tabTasks].sort((a, b) => {
-                  const aWake = a.nextWakeAtISO ?? a.wakeAtISO;
-                  const bWake = b.nextWakeAtISO ?? b.wakeAtISO;
+                  const aWake = taskWakeAt(a);
+                  const bWake = taskWakeAt(b);
                   const aTime = aWake ? new Date(aWake).getTime() : Number.MAX_SAFE_INTEGER;
                   const bTime = bWake ? new Date(bWake).getTime() : Number.MAX_SAFE_INTEGER;
                   return aTime - bTime;
                 });
                 const nearestTask = sortedTabTasks[0];
-                const nearestWake = nearestTask?.nextWakeAtISO ?? nearestTask?.wakeAtISO;
+                const nearestWake = nearestTask ? taskWakeAt(nearestTask) : undefined;
                 const scheduleTooltip = tabTasks.length > 0
                   ? `Next wake: ${formatWakeTime(nearestWake)}${tabTasks.length > 1 ? ` (+${tabTasks.length - 1} more)` : ''}`
                   : '';

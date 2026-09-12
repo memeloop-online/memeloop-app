@@ -1,9 +1,9 @@
 import { webFrame } from 'electron';
 
-export async function consoleLogToLogFile(workspaceName = 'error-no-workspace-name'): Promise<void> {
+export async function consoleLogToLogFile(logLabel = 'renderer'): Promise<void> {
   await webFrame.executeJavaScript(`
     (function() {
-      const workspaceName = ${JSON.stringify(workspaceName)};
+      const logLabel = ${JSON.stringify(logLabel)};
       
       // Save original console methods - need to bind them to console object
       const originalConsole = {
@@ -28,7 +28,7 @@ export async function consoleLogToLogFile(workspaceName = 'error-no-workspace-na
             return String(arg);
           }).join(' ');
           
-          void window.service.native.logFor(workspaceName, level, message);
+          void window.service.native.logFor(logLabel, level, message);
         } catch (error) {
           originalConsole.error('Failed to send log to backend:', error);
         }
@@ -51,8 +51,6 @@ export async function consoleLogToLogFile(workspaceName = 'error-no-workspace-na
       console.info = createWrapper('info', originalConsole.info);
       console.debug = createWrapper('debug', originalConsole.debug);
       
-      // Important: Preserve the Function.apply.call behavior that TiddlyWiki uses
-      // This ensures our wrapper is called even when using Function.apply.call(console.log, ...)
       ['log', 'warn', 'error', 'info', 'debug'].forEach(method => {
         const wrapper = console[method];
         // Make sure the wrapper has the same properties as native console methods
@@ -60,38 +58,7 @@ export async function consoleLogToLogFile(workspaceName = 'error-no-workspace-na
         Object.defineProperty(wrapper, 'length', { value: 0, configurable: true });
       });
       
-      // Ensure TiddlyWiki Logger uses our hooked console methods
-      // TiddlyWiki uses Function.apply.call(console.log, console, logMessage)
-      // Our console hook should already capture these calls, no need to duplicate logging
-      const ensureTiddlyWikiLoggerUsesHookedConsole = () => {
-        if (typeof $tw !== 'undefined' && $tw.utils && $tw.utils.Logger) {
-          // Verify that Logger will use our hooked console by checking if console.log is our wrapper
-          const isHooked = console.log.toString().includes('sendToBackend') || console.log.name !== 'log';
-          if (isHooked) {
-            originalConsole.log('[CONSOLE_HOOK] TiddlyWiki Logger will use hooked console methods');
-          } else {
-            originalConsole.warn('[CONSOLE_HOOK] Warning: console.log might not be properly hooked for TiddlyWiki');
-          }
-        }
-      };
-      
-      // Try to verify immediately if $tw is available
-      ensureTiddlyWikiLoggerUsesHookedConsole();
-      
-      // Also watch for $tw to become available
-      if (typeof $tw === 'undefined') {
-        const checkInterval = setInterval(() => {
-          if (typeof $tw !== 'undefined' && $tw.utils && $tw.utils.Logger) {
-            ensureTiddlyWikiLoggerUsesHookedConsole();
-            clearInterval(checkInterval);
-          }
-        }, 100);
-        
-        // Stop checking after 10 seconds
-        setTimeout(() => clearInterval(checkInterval), 10000);
-      }
-      
-      originalConsole.log('[CONSOLE_HOOK] Console logging to backend file enabled for workspace:', workspaceName);
+      originalConsole.log('[CONSOLE_HOOK] Console logging to backend file enabled for:', logLabel);
     })();
   `);
 }

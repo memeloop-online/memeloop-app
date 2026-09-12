@@ -8,9 +8,16 @@ import './__mocks__/window';
 if (typeof document !== 'undefined') {
   configure({ computedStyleSupportsPseudoElements: false });
 
+  class TestResizeObserver implements ResizeObserver {
+    disconnect(): void {}
+    observe(): void {}
+    unobserve(): void {}
+  }
+  globalThis.ResizeObserver ??= TestResizeObserver;
+
   // Fix for JSDOM getComputedStyle issue - strip unsupported second parameter
-  const originalGetComputedStyle = window.getComputedStyle;
-  window.getComputedStyle = (elt) => originalGetComputedStyle.call(window, elt);
+  const originalGetComputedStyle = window.getComputedStyle.bind(window);
+  window.getComputedStyle = (elt) => originalGetComputedStyle(elt);
 
   // JSDOM / Node doesn't implement requestIdleCallback — provide a simple polyfill
   if (typeof window.requestIdleCallback === 'undefined') {
@@ -19,7 +26,7 @@ if (typeof document !== 'undefined') {
       _options?: IdleRequestOptions,
     ) =>
       window.setTimeout(() => {
-        callback({ timeRemaining: () => 50, didTimeout: false } as IdleDeadline);
+        callback({ timeRemaining: () => 50, didTimeout: false });
       }, 0);
     (window as unknown as Record<string, unknown>).cancelIdleCallback = (id: number) => {
       window.clearTimeout(id);
@@ -36,24 +43,30 @@ vi.mock('@services/libs/workerAdapter', async () => {
   const rxjs = await import('rxjs');
   return {
     createWorkerProxy: () => ({
+      configureHost: async () => ({ ok: true }),
       ping: async () => ({ ok: true }),
+      startServer: async (port: number) => ({ running: true, nodeId: 'test-node-id', port: port || 31_337 }),
+      stopServer: async () => ({ ok: true }),
       createAgent: async () => ({ conversationId: 'test-conversation-id' }),
       sendMessage: async () => ({ ok: true }),
       cancelAgent: async () => ({ ok: true }),
       subscribeToUpdates: () => new rxjs.Observable(() => undefined),
     }),
     handleWorkerMessages: () => undefined,
+    getWorkerParentPort: () => null,
   };
 });
 vi.mock('@services/agentInstance/memeloopWorkerFactory', () => ({
   default: () => ({
+    pid: 1,
+    kill: () => true,
     on: () => undefined,
     off: () => undefined,
     once: () => undefined,
     postMessage: () => undefined,
     addEventListener: () => undefined,
     removeEventListener: () => undefined,
-    terminate: () => undefined,
+    terminate: () => Promise.resolve(0),
   }),
 }));
 
@@ -123,6 +136,11 @@ vi.mock('electron', () => {
     },
     // Also provide named export `app` to satisfy `import { app } from 'electron'`
     app: mockApp,
+    safeStorage: {
+      isEncryptionAvailable: () => true,
+      encryptString: (value: string) => Buffer.from(`encrypted:${value}`, 'utf8'),
+      decryptString: (value: Buffer) => value.toString('utf8').replace(/^encrypted:/, ''),
+    },
   };
 });
 
