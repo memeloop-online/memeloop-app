@@ -4,6 +4,7 @@ import winston, { format } from 'winston';
 import 'winston-daily-rotate-file';
 import type { TransformableInfo } from 'logform';
 import RendererTransport from './rendererTransport';
+import { isElectronUtilityProcess } from './runtime';
 
 /**
  * Custom formatter to serialize Error objects using serialize-error package.
@@ -25,20 +26,27 @@ const errorSerializer = format((info: TransformableInfo) => {
   return info;
 });
 
+function createPrimaryTransports(): winston.transport[] {
+  const transports: winston.transport[] = [new winston.transports.Console()];
+  if (!isElectronUtilityProcess()) {
+    transports.push(
+      new winston.transports.DailyRotateFile({
+        filename: 'MemeLoop-%DATE%.log',
+        datePattern: 'YYYY-MM-DD',
+        zippedArchive: false,
+        maxSize: '20mb',
+        maxFiles: '14d',
+        dirname: LOG_FOLDER,
+        level: 'debug',
+      }),
+      new RendererTransport(),
+    );
+  }
+  return transports;
+}
+
 const logger = winston.createLogger({
-  transports: [
-    new winston.transports.Console(),
-    new winston.transports.DailyRotateFile({
-      filename: 'MemeLoop-%DATE%.log',
-      datePattern: 'YYYY-MM-DD',
-      zippedArchive: false,
-      maxSize: '20mb',
-      maxFiles: '14d',
-      dirname: LOG_FOLDER,
-      level: 'debug',
-    }),
-    new RendererTransport(),
-  ],
+  transports: createPrimaryTransports(),
   format: format.combine(errorSerializer(), format.timestamp(), format.json()),
 });
 export { logger };
@@ -65,10 +73,9 @@ export function getLoggerForLabel(label: string): winston.Logger {
     return existingLogger;
   }
 
-  // Create new logger for this label
-  const labeledLogger = winston.createLogger({
-    transports: [
-      new winston.transports.Console(),
+  const transports: winston.transport[] = [new winston.transports.Console()];
+  if (!isElectronUtilityProcess()) {
+    transports.push(
       new winston.transports.DailyRotateFile({
         filename: `${label}-%DATE%.log`,
         datePattern: 'YYYY-MM-DD',
@@ -78,7 +85,12 @@ export function getLoggerForLabel(label: string): winston.Logger {
         dirname: LOG_FOLDER,
         level: 'debug',
       }),
-    ],
+    );
+  }
+
+  // Create new logger for this label
+  const labeledLogger = winston.createLogger({
+    transports,
     format: format.combine(errorSerializer(), format.label({ label }), format.timestamp(), format.json()),
   });
 
