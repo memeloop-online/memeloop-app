@@ -26,6 +26,7 @@ import type { NodeRuntimeResult } from 'memeloop-cli/runtime';
 import { requireDesktopAtomicRetryStore } from './atomicRetryCapability';
 import { type ConversationMutationWake, installConversationMutationObserver } from './conversationMutationObserver';
 import { createDesktopDeviceRpcHandlers } from './desktopDeviceRpcHandlers';
+import { createLlmCorrelatedRuntime, resolveLlmConversationId, runWithLlmConversation } from './llmRequestCorrelation';
 import { createDesktopRetryTurnHandler } from './retryTurn';
 import { createDesktopScheduledTaskRpcHandler, type ScheduledTaskServicePort } from './scheduledTaskRpcStore';
 import type {
@@ -600,7 +601,7 @@ const llmProvider = {
     };
     for await (
       const delta of callMainLlmChat({
-        conversationId: request_.conversationId,
+        conversationId: resolveLlmConversationId(request_),
         messages: request_.messages ?? [],
       })
     ) {
@@ -668,15 +669,22 @@ function isCallable(value: unknown): value is (...arguments_: unknown[]) => unkn
 function getDesktopDeviceRpcHandler(localOnly: boolean): DeviceRpcHandler {
   const cached = localOnly ? localDeviceRpcHandler : deviceRpcHandler;
   if (cached) return cached;
-  if (!runtime || !storage) throw new Error('MemeLoop runtime did not initialize');
-  if (!isAgentRuntimeRpcStorage(storage)) {
+  const activeRuntime = runtime;
+  const activeStorage = storage;
+  if (!activeRuntime || !activeStorage) throw new Error('MemeLoop runtime did not initialize');
+  if (!isAgentRuntimeRpcStorage(activeStorage)) {
     throw new Error('MemeLoop SQLite v2 bounded storage ports are unavailable');
   }
+  const retryTurn = createDesktopRetryTurnHandler(activeRuntime);
   const handlers = createDesktopDeviceRpcHandlers({
-    runtime,
-    storage,
-    projections: createDesktopAgentRuntimeProjectionStore(storage),
-    retryTurn: createDesktopRetryTurnHandler(runtime),
+    runtime: createLlmCorrelatedRuntime(activeRuntime),
+    storage: activeStorage,
+    projections: createDesktopAgentRuntimeProjectionStore(activeStorage),
+    retryTurn: (request, requestPeerId) =>
+      runWithLlmConversation(
+        request.conversationId,
+        () => retryTurn(request, requestPeerId),
+      ),
     getAgentDefinitions: () => runtimeAgentDefinitions,
     scheduledTaskHandler: scheduledTaskRpcHandler ??= createDesktopScheduledTaskRpcHandler(
       createMainScheduledTaskServiceBridge(),
@@ -1162,20 +1170,26 @@ const memeloopWorker = {
     workerLog('warn', '[memeloop-utility-process] createAgent', { definitionId });
     await ensureDesktopNodeStarted();
     try {
-      if (!runtime || !storage) {
+      const activeRuntime = runtime;
+      const activeStorage = storage;
+      if (!activeRuntime || !activeStorage) {
         throw new Error('MemeLoop runtime did not initialize');
       }
-      await storage.getAgentDefinition(definitionId);
+      await activeStorage.getAgentDefinition(definitionId);
       workerLog(
         'warn',
         '[memeloop-utility-process] createAgent runtime.createAgent start',
         { definitionId },
       );
-      const created = await runtime.createAgent({
-        definitionId,
-        initialMessage,
-        conversationId,
-      });
+      const create = () =>
+        activeRuntime.createAgent({
+          definitionId,
+          initialMessage,
+          conversationId,
+        });
+      const created = conversationId === undefined
+        ? await create()
+        : await runWithLlmConversation(conversationId, create);
       workerLog(
         'warn',
         '[memeloop-utility-process] createAgent runtime.createAgent done',
@@ -1203,23 +1217,25 @@ const memeloopWorker = {
       conversationId,
     });
     await ensureDesktopNodeStarted();
-    if (!runtime) throw new Error('MemeLoop runtime did not initialize');
+    const activeRuntime = runtime;
+    if (!activeRuntime) throw new Error('MemeLoop runtime did not initialize');
     try {
-      const accepted = await runtime.sendMessage({
-        conversationId,
-        message,
-        ...(identity
-          ? {
-            requestId: identity.requestId,
-            turnId: identity.turnId,
-            userMessage: identity.userMessage ?? {
-              messageId: identity.turnId,
+      const accepted = await runWithLlmConversation(conversationId, () =>
+        activeRuntime.sendMessage({
+          conversationId,
+          message,
+          ...(identity
+            ? {
+              requestId: identity.requestId,
               turnId: identity.turnId,
-              content: message,
-            },
-          }
-          : {}),
-      });
+              userMessage: identity.userMessage ?? {
+                messageId: identity.turnId,
+                turnId: identity.turnId,
+                content: message,
+              },
+            }
+            : {}),
+        }));
       workerLog('warn', '[memeloop-utility-process] sendMessage done', {
         conversationId,
       });
