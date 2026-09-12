@@ -17,6 +17,22 @@ const TITLE_KEYS: Partial<Record<AgentRunErrorCode, string>> = {
   USER_MESSAGE_TOO_LARGE: 'Chat.RunError.UserMessageTooLargeTitle',
 };
 
+/**
+ * Localized recovery for the fail-closed configuration state. The provider
+ * bridge can only guarantee an opaque failure, but this screen still knows
+ * that its safe fallback is the AI configuration flow.
+ */
+export function createDesktopMissingConfigurationPresentation(
+  translate: Translate,
+): AgentChatErrorPresentation {
+  return {
+    title: translate('Chat.ConfigError.Title'),
+    message: translate('Chat.ConfigError.MissingConfigError'),
+    actionId: 'open-provider-settings',
+    actionLabel: translate('Chat.ConfigError.GoToSettings'),
+  };
+}
+
 /** Translate only typed Core errors; never parse provider/English message text. */
 export function resolveDesktopAgentError(
   value: unknown,
@@ -26,7 +42,7 @@ export function resolveDesktopAgentError(
   if (!error) return null;
   const messageKey = MESSAGE_KEYS[error.code];
   const titleKey = TITLE_KEYS[error.code];
-  const hasSettingsAction = error.settingTarget?.kind === 'provider' || error.settingTarget?.kind === 'model';
+  const hasSettingsAction = error.code === 'PROVIDER_CONFIGURATION_MISSING' || error.settingTarget?.kind === 'provider' || error.settingTarget?.kind === 'model';
   return {
     title: translate(titleKey ?? 'Chat.ConfigError.Title'),
     message: translate(messageKey ?? 'Chat.ConfigError.MissingConfigError', {

@@ -13,7 +13,7 @@ import { PreferenceSections } from '@services/preferences/interface';
 import { WindowNames } from '@services/windows/WindowProperties';
 import type { TabItem } from '../Agent/types/tab';
 import { ChatHeader } from './components/ChatHeader';
-import { resolveDesktopAgentError } from './errorPresentation';
+import { createDesktopMissingConfigurationPresentation, resolveDesktopAgentError } from './errorPresentation';
 import { createDesktopAgentSessionController, createDesktopTimelineController, loadDesktopMessageDetail, mapDesktopFile } from './sessionClients';
 import { useExecutionTargets } from './useExecutionTargets';
 import { isChatTab } from './utils/tabTypeGuards';
@@ -224,11 +224,9 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
       }}
       loadingMessage={t('Agent.LoadingChat')}
       emptyMessage={t('Agent.StartConversation')}
+      placeholder={t('InputPlaceholder')}
       resolveErrorPresentation={value => resolveDesktopAgentError(value, t)}
-      genericErrorPresentation={{
-        title: t('Chat.ConfigError.Title'),
-        message: t('Chat.ConfigError.MissingConfigError'),
-      }}
+      genericErrorPresentation={createDesktopMissingConfigurationPresentation(t)}
       onErrorAction={async presentation => {
         if (presentation.actionId === 'open-provider-settings') {
           await window.service.window.open(WindowNames.preferences, {

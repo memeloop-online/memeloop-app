@@ -1,7 +1,7 @@
 import { AgentRunFailure, createAgentRunError, createMissingApiKeyAgentRunError } from 'memeloop';
 import { describe, expect, it, vi } from 'vitest';
 
-import { resolveDesktopAgentError } from '../errorPresentation';
+import { createDesktopMissingConfigurationPresentation, resolveDesktopAgentError } from '../errorPresentation';
 
 describe('desktop agent error presentation', () => {
   it('localizes a typed missing-key error and exposes the settings action', () => {
@@ -16,6 +16,28 @@ describe('desktop agent error presentation', () => {
       actionId: 'open-provider-settings',
       actionLabel: 'localized:Chat.ConfigError.GoToSettings',
       diagnosticId: 'diagnostic-1',
+    });
+  });
+
+  it('makes missing AI configuration recoverable, including the opaque bridge fallback', () => {
+    const translate = vi.fn((key: string) => `localized:${key}`);
+    const failure = new AgentRunFailure(createAgentRunError({
+      code: 'PROVIDER_CONFIGURATION_MISSING',
+      messageKey: 'agent.run.error.providerConfigurationMissing',
+      retryable: false,
+      diagnosticId: 'missing-configuration-1',
+      settingTarget: { kind: 'runtime', section: 'agent' },
+    }));
+
+    expect(resolveDesktopAgentError(failure, translate)).toMatchObject({
+      actionId: 'open-provider-settings',
+      actionLabel: 'localized:Chat.ConfigError.GoToSettings',
+    });
+    expect(createDesktopMissingConfigurationPresentation(translate)).toMatchObject({
+      title: 'localized:Chat.ConfigError.Title',
+      message: 'localized:Chat.ConfigError.MissingConfigError',
+      actionId: 'open-provider-settings',
+      actionLabel: 'localized:Chat.ConfigError.GoToSettings',
     });
   });
 
