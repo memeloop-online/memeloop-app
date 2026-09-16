@@ -6,11 +6,22 @@ interface UseAIConfigManagementProps {
   agentId?: string;
 }
 
-interface UseAIConfigManagementResult {
+type ScopedAIConfigManagementProps =
+  | { agentId: string; agentDefId?: string }
+  | { agentDefId: string; agentId?: string };
+
+/** A definition or conversation can override only its chat/default route. */
+type ScopedModelAssignments = Pick<ModelAssignments, 'default'>;
+
+interface AIConfigManagementBaseResult {
   loading: boolean;
-  config: ModelAssignments | null;
   providerAccounts: readonly ProviderAccountConfig[];
   setProviderAccounts: React.Dispatch<React.SetStateAction<readonly ProviderAccountConfig[]>>;
+  handleModelChange: (providerId: string, modelId: string) => Promise<void>;
+}
+
+interface GlobalAIConfigManagementResult extends AIConfigManagementBaseResult {
+  config: ModelAssignments | null;
   handleModelChange: (providerId: string, modelId: string) => Promise<void>;
   handleEmbeddingModelChange: (providerId: string, modelId: string) => Promise<void>;
   handleSpeechModelChange: (providerId: string, modelId: string) => Promise<void>;
@@ -20,13 +31,22 @@ interface UseAIConfigManagementResult {
   handleConfigChange: (newConfig: ModelAssignments) => Promise<void>;
 }
 
-function withAgentModel(config: ModelAssignments, modelConfig: AgentModelConfig | undefined): ModelAssignments {
-  return modelConfig ? { ...config, default: modelConfig } : config;
+interface ScopedAIConfigManagementResult extends AIConfigManagementBaseResult {
+  config: ScopedModelAssignments | null;
+}
+
+function getScopedAssignments(globalConfig: ModelAssignments, modelConfig: AgentModelConfig | undefined): ScopedModelAssignments {
+  const defaultModel = modelConfig ?? globalConfig.default;
+  return defaultModel ? { default: defaultModel } : {};
 }
 
 const MODEL_PURPOSES = ['default', 'embedding', 'speech', 'imageGeneration', 'transcriptions', 'free'] as const;
 
-export const useAIConfigManagement = ({ agentDefId, agentId }: UseAIConfigManagementProps = {}): UseAIConfigManagementResult => {
+export function useAIConfigManagement(): GlobalAIConfigManagementResult;
+export function useAIConfigManagement(props: ScopedAIConfigManagementProps): ScopedAIConfigManagementResult;
+export function useAIConfigManagement(props?: UseAIConfigManagementProps): GlobalAIConfigManagementResult | ScopedAIConfigManagementResult {
+  const { agentDefId, agentId } = props ?? {};
+  const isScoped = agentId !== undefined || agentDefId !== undefined;
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<ModelAssignments | null>(null);
   const [providerAccounts, setProviderAccounts] = useState<readonly ProviderAccountConfig[]>([]);
@@ -39,20 +59,23 @@ export const useAIConfigManagement = ({ agentDefId, agentId }: UseAIConfigManage
         const globalConfig = await window.service.externalAPI.getModelAssignments();
         let finalConfig = globalConfig;
 
-        // Core stores one optional modelConfig on definitions and instances. Auxiliary
-        // purpose assignments remain global, while an instance/definition default model
-        // takes precedence for the default purpose in this editor.
+        // Core's portable definition/instance contract stores one optional modelConfig.
+        // It is deliberately a default/chat-route override, not a second set of host
+        // assignments. Do not expose global auxiliary routes from a scoped editor:
+        // doing so makes a successful-looking edit impossible to persist.
         if (agentId) {
           const agentInstance = await window.service.agentInstance.getAgentMetadata(agentId);
           if (agentInstance?.modelConfig) {
-            finalConfig = withAgentModel(globalConfig, agentInstance.modelConfig);
+            finalConfig = getScopedAssignments(globalConfig, agentInstance.modelConfig);
           } else if (agentInstance?.agentDefId) {
             const agentDefinition = await window.service.agentDefinition.getAgentDef(agentInstance.agentDefId);
-            finalConfig = withAgentModel(globalConfig, agentDefinition?.modelConfig);
+            finalConfig = getScopedAssignments(globalConfig, agentDefinition?.modelConfig);
+          } else {
+            finalConfig = getScopedAssignments(globalConfig, undefined);
           }
         } else if (agentDefId) {
           const agentDefinition = await window.service.agentDefinition.getAgentDef(agentDefId);
-          finalConfig = withAgentModel(globalConfig, agentDefinition?.modelConfig);
+          finalConfig = getScopedAssignments(globalConfig, agentDefinition?.modelConfig);
         }
 
         const accounts = await window.service.externalAPI.getProviderAccounts();
@@ -123,12 +146,23 @@ export const useAIConfigManagement = ({ agentDefId, agentId }: UseAIConfigManage
     await updateConfig(newConfig);
   }, [updateConfig]);
 
-  return {
+  const baseResult: AIConfigManagementBaseResult = {
     loading,
-    config,
     providerAccounts,
     setProviderAccounts,
     handleModelChange,
+  };
+
+  if (isScoped) {
+    return {
+      ...baseResult,
+      config: config ? getScopedAssignments(config, config.default) : null,
+    };
+  }
+
+  return {
+    ...baseResult,
+    config,
     handleEmbeddingModelChange,
     handleSpeechModelChange,
     handleImageGenerationModelChange,
