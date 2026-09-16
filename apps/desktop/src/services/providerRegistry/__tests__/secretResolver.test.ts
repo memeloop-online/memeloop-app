@@ -19,6 +19,27 @@ afterEach(() => {
 });
 
 describe('provider credentials', () => {
+  it('recovers from a malformed persisted provider registry without blocking startup', () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'memeloop-provider-auth-'));
+    temporaryDirectories.push(directory);
+    const settings = new Map<string, unknown>([
+      // A pre-registry build persisted this incompatible shape.  It must not
+      // prevent the Agent service from starting on a current installation.
+      ['aiSettings', { providers: { unexpected: true } }],
+    ]);
+    const databaseService = {
+      getSetting: vi.fn((key: string) => settings.get(key)),
+      setSetting: vi.fn((key: string, value: unknown) => settings.set(key, value)),
+    } as unknown as IDatabaseService;
+    const accountStore = new AccountStore(
+      databaseService,
+      new SecretResolver(new LocalAuthStore(path.join(directory, 'auth.json'))),
+    );
+
+    expect(accountStore.getProviderAccounts()).toEqual([]);
+    expect(settings.get('aiSettings')).toEqual({ accounts: [], modelAssignments: {} });
+  });
+
   it('keeps secret metadata through account edits while storing the plaintext only in auth.json', async () => {
     const directory = mkdtempSync(path.join(os.tmpdir(), 'memeloop-provider-auth-'));
     temporaryDirectories.push(directory);
