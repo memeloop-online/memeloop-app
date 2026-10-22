@@ -7,7 +7,7 @@ settings:
 overrides:
   '@electron/rebuild': 4.2.0
   git-sync-js>fs-extra: 11.4.0
-  '@memeloop/libp2p': 0.3.2
+  '@memeloop/libp2p': 0.3.3
   '@memeloop/react-ui': 0.2.8
   memeloop: 0.3.9
   memeloop-cli: 0.3.5
@@ -35,8 +35,8 @@ importers:
         specifier: ^15.1.1
         version: 15.1.1(expo-font@57.0.1)(react-native@0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(bufferutil@4.1.0)(supports-color@10.2.2))(@types/react@19.2.18)(bufferutil@4.1.0)(react@19.2.3)(supports-color@10.2.2))(react@19.2.3)
       '@memeloop/libp2p':
-        specifier: 0.3.2
-        version: 0.3.2(bufferutil@4.1.0)(memeloop@0.3.9(@ai-sdk/anthropic@4.0.21(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3)))
+        specifier: 0.3.3
+        version: 0.3.3(bufferutil@4.1.0)(memeloop@0.3.9(@ai-sdk/anthropic@4.0.21(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3)))
       '@memeloop/react-ui':
         specifier: 0.2.8
         version: 0.2.8(22e89601f507571320307192b9aac8df)
@@ -1068,8 +1068,8 @@ packages:
   '@libp2p/websockets@10.1.19':
     resolution: {integrity: sha512-inY5dWhm+mCrnS/wcHIWtDZ908c1W7UkpXE9i6uvnJVapWbvonvX9GEsTLvh4NbL7SOfnOHGkwDVgx1M2RxcRA==}
 
-  '@memeloop/libp2p@0.3.2':
-    resolution: {integrity: sha512-Funguu9aM8P8aF+runC8J3MIEnkUGA8D5n4Lu1v3+5Sk4S81mbUs/gksnJ1xgeYLAY7NfdlQLg+rabsuFf4m1Q==}
+  '@memeloop/libp2p@0.3.3':
+    resolution: {integrity: sha512-i2QF4XQRdHQ6bgv32JW76/hJ2bJzYdR23/8u7Ze8S5CnIQyQ26RY2047ZHmXZcN+fFN6/izJJMmm7Ye+3xV4RA==}
     peerDependencies:
       memeloop: 0.3.9
 
@@ -6101,7 +6101,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@memeloop/libp2p@0.3.2(bufferutil@4.1.0)(memeloop@0.3.9(@ai-sdk/anthropic@4.0.21(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3)))':
+  '@memeloop/libp2p@0.3.3(bufferutil@4.1.0)(memeloop@0.3.9(@ai-sdk/anthropic@4.0.21(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3)))':
     dependencies:
       '@chainsafe/libp2p-noise': 17.0.0
       '@chainsafe/libp2p-yamux': 8.0.1
@@ -6119,6 +6119,7 @@ snapshots:
       '@libp2p/websockets': 10.1.19(bufferutil@4.1.0)
       '@multiformats/multiaddr': 13.0.3
       '@multiformats/multiaddr-matcher': 3.0.2
+      '@noble/hashes': 2.2.0
       libp2p: 3.3.8
       memeloop: 0.3.9(@ai-sdk/anthropic@4.0.21(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3))
       uint8arrays: 6.1.1
