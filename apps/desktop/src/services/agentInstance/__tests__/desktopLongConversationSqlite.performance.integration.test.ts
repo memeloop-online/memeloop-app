@@ -5,14 +5,20 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  AGENT_DEVICE_RPC_METHODS,
+  type AgentDeviceRpcGetTurnDetailRequest,
+  type AgentDeviceRpcGetTurnDetailResponse,
+  type AgentDeviceRpcListTurnsRequest,
+  type AgentDeviceRpcListTurnsResponse,
+  type AgentRuntimeRpcStorage,
   canonicalJsonBytes,
   type ConversationEvent,
   type ConversationMessageCursor,
   type ConversationMessagePage,
   type ConversationMessageWindowResult,
   type ConversationTimelinePage,
+  createAgentRuntimeDeviceRpcHandler,
 } from 'memeloop';
-import { createDesktopAgentRuntimeProjectionStore } from '../sqliteAgentRuntimeProjectionStore';
 
 const CONVERSATION_ID = 'desktop-performance-100k';
 const MESSAGE_COUNT = 100_000;
@@ -235,13 +241,35 @@ function createCountedDesktopProjection(storage: TestSQLiteStorage) {
       return storage.db.transaction(operation);
     },
   };
-  const projection = createDesktopAgentRuntimeProjectionStore({
-    db: countedDatabase,
-    getConversationTimelinePage: async (...parameters: Parameters<TestSQLiteStorage['getConversationTimelinePage']>) => {
-      timelineCalls += 1;
-      return storage.getConversationTimelinePage(...parameters);
+  const countedStorage = new Proxy(storage, {
+    get(target, property) {
+      if (property === 'db') return countedDatabase;
+      if (property === 'getConversationTimelinePage') {
+        return async (...parameters: Parameters<TestSQLiteStorage['getConversationTimelinePage']>) => {
+          timelineCalls += 1;
+          return storage.getConversationTimelinePage(...parameters);
+        };
+      }
+      const value: unknown = Reflect.get(target, property);
+      return typeof value === 'function'
+        ? (...parameters: unknown[]): unknown => (value as (...arguments_: unknown[]) => unknown).apply(target, parameters)
+        : value;
     },
-  } as never);
+  });
+  const handler = createAgentRuntimeDeviceRpcHandler({
+    storage: countedStorage as unknown as AgentRuntimeRpcStorage,
+    runtime: {} as never,
+    trustedLocalOnly: true,
+    scheduledTaskHandler: async () => {
+      throw new Error('unexpected scheduled task request');
+    },
+  });
+  const projection = {
+    listTurns: (parameters: AgentDeviceRpcListTurnsRequest, _context: unknown) =>
+      handler({ remotePeerId: 'desktop-test', method: AGENT_DEVICE_RPC_METHODS.listTurns, parameters }) as Promise<AgentDeviceRpcListTurnsResponse>,
+    getTurnDetail: (parameters: AgentDeviceRpcGetTurnDetailRequest, _context: unknown) =>
+      handler({ remotePeerId: 'desktop-test', method: AGENT_DEVICE_RPC_METHODS.getTurnDetail, parameters }) as Promise<AgentDeviceRpcGetTurnDetailResponse>,
+  };
   return {
     projection,
     counts: () => ({ prepareCalls, timelineCalls }),
@@ -514,10 +542,10 @@ describe('Desktop real SQLite 100k long-conversation performance', () => {
       sqlCounts.turnDetail = sql.count();
       expect(detail.items.map(item => item.messageId)).toEqual([middleTurn.messageId]);
       expect(responseBytes(detail)).toBeLessThanOrEqual(PAGE_BYTES);
-      // One indexed keyset query, one point projection read, and two bounded
-      // existence probes. The limit hard-caps this path at page size + 3.
-      expect(counted.counts().prepareCalls).toBeLessThanOrEqual(detail.items.length + 3);
-      expect(sqlCounts.turnDetail).toBeLessThanOrEqual(detail.items.length + 3);
+      // Canonical RPC also reads conversation authorization and revision.
+      // The page, point projections, and scoped existence probes stay bounded.
+      expect(counted.counts().prepareCalls).toBeLessThanOrEqual(detail.items.length + 5);
+      expect(sqlCounts.turnDetail).toBeLessThanOrEqual(detail.items.length + 5);
 
       const tailPlan = planDetails(
         database,
@@ -624,7 +652,7 @@ describe('Desktop real SQLite 100k long-conversation performance', () => {
         limit: PAGE_LIMIT,
         byteBudget: PAGE_BYTES,
         renderLineBudget: PAGE_LIMIT,
-      }, {})).rejects.toThrow('conversation_turn_projection_cursor_reset');
+      }, {})).rejects.toThrow('conversation_timeline_cursor_invalidated');
 
       const compactionRow = database.prepare(`
         SELECT cursor FROM conversation_timeline_entries_v2

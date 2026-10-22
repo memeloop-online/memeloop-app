@@ -1,20 +1,7 @@
-import ArticleIcon from '@mui/icons-material/Article';
-import CloseIcon from '@mui/icons-material/Close';
-import EditIcon from '@mui/icons-material/Edit';
-import FullscreenIcon from '@mui/icons-material/Fullscreen';
-import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
-import SaveIcon from '@mui/icons-material/Save';
-import { Box, Button, CircularProgress, Dialog, DialogContent, DialogTitle, Divider, IconButton, List, ListItemButton, ListItemText, Tooltip, Typography } from '@mui/material';
-import {
-  type AgentFrameworkConfig,
-  MAX_PROMPT_PREVIEW_AUDIT_DETAIL_CHUNK_BYTES,
-  MAX_PROMPT_PREVIEW_AUDIT_PAGE_BYTES,
-  MAX_PROMPT_PREVIEW_AUDIT_PAGE_ENTRIES,
-  type PromptPreviewAuditEntrySummary,
-  type PromptPreviewAuditPage,
-  type PromptPreviewDialogState,
-} from 'memeloop';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { PromptExecutionInspector } from '@memeloop/react-ui/agent/prompts';
+import { Box, Button, CircularProgress, Dialog, DialogContent, DialogTitle, Typography } from '@mui/material';
+import type { AgentFrameworkConfig, PromptPreviewDialogState } from 'memeloop';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { createDesktopPromptPreviewController, toCoreAgentFrameworkConfig } from '@/pages/ChatTabContent/promptPreviewClient';
@@ -30,13 +17,6 @@ interface PromptPreviewDialogProps {
   initialBaseMode?: 'preview' | 'edit';
 }
 
-interface AuditDetailState {
-  entry: PromptPreviewAuditEntrySummary;
-  text: string;
-  nextCursor?: string;
-}
-
-/** Bounded UI over a worker-retained exact model request. */
 export const PromptPreviewDialog: React.FC<PromptPreviewDialogProps> = ({
   open,
   onClose,
@@ -47,237 +27,160 @@ export const PromptPreviewDialog: React.FC<PromptPreviewDialogProps> = ({
 }) => {
   const { t } = useTranslation('agent');
   const controller = useMemo(() => createDesktopPromptPreviewController(), [agentId]);
-  const [controllerState, setControllerState] = useState<PromptPreviewDialogState>(() => controller.getState());
-  const [page, setPage] = useState<PromptPreviewAuditPage>();
-  const [detail, setDetail] = useState<AuditDetailState>();
-  const [auditLoading, setAuditLoading] = useState(false);
-  const [previewFailed, setPreviewFailed] = useState(false);
-  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [state, setState] = useState<PromptPreviewDialogState>(() => controller.getState());
+  const [failed, setFailed] = useState(false);
+  const [fullScreen, setFullScreen] = useState(false);
   const [baseMode, setBaseMode] = useState<'preview' | 'edit'>(initialBaseMode);
+  const [fieldPaths, setFieldPaths] = useState<string[]>([]);
+  const formContainer = useRef<HTMLDivElement>(null);
+  const { loading, config, schema, handleConfigChange } = useAgentFrameworkConfigManagement({ agentDefId, agentId });
 
-  const {
-    loading: configLoading,
-    config,
-    schema,
-    handleConfigChange,
-  } = useAgentFrameworkConfigManagement({ agentDefId, agentId });
-
-  useEffect(() => controller.subscribe(setControllerState), [controller]);
+  useEffect(() => controller.subscribe(setState), [controller]);
   useEffect(() => () => {
     controller.close();
   }, [controller]);
-
   useEffect(() => {
     if (open) {
       setBaseMode(initialBaseMode);
       controller.open(initialBaseMode);
     } else controller.close();
   }, [controller, initialBaseMode, open]);
-
   useEffect(() => {
-    if (!open || configLoading || !config) return;
+    if (!open || loading) return;
     let active = true;
-    setPreviewFailed(false);
-    let coreConfig: Parameters<typeof controller.generate>[0];
-    try {
-      coreConfig = toCoreAgentFrameworkConfig(config);
-    } catch (error: unknown) {
-      setPreviewFailed(true);
-      void window.service.native.log('warn', 'Prompt preview configuration is invalid', { agentId, error });
-      return;
-    }
-    void controller.generate(coreConfig, agentId, inputText).catch((error: unknown) => {
+    setFailed(false);
+    void (async () => {
+      await controller.generate(toCoreAgentFrameworkConfig(config ?? { prompts: [], plugins: [] }), agentId, inputText);
+    })().catch((error: unknown) => {
       if (!active) return;
-      setPreviewFailed(true);
+      setFailed(true);
       void window.service.native.log('warn', 'Prompt preview generation failed', { agentId, error });
     });
     return () => {
       active = false;
     };
-  }, [agentId, config, configLoading, controller, inputText, open]);
-
+  }, [agentId, config, loading, controller, inputText, open]);
   useEffect(() => {
-    const initialPage = controllerState.result?.audit.initialPage;
-    if (initialPage) {
-      setPage(initialPage);
-      setDetail(undefined);
-    }
-  }, [controllerState.result]);
+    if (baseMode !== 'edit' || loading || !fieldPaths.length) return;
+    const frame = requestAnimationFrame(() => {
+      for (const path of fieldPaths) {
+        const id = `root_${path.replaceAll(/[.[\]]+/g, '_').replace(/_$/, '')}`;
+        const field = formContainer.current?.querySelector<HTMLElement>(`#${CSS.escape(id)}`);
+        if (!field) continue;
+        field.scrollIntoView({ block: 'center' });
+        field.focus();
+        break;
+      }
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [baseMode, fieldPaths, loading]);
 
-  const saveToDefinition = useCallback(async () => {
+  const close = () => {
+    controller.close();
+    onClose();
+  };
+  const saveToDefinition = async () => {
     if (!agentDefId || !config) return;
     const definition = await window.service.agentDefinition.getAgentDef(agentDefId);
     if (definition) await window.service.agentDefinition.updateAgentDef({ ...definition, agentFrameworkConfig: config });
-  }, [agentDefId, config]);
-
-  const close = useCallback(() => {
-    controller.close();
-    onClose();
-  }, [controller, onClose]);
-
-  const loadPage = useCallback(async (mode: 'before' | 'after') => {
-    const audit = controllerState.result?.audit;
-    const cursor = mode === 'before' ? page?.previousCursor : page?.nextCursor;
-    if (!audit || !cursor || auditLoading) return;
-    setAuditLoading(true);
-    try {
-      setPage(
-        await controller.getAuditPage({
-          sessionId: audit.sessionId,
-          expectedRevision: audit.revision,
-          mode,
-          cursor,
-          limit: MAX_PROMPT_PREVIEW_AUDIT_PAGE_ENTRIES,
-          maxBytes: MAX_PROMPT_PREVIEW_AUDIT_PAGE_BYTES,
-        }),
-      );
-      setDetail(undefined);
-    } finally {
-      setAuditLoading(false);
-    }
-  }, [auditLoading, controller, controllerState.result?.audit, page?.nextCursor, page?.previousCursor]);
-
-  const loadDetail = useCallback(async (entry: PromptPreviewAuditEntrySummary, cursor?: string) => {
-    const audit = controllerState.result?.audit;
-    if (!audit || auditLoading) return;
-    setAuditLoading(true);
-    try {
-      const chunk = await controller.getAuditDetail({
-        sessionId: audit.sessionId,
-        expectedRevision: audit.revision,
-        target: { kind: 'entry', entryId: entry.entryId, entryIndex: entry.entryIndex },
-        ...(cursor === undefined ? {} : { cursor }),
-        maxBytes: MAX_PROMPT_PREVIEW_AUDIT_DETAIL_CHUNK_BYTES,
-      });
-      setDetail({
-        entry,
-        text: new TextDecoder('utf-8', { fatal: true }).decode(chunk.canonicalUtf8),
-        ...(chunk.nextCursor === undefined ? {} : { nextCursor: chunk.nextCursor }),
-      });
-    } finally {
-      setAuditLoading(false);
-    }
-  }, [auditLoading, controller, controllerState.result?.audit]);
+  };
 
   return (
-    <Dialog open={open} onClose={close} maxWidth={isFullScreen ? false : 'md'} fullWidth fullScreen={isFullScreen}>
+    <Dialog open={open} onClose={close} maxWidth={fullScreen ? false : 'md'} fullWidth fullScreen={fullScreen}>
       <DialogTitle>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Box>{baseMode === 'edit' ? t('Prompt.Edit') : t('Prompt.Preview')}</Box>
+          <Typography>{baseMode === 'edit' ? t('Prompt.Edit') : t('Prompt.Preview')}</Typography>
           <Box>
             {baseMode === 'edit' && agentDefId && (
-              <Tooltip title={t('Preference.SaveToDefinition')}>
-                <IconButton
-                  aria-label='save-to-definition'
-                  onClick={() => {
-                    void saveToDefinition();
-                  }}
-                >
-                  <SaveIcon />
-                </IconButton>
-              </Tooltip>
+              <Button
+                onClick={() => {
+                  void saveToDefinition();
+                }}
+              >
+                {t('Preference.SaveToDefinition')}
+              </Button>
             )}
-            <IconButton
+            <Button
               onClick={() => {
                 setBaseMode(mode => mode === 'preview' ? 'edit' : 'preview');
               }}
             >
-              {baseMode === 'preview' ? <EditIcon /> : <ArticleIcon />}
-            </IconButton>
-            <IconButton
+              {baseMode === 'preview' ? t('Prompt.Edit') : t('Prompt.Preview')}
+            </Button>
+            <Button
               aria-label='toggle-fullscreen'
               onClick={() => {
-                setIsFullScreen(value => !value);
+                setFullScreen(value => !value);
               }}
             >
-              {isFullScreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
-            </IconButton>
-            <IconButton aria-label='close' onClick={close}>
-              <CloseIcon />
-            </IconButton>
+              ↗
+            </Button>
+            <Button aria-label='close' onClick={close}>×</Button>
           </Box>
         </Box>
       </DialogTitle>
-      <DialogContent sx={{ minHeight: isFullScreen ? 0 : '65vh', display: 'flex', flexDirection: 'column' }}>
+      <DialogContent sx={{ minHeight: fullScreen ? 0 : '65vh', display: 'flex', flexDirection: 'column' }}>
         {baseMode === 'edit'
           ? (
-            <PromptConfigForm
-              schema={schema}
-              formData={config}
-              loading={configLoading}
-              onChange={(next: AgentFrameworkConfig) => {
-                void handleConfigChange(next);
-              }}
-            />
-          )
-          : previewFailed
-          ? (
-            <Box sx={{ p: 2 }}>
-              <Typography color='error'>{t('Chat.ConfigError.MissingConfigError')}</Typography>
+            <Box ref={formContainer}>
+              <PromptConfigForm
+                schema={schema}
+                formData={config}
+                loading={loading}
+                onChange={(next: AgentFrameworkConfig) => {
+                  void handleConfigChange(next);
+                }}
+              />
             </Box>
           )
-          : controllerState.loading || !page
+          : failed
+          ? <Typography color='error'>{t('Chat.RunError.OperationFailed')}</Typography>
+          : state.loading || !state.result
           ? (
             <Box sx={{ flex: 1, display: 'grid', placeItems: 'center' }}>
               <CircularProgress />
             </Box>
           )
           : (
-            <Box sx={{ minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
-              <Typography variant='caption' color='text.secondary' sx={{ pb: 1 }}>
-                {page.totalEntries} · {controllerState.result?.audit.route.providerId} / {controllerState.result?.audit.route.logicalModelId}
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 1, pb: 1 }}>
-                <Button
-                  disabled={!page.hasMoreBefore || auditLoading}
-                  onClick={() => {
-                    void loadPage('before');
-                  }}
-                >
-                  {t('Chat.Timeline.LoadEarlier')}
-                </Button>
-                <Button
-                  disabled={!page.hasMoreAfter || auditLoading}
-                  onClick={() => {
-                    void loadPage('after');
-                  }}
-                >
-                  {t('Chat.Timeline.LoadLater')}
-                </Button>
-              </Box>
-              <Box sx={{ minHeight: 0, flex: 1, display: 'grid', gridTemplateColumns: detail ? 'minmax(240px, 40%) 1fr' : '1fr', gap: 2 }}>
-                <List dense sx={{ overflow: 'auto' }}>
-                  {page.items.map(entry => (
-                    <ListItemButton
-                      key={`${entry.entryId}:${entry.entryIndex}`}
-                      onClick={() => {
-                        void loadDetail(entry);
-                      }}
-                    >
-                      <ListItemText primary={`${entry.role} · ${entry.source}`} secondary={entry.preview} />
-                    </ListItemButton>
-                  ))}
-                </List>
-                {detail && (
-                  <Box sx={{ minWidth: 0, overflow: 'auto' }}>
-                    <Divider sx={{ mb: 1 }} />
-                    <Typography component='pre' sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0, fontFamily: 'monospace' }}>
-                      {detail.text}
-                    </Typography>
-                    {detail.nextCursor && (
-                      <Button
-                        disabled={auditLoading}
-                        onClick={() => {
-                          void loadDetail(detail.entry, detail.nextCursor);
-                        }}
-                      >
-                        {t('Chat.Timeline.LoadLater')}
-                      </Button>
-                    )}
-                  </Box>
-                )}
-              </Box>
-            </Box>
+            <PromptExecutionInspector
+              audit={state.result.audit}
+              controller={controller}
+              labels={{
+                tree: t('Prompt.Tree'),
+                flat: t('Prompt.Flat'),
+                request: t('Chat.Experience.Request'),
+                back: t('Browser.Back'),
+                earlier: t('Chat.Experience.Previous'),
+                later: t('Chat.Experience.Next'),
+                loading: t('Prompt.Loading'),
+                error: t('Chat.RunError.OperationFailed'),
+                empty: t('Prompt.NoMessages'),
+                editSource: t('Chat.Experience.EditSource'),
+                source: source =>
+                  ({
+                    prompt: t('Chat.Experience.Instructions'),
+                    system: t('Chat.Experience.System'),
+                    tool: t('Chat.Experience.Tools'),
+                    'conversation-message': t('Chat.Experience.Conversation'),
+                    'context-compaction-summary': t('Chat.Experience.Summary'),
+                    'preview-input': t('Chat.Experience.Current'),
+                  })[source],
+                role: role =>
+                  ({
+                    system: t('Chat.Experience.System'),
+                    user: t('Chat.Actions.User'),
+                    assistant: t('Chat.Actions.Agent'),
+                    agent: t('Chat.Actions.Agent'),
+                    tool: t('Chat.Experience.Tools'),
+                  })[role] ?? role,
+              }}
+              onFieldSelect={paths => {
+                setFieldPaths(paths);
+                setBaseMode('edit');
+              }}
+            />
           )}
       </DialogContent>
     </Dialog>

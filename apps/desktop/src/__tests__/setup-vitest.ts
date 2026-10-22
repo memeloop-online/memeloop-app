@@ -39,9 +39,11 @@ import { vi } from 'vitest';
 vi.mock('react-i18next', () => import('./__mocks__/react-i18next'));
 vi.mock('@services/libs/log', () => import('./__mocks__/services-log'));
 vi.mock('@services/libs/i18n', () => import('./__mocks__/services-i18n'));
-vi.mock('@services/libs/workerAdapter', async () => {
+vi.mock('@services/libs/workerAdapter', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@services/libs/workerAdapter')>();
   const rxjs = await import('rxjs');
   return {
+    ...actual,
     createWorkerProxy: () => ({
       configureHost: async () => ({ ok: true }),
       ping: async () => ({ ok: true }),

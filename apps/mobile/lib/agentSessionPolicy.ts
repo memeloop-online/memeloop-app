@@ -29,17 +29,18 @@ export const MOBILE_ATTACHMENT_HOST: MobileAttachmentHostCapability = Object.fre
   },
 });
 
-function isReachableAgentDevice(device: Device): boolean {
+function isReconnectableAgentDevice(device: Device): boolean {
   return device.trusted === true &&
-    device.capabilities.agentLoop === true &&
-    (device.reachability.state === 'online' || device.reachability.state === 'nearby');
+    (device.capabilities.agentLoop === true || device.platform === 'desktop' || device.platform === 'cli');
 }
 
 /** Deterministic selection keeps render order changes from switching machines. */
 export function selectMobileAgentDevice(devices: readonly Device[]): Device | undefined {
   return devices
-    .filter(isReachableAgentDevice)
+    .filter(isReconnectableAgentDevice)
     .toSorted((left, right) => {
+      const agent = Number(right.capabilities.agentLoop === true) - Number(left.capabilities.agentLoop === true);
+      if (agent !== 0) return agent;
       const online = Number(right.reachability.state === 'online') - Number(left.reachability.state === 'online');
       if (online !== 0) return online;
       const recent = (right.lastSeen ?? 0) - (left.lastSeen ?? 0);

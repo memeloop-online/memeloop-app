@@ -48,6 +48,7 @@ import { logger } from '@services/libs/log';
 
 import { createDesktopCloudConnectionCoordinator, signDesktopCloudHeartbeat } from './cloudCoordinator';
 import type { DeviceNetworkRpcOperationOptions, DeviceNetworkRuntimeOptions, IDeviceNetworkService } from './interface';
+import { selectPairingAddresses } from './pairingAddresses';
 
 const DEVICE_IDENTITY_KEY = 'deviceNetwork.identity.v1';
 const TRUSTED_DEVICES_KEY = 'deviceNetwork.trustedDevices.v2';
@@ -418,12 +419,17 @@ export class DeviceNetworkService implements IDeviceNetworkService {
     return this.core!.getLocalDevice();
   }
 
+  public isLocallyPairedPeer(peerId: string): boolean {
+    const record = locallyPairedRecord(this.core?.getTrustedDevice(peerId));
+    return record !== undefined && !record.revokedAt;
+  }
+
   public async getPairingInvite(): Promise<string> {
     const localDevice = await this.getLocalDevice();
     await this.ensureIdentity();
     const invite = await createSignedDevicePairingInvite({
       identity: this.identity!,
-      multiaddrs: localDevice.multiaddrs ?? [],
+      multiaddrs: selectPairingAddresses(localDevice.multiaddrs ?? []),
     });
     return encodeDevicePairingInvite(invite);
   }

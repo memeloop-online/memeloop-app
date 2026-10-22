@@ -22,6 +22,7 @@ import type {
   AgentInstanceMetadataUpdate,
   AgentInstanceModel,
   AgentManagementCallOptions,
+  AgentModelConfig,
   AgentRuntimeView,
   AttachmentReference,
   BeginAttachmentUploadRequest,
@@ -29,6 +30,9 @@ import type {
   ChatMessage,
   CommitAttachmentUploadRequest,
   CommitAttachmentUploadResponse,
+  ConversationEditingPort,
+  ConversationForkRequest,
+  ConversationModelParameters,
   ConversationTimelinePage,
   DeviceCapabilities,
   DeviceRpcHandler,
@@ -85,6 +89,7 @@ export type {
   AgentInstanceMetadata,
   AgentInstanceMetadataUpdate,
   AgentManagementCallOptions,
+  AgentModelConfig,
   AgentRuntimeView,
   ChatMessage,
 };
@@ -130,7 +135,7 @@ export interface IAgentInstanceService {
 
   /** Main-process-only adapters backed by the UtilityProcess CLI SQLite store. */
   getMemeLoopSyncStorage(): FullAgentStorage;
-  getMemeLoopDeviceRpcHandler(): DeviceRpcHandler;
+  getMemeLoopDeviceRpcHandler(isLocallyPairedPeer: (peerId: string) => boolean): DeviceRpcHandler;
   getMemeLoopDeviceCapabilities(): Promise<DeviceCapabilities>;
 
   /** Policy-scoped declarative resource request; renderer never receives the bearer token. */
@@ -186,6 +191,14 @@ export interface IAgentInstanceService {
   getPromptPreviewAuditDetail(request: PromptPreviewAuditDetailRequest): Promise<PromptPreviewAuditDetailChunk>;
   releasePromptPreviewAuditSession(request: PromptPreviewAuditReleaseRequest): Promise<void>;
   cancelPromptPreview(requestId: string): Promise<void>;
+  loadConversationEditSource: ConversationEditingPort['loadConversationEditSource'];
+  saveConversationEditDraft: ConversationEditingPort['saveConversationEditDraft'];
+  forkConversation: ConversationEditingPort['forkConversation'];
+  getConversationBranches: ConversationEditingPort['getConversationBranches'];
+  acceptConversationBranch(request: ConversationForkRequest): Promise<void>;
+  getConversationModelParameters(conversationId: string): Promise<ConversationModelParameters>;
+  setConversationModelParameters(conversationId: string, selection: AgentModelConfig): Promise<ConversationModelParameters>;
+  setMainConversation(conversationId: string): Promise<void>;
 
   /**
    * Subscribe to agent instance updates
@@ -389,6 +402,14 @@ export const AgentInstanceServiceIPCDescriptor = {
     getPromptPreviewAuditDetail: ProxyPropertyType.Function,
     releasePromptPreviewAuditSession: ProxyPropertyType.Function,
     cancelPromptPreview: ProxyPropertyType.Function,
+    loadConversationEditSource: ProxyPropertyType.Function,
+    saveConversationEditDraft: ProxyPropertyType.Function,
+    forkConversation: ProxyPropertyType.Function,
+    getConversationBranches: ProxyPropertyType.Function,
+    acceptConversationBranch: ProxyPropertyType.Function,
+    getConversationModelParameters: ProxyPropertyType.Function,
+    setConversationModelParameters: ProxyPropertyType.Function,
+    setMainConversation: ProxyPropertyType.Function,
     subscribeToAgentUpdates: ProxyPropertyType.Function$,
     subscribeConversationMutations: ProxyPropertyType.Function$,
     subscribeToOrchestrationWatch: ProxyPropertyType.Function$,

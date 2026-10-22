@@ -99,7 +99,7 @@ export class AppWindow implements IWindowService {
     });
 
     await window.loadURL(getMainWindowEntry());
-    if (windowName === WindowNames.main && !isTest) window.show();
+    if (windowName === WindowNames.main && (!isTest || process.env.SHOW_E2E_WINDOW === '1')) window.show();
     else if (windowName !== WindowNames.main) window.show();
     return returnWindow ? window : undefined;
   }

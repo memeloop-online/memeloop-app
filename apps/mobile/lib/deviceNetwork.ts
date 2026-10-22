@@ -6,7 +6,7 @@ import {
   parseVerifiedDevicePairingInvite,
   type RawSeedDeviceIdentity,
 } from '@memeloop/libp2p/browser';
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from './deviceStorage';
 import {
   type Device,
   type DeviceNetworkService,

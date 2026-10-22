@@ -2,6 +2,7 @@ import { AgentChatShell, AgentSessionProvider, useAgentSession, useAgentSessionC
 import type { MemeLoopMessageLabels, WebMemeLoopChatAdapter } from '@memeloop/react-ui/chat';
 import { Box, Typography } from '@mui/material';
 import type { AgentInstanceMetadata } from '@services/agentInstance/interface';
+import { type ConversationBranchState, createConversationEditingAdapter } from 'memeloop';
 import { nanoid } from 'nanoid';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,6 +14,7 @@ import { PreferenceSections } from '@services/preferences/interface';
 import { WindowNames } from '@services/windows/WindowProperties';
 import type { TabItem } from '../Agent/types/tab';
 import { ChatHeader } from './components/ChatHeader';
+import { ConversationModelParametersDialog } from './components/ConversationModelParametersDialog';
 import { createDesktopGenericErrorPresentation, resolveDesktopAgentError } from './errorPresentation';
 import { createDesktopAgentSessionController, createDesktopTimelineController, loadDesktopMessageDetail, mapDesktopFile } from './sessionClients';
 import { useExecutionTargets } from './useExecutionTargets';
@@ -65,6 +67,7 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
   const timelineController = useMemo(() => createDesktopTimelineController(), [agentId]);
   const [metadata, setMetadata] = useState<AgentInstanceMetadata>();
   const [previewMode, setPreviewMode] = useState<'preview' | 'edit'>();
+  const [parametersOpen, setParametersOpen] = useState(false);
   const switchGeneration = useRef(0);
   const updateTabData = useTabStore(useShallow(state => state.updateTabData));
   const formatTimelineTimestamp = useMemo(() => {
@@ -107,6 +110,43 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
       void window.service.native.log('warn', 'Agent chat operation failed', { agentId, error });
     },
   });
+  const [branches, setBranches] = useState<ConversationBranchState[]>([]);
+  useEffect(() => {
+    let active = true;
+    const refreshBranches = () => {
+      void window.service.agentInstance.getConversationBranches(agentId, sessionAdapter.messages.filter(message => message.role === 'user').map(message => message.messageId))
+        .then(value => {
+          if (active) setBranches(value);
+        })
+        .catch((error: unknown) => {
+          void window.service.native.log('warn', 'Failed to load branch history', { error });
+        });
+    };
+    refreshBranches();
+    window.addEventListener('focus', refreshBranches);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', refreshBranches);
+    };
+  }, [agentId, sessionAdapter.messages]);
+  const switchConversation = useCallback(async (conversationId: string) => {
+    const next = await window.service.agentInstance.getAgentMetadata(conversationId);
+    if (!next) throw new Error('conversation_branch_target_missing');
+    updateTabData(tab.id, { agentId: conversationId, agentDefId: next.agentDefId, title: next.name });
+  }, [tab.id, updateTabData]);
+  const editing = useMemo(() =>
+    createConversationEditingAdapter({
+      conversationId: agentId,
+      branches,
+      port: window.service.agentInstance,
+      createId: nanoid,
+      acceptBranch: async (request, draftRevision) => {
+        await window.service.agentInstance.acceptConversationBranch(request);
+        await window.service.agentInstance.saveConversationEditDraft({ conversationId: agentId, messageId: request.messageId, text: null, expectedRevision: draftRevision });
+        await switchConversation(request.targetConversationId);
+      },
+      switchBranch: async id => switchConversation(id),
+    }), [agentId, branches, switchConversation]);
 
   const handleSwitchAgent = useCallback(async (newAgentDefinitionId: string) => {
     if (newAgentDefinitionId === agentDefId) return;
@@ -168,6 +208,7 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
 
   const adapter = useMemo<WebMemeLoopChatAdapter>(() => ({
     ...sessionAdapter,
+    editing,
     isRunning: sessionAdapter.isRunning || remoteRunning,
     error: sessionAdapter.error ?? remoteError,
     executionTargets,
@@ -189,6 +230,7 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
     retrySelectedTurn,
     sendToExecutionTarget,
     sessionAdapter,
+    editing,
     setExecutionTarget,
   ]);
 
@@ -211,9 +253,7 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
             agentDefId={agentDefId ?? snapshot.agent?.agentDefId}
             loading={adapter.isRunning || adapter.isLoading}
             onOpenParameters={() => {
-              void window.service.window.open(WindowNames.preferences, {
-                preferenceGotoTab: PreferenceSections.externalAPI,
-              });
+              setParametersOpen(true);
             }}
             onOpenPreview={setPreviewMode}
             onSwitchAgent={handleSwitchAgent}
@@ -254,6 +294,17 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
         agent: t('Chat.Actions.Agent'),
       }}
       messageLabels={{
+        editing: {
+          edit: t('Chat.Experience.Edit'),
+          input: t('Chat.Experience.Input'),
+          send: t('Chat.Send'),
+          discard: t('Chat.Experience.Discard'),
+          saveDraft: t('Chat.Experience.SaveDraft'),
+          reloadDraft: t('Chat.Experience.ReloadDraft'),
+          conflict: t('Chat.Experience.Conflict'),
+          previousBranch: t('Chat.Experience.PreviousBranch'),
+          nextBranch: t('Chat.Experience.NextBranch'),
+        },
         attachmentAlt: t('Chat.Message.AttachmentAlt'),
         attachmentLoadFailed: t('Chat.Message.AttachmentLoadFailed'),
         noDetails: t('Chat.Message.NoDetails'),
@@ -289,8 +340,25 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
           answered: t('Chat.Message.AskQuestion.Answered'),
         },
       } satisfies MemeLoopMessageLabels}
+      composerLabels={{
+        input: t('Chat.InputPlaceholder'),
+        send: t('Chat.Send'),
+        cancel: t('Chat.Cancel'),
+        addFile: t('Agent.Attachment.AddAttachment'),
+        removeFile: name => t('Chat.Experience.RemoveAttachment', { name }),
+        removeTiddler: (workspace, title) => t('Chat.Experience.RemoveAttachment', { name: `${workspace}: ${title}` }),
+      }}
       dialogs={
         <>
+          {parametersOpen && (
+            <ConversationModelParametersDialog
+              key={agentId}
+              agentId={agentId}
+              onClose={() => {
+                setParametersOpen(false);
+              }}
+            />
+          )}
           {previewMode !== undefined && (
             <React.Suspense fallback={null}>
               <PromptPreviewDialog

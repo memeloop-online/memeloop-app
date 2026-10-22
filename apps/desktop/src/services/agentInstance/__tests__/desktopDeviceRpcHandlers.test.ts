@@ -2,6 +2,7 @@ import { AGENT_DEVICE_RPC_METHODS, type AgentRuntimeDeviceRpcHandlerOptions } fr
 import { describe, expect, it, vi } from 'vitest';
 
 import { createDesktopDeviceRpcHandlers } from '../desktopDeviceRpcHandlers';
+import { authenticatedPairedPeer, authorizeNetworkAgentRequest } from '../networkRpcAuthorization';
 
 const conversationId = 'conversation-1';
 const definitionId = 'memeloop:general-assistant';
@@ -63,6 +64,16 @@ const pageRequest = {
 };
 
 describe('createDesktopDeviceRpcHandlers', () => {
+  it('allows only the transport-authenticated paired peer within its request scope', async () => {
+    const { local, network } = createDesktopDeviceRpcHandlers({
+      ...createHandlerOptions(),
+      authorize: authorizeNetworkAgentRequest,
+    });
+    await expect(authenticatedPairedPeer.run(remotePeerId, () => network(pageRequest))).resolves.toMatchObject({ conversationId });
+    await expect(authenticatedPairedPeer.run('other-peer', () => network(pageRequest))).rejects.toThrow('rpc_permission_denied');
+    await expect(network(pageRequest)).rejects.toThrow('rpc_permission_denied');
+    await expect(local(pageRequest)).resolves.toMatchObject({ conversationId });
+  });
   it('allows local IPC pagination without a grant while network requests remain grant-gated', async () => {
     const { local, network } = createDesktopDeviceRpcHandlers(createHandlerOptions());
 

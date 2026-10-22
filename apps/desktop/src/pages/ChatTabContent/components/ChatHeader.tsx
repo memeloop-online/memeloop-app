@@ -1,8 +1,9 @@
 import ArticleIcon from '@mui/icons-material/Article';
 import BugReportIcon from '@mui/icons-material/BugReport';
 import EditIcon from '@mui/icons-material/Edit';
+import HomeIcon from '@mui/icons-material/Home';
 import TuneIcon from '@mui/icons-material/Tune';
-import { Box, CircularProgress, IconButton } from '@mui/material';
+import { Alert, Box, CircularProgress, IconButton } from '@mui/material';
 import { usePreferenceObservable } from '@services/preferences/hooks';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -32,6 +33,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   const { t } = useTranslation('agent');
   const preference = usePreferenceObservable();
   const [apiLogsDialogOpen, setApiLogsDialogOpen] = useState(false);
+  const [mainSelection, setMainSelection] = useState<'saved' | 'failed'>();
 
   return (
     <>
@@ -88,10 +90,34 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
         )}
         {loading && <CircularProgress size={20} color='primary' />}
         <CompactModelSelector agentId={agentId} agentDefId={agentDefId} />
+        <IconButton
+          size='small'
+          aria-label={t('Chat.Experience.UseAsMain')}
+          title={t('Chat.Experience.UseAsMain')}
+          onClick={() => {
+            void window.service.agentInstance.setMainConversation(agentId).then(() => {
+              setMainSelection('saved');
+            }).catch(() => {
+              setMainSelection('failed');
+            });
+          }}
+        >
+          <HomeIcon />
+        </IconButton>
         <IconButton size='small' onClick={onOpenParameters} title={t('Preference.ModelParameters')}>
           <TuneIcon />
         </IconButton>
       </Box>
+      {mainSelection && (
+        <Alert
+          severity={mainSelection === 'saved' ? 'success' : 'error'}
+          onClose={() => {
+            setMainSelection(undefined);
+          }}
+        >
+          {t(mainSelection === 'saved' ? 'Chat.Experience.MainUpdated' : 'Chat.Experience.MainFailed')}
+        </Alert>
+      )}
       <APILogsDialog
         open={apiLogsDialogOpen}
         onClose={() => {

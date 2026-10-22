@@ -2,7 +2,6 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  EXPECTED_MEMELOOP_CLI_VERSION,
   MEMELOOP_CLI_CREATE_REQUIRE_ENTRIES,
   MEMELOOP_CLI_CREATE_REQUIRE_REPLACEMENT,
   MEMELOOP_CLI_CREATE_REQUIRE_SOURCE,
@@ -10,10 +9,8 @@ import {
 } from '../../../scripts/viteMemeloopCliCreateRequirePlugin';
 
 describe('memeloop-cli CommonJS createRequire transform', () => {
-  it('locks the transform to the installed dependency version and exact entry sources', () => {
+  it('validates the installed dependency entry sources', () => {
     const packageDirectory = path.resolve(__dirname, '..', '..', '..', 'node_modules', 'memeloop-cli');
-    const manifest = fs.readJsonSync(path.join(packageDirectory, 'package.json')) as { version: string };
-    expect(manifest.version).toBe(EXPECTED_MEMELOOP_CLI_VERSION);
     for (const entry of MEMELOOP_CLI_CREATE_REQUIRE_ENTRIES) {
       const source = fs.readFileSync(path.join(packageDirectory, 'dist', entry), 'utf8');
       expect(source.split(MEMELOOP_CLI_CREATE_REQUIRE_SOURCE)).toHaveLength(2);

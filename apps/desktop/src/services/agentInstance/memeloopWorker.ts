@@ -1,6 +1,5 @@
 import 'source-map-support/register';
 
-import type { ModelMessage } from 'ai';
 import { nanoid } from 'nanoid';
 import { timingSafeEqual } from 'node:crypto';
 import http from 'node:http';
@@ -11,11 +10,17 @@ import { getWorkerParentPort, handleWorkerMessages, safePostMessage } from '@ser
 
 import {
   type AgentDefinition,
+  type AgentFrameworkConfig,
+  type AgentModelConfig,
   type AgentRuntimeRpcStorage,
+  assertPortableLlmRequest,
   type ChatMessage,
+  type ConversationEditingPort,
   type DeviceCapabilities,
   type DeviceRpcHandler,
   type DeviceRpcHandlerInput,
+  type PortableLlmRequest,
+  type PortableLlmStreamPart,
   prepareAgentExecutionModelRequest,
   type PromptPreviewAuditDetailRequest,
   type PromptPreviewAuditPageRequest,
@@ -24,9 +29,11 @@ import {
 } from 'memeloop';
 import type { NodeRuntimeResult } from 'memeloop-cli/runtime';
 import { requireDesktopAtomicRetryStore } from './atomicRetryCapability';
+import { createDesktopConversationModelParameters, type DesktopModelConfiguration } from './conversationModelParameters';
 import { type ConversationMutationWake, installConversationMutationObserver } from './conversationMutationObserver';
 import { createDesktopDeviceRpcHandlers } from './desktopDeviceRpcHandlers';
 import { createLlmCorrelatedRuntime, resolveLlmConversationId, runWithLlmConversation } from './llmRequestCorrelation';
+import { authenticatedPairedPeer, authorizeNetworkAgentRequest } from './networkRpcAuthorization';
 import { createDesktopRetryTurnHandler } from './retryTurn';
 import { createDesktopScheduledTaskRpcHandler, type ScheduledTaskServicePort } from './scheduledTaskRpcStore';
 import type {
@@ -37,9 +44,9 @@ import type {
   ScheduledTaskScope,
   UpdateScheduledTaskInput,
 } from './scheduledTaskTypes';
-import { createDesktopAgentRuntimeProjectionStore } from './sqliteAgentRuntimeProjectionStore';
 import { TerminalSessionManager } from './terminal/sessionManager';
 import { ensureMemeLoopWorkerDataDirectory } from './workerDataDirectory';
+import { DesktopWorkerModelRegistry } from './workerModelRegistry';
 
 // Electron UtilityProcess exposes `process.parentPort`; the worker adapter
 // normalizes it to the transport shape used by the RPC adapter.  The runtime
@@ -150,14 +157,11 @@ function postToParent(message: unknown): boolean {
   return parentPort ? safePostMessage(parentPort, message) : false;
 }
 
-type MainLlmChatRequest = {
-  conversationId?: string;
-  messages: ModelMessage[];
-};
+type MainLlmChatRequest = Omit<PortableLlmRequest, 'signal'>;
 
 type PendingLlmStream = {
-  deltas: string[];
-  waiters: Array<(r: IteratorResult<string, undefined>) => void>;
+  deltas: PortableLlmStreamPart[];
+  waiters: Array<(r: IteratorResult<PortableLlmStreamPart, undefined>) => void>;
   done: boolean;
   error?: Error;
 };
@@ -169,14 +173,18 @@ type PendingMainRequest<T> = {
 const pendingMainToolList = new Map<string, PendingMainRequest<string[]>>();
 const pendingMainToolCall = new Map<string, PendingMainRequest<unknown>>();
 const pendingMainScheduledTaskCall = new Map<string, PendingMainRequest<unknown>>();
+const pendingMainModelConfiguration = new Map<string, PendingMainRequest<DesktopModelConfiguration>>();
+const pendingNetworkRpc = new Map<string, AbortController>();
 
 function rejectPendingMainRequests(error: Error): void {
   for (const pending of pendingMainToolList.values()) pending.reject(error);
   for (const pending of pendingMainToolCall.values()) pending.reject(error);
   for (const pending of pendingMainScheduledTaskCall.values()) pending.reject(error);
+  for (const pending of pendingMainModelConfiguration.values()) pending.reject(error);
   pendingMainToolList.clear();
   pendingMainToolCall.clear();
   pendingMainScheduledTaskCall.clear();
+  pendingMainModelConfiguration.clear();
   for (const pending of pendingMainLlmChat.values()) {
     pending.error = error;
     pending.done = true;
@@ -192,12 +200,25 @@ if (parentPort) {
     const m = message as {
       type?: string;
       id?: string;
-      delta?: string;
+      part?: PortableLlmStreamPart;
       tools?: string[];
       result?: unknown;
       error?: { message: string; name?: string; stack?: string };
     };
+    if (m?.type === 'memeloop-model-configuration-update') {
+      modelConfigurationGeneration++;
+      applyWorkerModelConfiguration(m.result as DesktopModelConfiguration);
+      return;
+    }
     if (!m?.id) return;
+    if (m.type === 'memeloop-model-configuration-result' || m.type === 'memeloop-model-configuration-error') {
+      const pending = pendingMainModelConfiguration.get(m.id);
+      if (!pending) return;
+      pendingMainModelConfiguration.delete(m.id);
+      if (m.type === 'memeloop-model-configuration-error') pending.reject(new Error(m.error?.message ?? 'model_configuration_unavailable'));
+      else pending.resolve(m.result as DesktopModelConfiguration);
+      return;
+    }
     if (m.type === 'memeloop-tool-list-result') {
       const pending = pendingMainToolList.get(m.id);
       if (!pending) return;
@@ -256,8 +277,8 @@ if (parentPort) {
 
     const pending = pendingMainLlmChat.get(m.id);
     if (!pending) return;
-    if (m.type === 'memeloop-llm-chat-delta') {
-      const delta = m.delta ?? '';
+    if (m.type === 'memeloop-llm-chat-part') {
+      const delta = m.part;
       if (!delta) return;
       const waiter = pending.waiters.shift();
       if (waiter) waiter({ value: delta, done: false });
@@ -285,6 +306,31 @@ if (parentPort) {
 
 function makeMainRequestId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+function requestMainModelConfiguration(): Promise<DesktopModelConfiguration> {
+  const id = makeMainRequestId('model-configuration');
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingMainModelConfiguration.delete(id);
+      reject(new Error('model_configuration_timeout'));
+    }, 10000);
+    pendingMainModelConfiguration.set(id, {
+      resolve: result => {
+        clearTimeout(timeout);
+        resolve(result);
+      },
+      reject: error => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    });
+    if (!postToParent({ type: 'memeloop-model-configuration', id })) {
+      clearTimeout(timeout);
+      pendingMainModelConfiguration.delete(id);
+      reject(new Error('model_configuration_transport_unavailable'));
+    }
+  });
 }
 
 async function requestMainBridgeToolList(timeoutMs = 10000): Promise<string[]> {
@@ -424,7 +470,9 @@ function createMainScheduledTaskServiceBridge(): ScheduledTaskServicePort {
 
 async function* callMainLlmChat(
   request: MainLlmChatRequest,
-): AsyncGenerator<string, void, unknown> {
+  signal?: AbortSignal,
+): AsyncGenerator<PortableLlmStreamPart, void, unknown> {
+  signal?.throwIfAborted();
   const id = `llm_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const pending: PendingLlmStream = { deltas: [], waiters: [], done: false };
   pendingMainLlmChat.set(id, pending);
@@ -433,23 +481,35 @@ async function* callMainLlmChat(
     throw new Error('memeloop_llm_chat_transport_unavailable');
   }
 
-  while (true) {
-    const streamError = readPendingLlmError(pending);
-    if (streamError) throw streamError;
-    if (pending.deltas.length > 0) {
-      yield pending.deltas.shift()!;
-      continue;
+  const abort = () => {
+    pending.error = new Error('model_request_aborted');
+    postToParent({ type: 'memeloop-llm-chat-cancel', id });
+    while (pending.waiters.length > 0) pending.waiters.shift()?.({ value: undefined, done: true });
+  };
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    while (true) {
+      const streamError = readPendingLlmError(pending);
+      if (streamError) throw streamError;
+      if (pending.deltas.length > 0) {
+        yield pending.deltas.shift()!;
+        continue;
+      }
+      if (pending.done) return;
+      const next = await new Promise<IteratorResult<PortableLlmStreamPart, undefined>>(
+        (resolve) => {
+          pending.waiters.push(resolve);
+        },
+      );
+      const resumedError = readPendingLlmError(pending);
+      if (resumedError) throw resumedError;
+      if (next.done) return;
+      if (next.value) yield next.value;
     }
-    if (pending.done) return;
-    const next = await new Promise<IteratorResult<string, undefined>>(
-      (resolve) => {
-        pending.waiters.push(resolve);
-      },
-    );
-    const resumedError = readPendingLlmError(pending);
-    if (resumedError) throw resumedError;
-    if (next.done) return;
-    if (next.value) yield next.value;
+  } finally {
+    signal?.removeEventListener('abort', abort);
+    pendingMainLlmChat.delete(id);
+    if (!pending.done) postToParent({ type: 'memeloop-llm-chat-cancel', id });
   }
 }
 
@@ -595,20 +655,35 @@ const llmProvider = {
   name: 'memeloop-app-worker',
   model: undefined,
   chat: async function*(request: unknown) {
-    const request_ = request as {
-      messages?: ModelMessage[];
-      conversationId?: string;
-    };
-    for await (
-      const delta of callMainLlmChat({
-        conversationId: resolveLlmConversationId(request_),
-        messages: request_.messages ?? [],
-      })
-    ) {
-      yield { type: 'text-delta' as const, text: delta, id: nanoid() };
-    }
+    assertPortableLlmRequest(request);
+    const conversationId = resolveLlmConversationId(request);
+    const { signal, ...portableRequest } = request;
+    yield* callMainLlmChat({ ...portableRequest, conversationId }, signal);
   },
 };
+const workerModelRegistry = new DesktopWorkerModelRegistry(llmProvider);
+let modelConfigurationRefresh: Promise<DesktopModelConfiguration> | undefined;
+let modelConfigurationGeneration = 0;
+let latestModelConfiguration: DesktopModelConfiguration | undefined;
+
+function applyWorkerModelConfiguration(configuration: DesktopModelConfiguration): DesktopModelConfiguration {
+  workerModelRegistry.update(configuration);
+  latestModelConfiguration = configuration;
+  if (runtimeContext) runtimeContext.defaultModelConfig = configuration.default;
+  return configuration;
+}
+
+function refreshWorkerModelConfiguration(): Promise<DesktopModelConfiguration> {
+  const generation = modelConfigurationGeneration;
+  modelConfigurationRefresh ??= requestMainModelConfiguration().then(configuration => {
+    // A push received while this request was in flight is newer than its reply.
+    if (generation !== modelConfigurationGeneration && latestModelConfiguration) return latestModelConfiguration;
+    return applyWorkerModelConfiguration(configuration);
+  }).finally(() => {
+    modelConfigurationRefresh = undefined;
+  });
+  return modelConfigurationRefresh;
+}
 
 // The host config supplies the sole DeviceNetwork identity before runtime
 // initialization. Keep this unset until then instead of minting a child key.
@@ -637,7 +712,8 @@ const promptPreviewAuditStore = new PromptPreviewAuditSessionStore({
   createSessionId: () => `desktop-preview-${nanoid()}`,
   createRevision: () => `preview-revision-${nanoid()}`,
 });
-const promptPreviewPrepareOperations = new Map<string, AbortController>();
+const promptPreviewPrepareOperations = new Map<string, { controller: AbortController; conversationId: string }>();
+const promptPreviewConversations = new Map<string, { conversationId: string; revision: string }>();
 
 interface DesktopHostConfig {
   dataDir: string;
@@ -649,7 +725,10 @@ interface DesktopHostConfig {
 
 let hostConfig: DesktopHostConfig | undefined;
 
-function isAgentRuntimeRpcStorage(value: unknown): value is AgentRuntimeRpcStorage {
+function isAgentRuntimeRpcStorage(value: unknown): value is AgentRuntimeRpcStorage & ConversationEditingPort & {
+  getMainConversationId(): Promise<string | null>;
+  setMainConversationId(conversationId: string): Promise<void>;
+} {
   if (!value || typeof value !== 'object') return false;
   return [
     'getMessagePage',
@@ -659,11 +738,28 @@ function isAgentRuntimeRpcStorage(value: unknown): value is AgentRuntimeRpcStora
     'getMessageWindowAround',
     'getConversationTimelinePage',
     'readAttachmentRange',
+    'loadConversationEditSource',
+    'saveConversationEditDraft',
+    'forkConversation',
+    'getConversationBranches',
+    'getPendingConversationBranchReplacement',
+    'getMainConversationId',
+    'setMainConversationId',
   ].every(method => typeof Reflect.get(value, method) === 'function');
 }
 
 function isCallable(value: unknown): value is (...arguments_: unknown[]) => unknown {
   return typeof value === 'function';
+}
+
+function createWorkerConversationModelParameters() {
+  if (!storage) throw new Error('MemeLoop storage did not initialize');
+  return createDesktopConversationModelParameters({
+    storage,
+    getAgentDefinition: id => runtimeAgentDefinitions.find(definition => definition.id === id),
+    getModelConfiguration: refreshWorkerModelConfiguration,
+    originNodeId: localNodeId,
+  });
 }
 
 function getDesktopDeviceRpcHandler(localOnly: boolean): DeviceRpcHandler {
@@ -679,7 +775,23 @@ function getDesktopDeviceRpcHandler(localOnly: boolean): DeviceRpcHandler {
   const handlers = createDesktopDeviceRpcHandlers({
     runtime: createLlmCorrelatedRuntime(activeRuntime),
     storage: activeStorage,
-    projections: createDesktopAgentRuntimeProjectionStore(activeStorage),
+    authorize: authorizeNetworkAgentRequest,
+    conversationEditing: activeStorage,
+    conversationModelParameters: createWorkerConversationModelParameters(),
+    getMainConversationId: () => activeStorage.getMainConversationId(),
+    setMainConversationId: conversationId => activeStorage.setMainConversationId(conversationId),
+    promptPreview: {
+      prepare: request => memeloopWorker.preparePromptPreviewExecution(request),
+      getAuditPage: request => memeloopWorker.getPromptPreviewAuditPage(request),
+      getAuditDetail: request => memeloopWorker.getPromptPreviewAuditDetail(request),
+      release: request => memeloopWorker.releasePromptPreviewAuditSession(request),
+      cancel: request => memeloopWorker.cancelPromptPreview(request.requestId, request.conversationId),
+      getSessionConversationId: (sessionId, revision) => {
+        const session = promptPreviewConversations.get(sessionId);
+        if (!session || session.revision !== revision) throw new Error('prompt_preview_session_missing');
+        return session.conversationId;
+      },
+    },
     retryTurn: (request, requestPeerId) =>
       runWithLlmConversation(
         request.conversationId,
@@ -744,14 +856,21 @@ async function ensureRuntimeInitialized(): Promise<void> {
     workerLog('info', '[memeloop-utility-process] main bridge tools loaded', { count: mainBridgeToolIds.length });
 
     workerLog('info', '[memeloop-utility-process] createNodeRuntime starting');
+    const modelConfiguration = await refreshWorkerModelConfiguration();
     const runtimeResult = await createNodeRuntime({
       // Core supplies the official profiles. App-specific definitions are
       // resolved explicitly from storage and must never shadow Core defaults.
-      config: { agents: [] },
+      config: { agents: [], defaultModelConfig: modelConfiguration.default },
       dataDir: configuredHost.dataDir,
       sqliteNativeBinding: configuredHost.sqliteNativeBinding,
       localNodeId,
-      llmProvider,
+      llmProvider: modelConfiguration.default
+        ? workerModelRegistry.registry.get(modelConfiguration.default.providerId) ?? llmProvider
+        : llmProvider,
+      providerRegistry: workerModelRegistry.registry,
+      // Main is the trusted credential-owning transport. Keep local loop requests
+      // on its live registry so conversation identity, tools, and parameters survive.
+      modelGateway: { routeLoops: false },
       toolRegistry: new ToolRegistry(),
       configureTools(registry) {
         for (const toolId of mainBridgeToolIds) {
@@ -843,6 +962,7 @@ async function ensureRuntimeInitialized(): Promise<void> {
       },
     );
     runtimeContext = runtimeResult.context;
+    runtimeContext.defaultModelConfig = latestModelConfiguration?.default;
     approvalRequestCleanup?.();
     approvalRequestCleanup = runtimeContext.toolApprovals?.onApprovalRequest(request => {
       emitCustomUpdate(request.conversationId, {
@@ -983,7 +1103,9 @@ async function shutdownDesktopNode(): Promise<void> {
   if (shutdownDesktopNodePromise) return shutdownDesktopNodePromise;
   shutdownDesktopNodePromise = (async () => {
     await stopDesktopHttpServer();
-    for (const controller of promptPreviewPrepareOperations.values()) {
+    for (const controller of pendingNetworkRpc.values()) controller.abort(new Error('MemeLoop UtilityProcess is shutting down'));
+    pendingNetworkRpc.clear();
+    for (const { controller } of promptPreviewPrepareOperations.values()) {
       controller.abort(new Error('MemeLoop UtilityProcess is shutting down'));
     }
     promptPreviewPrepareOperations.clear();
@@ -1086,13 +1208,25 @@ const memeloopWorker = {
    * Execute an authenticated DeviceNetwork RPC against the real UtilityProcess
    * runtime. The main process deliberately owns no second MemeLoop runtime.
    */
-  handleDeviceRpc: async (input: DeviceRpcHandlerInput) => {
-    await ensureRuntimeInitialized();
-    return getDesktopDeviceRpcHandler(false)(input);
+  handleDeviceRpc: async (input: Omit<DeviceRpcHandlerInput, 'signal'>, requestId: string, pairedPeerId?: string) => {
+    if (pendingNetworkRpc.has(requestId)) throw new Error('duplicate_network_rpc_request');
+    const controller = new AbortController();
+    pendingNetworkRpc.set(requestId, controller);
+    try {
+      await ensureRuntimeInitialized();
+      await refreshWorkerModelConfiguration();
+      return await authenticatedPairedPeer.run(pairedPeerId, () => getDesktopDeviceRpcHandler(false)({ ...input, signal: controller.signal }));
+    } finally {
+      pendingNetworkRpc.delete(requestId);
+    }
+  },
+  cancelDeviceRpc: async (requestId: string): Promise<void> => {
+    pendingNetworkRpc.get(requestId)?.abort(new Error('remote_request_cancelled'));
   },
   /** Main-process-only counterpart: it never accepts DeviceNetwork traffic. */
   handleLocalDeviceRpc: async (input: DeviceRpcHandlerInput) => {
     await ensureRuntimeInitialized();
+    await refreshWorkerModelConfiguration();
     return getDesktopDeviceRpcHandler(true)(input);
   },
   /**
@@ -1115,11 +1249,12 @@ const memeloopWorker = {
     inputText?: string;
   }) => {
     await ensureRuntimeInitialized();
+    await refreshWorkerModelConfiguration();
     if (!runtimeContext) throw new Error('MemeLoop runtime context did not initialize');
     const abortController = new AbortController();
     const previous = promptPreviewPrepareOperations.get(input.requestId);
-    previous?.abort(new Error('prompt preview request superseded'));
-    promptPreviewPrepareOperations.set(input.requestId, abortController);
+    if (previous) throw new Error('prompt_preview_request_already_active');
+    promptPreviewPrepareOperations.set(input.requestId, { controller: abortController, conversationId: input.conversationId });
     try {
       const prepared = await prepareAgentExecutionModelRequest(runtimeContext, {
         conversationId: input.conversationId,
@@ -1128,20 +1263,42 @@ const memeloopWorker = {
         ...(input.inputText === undefined ? {} : { inputText: input.inputText }),
       });
       abortController.signal.throwIfAborted();
-      return promptPreviewAuditStore.createSession({ request: prepared.prepared.request });
+      const audit = promptPreviewAuditStore.createSession({
+        request: prepared.prepared.request,
+        provenance: prepared.prepared.provenance,
+      });
+      promptPreviewConversations.set(audit.sessionId, { conversationId: input.conversationId, revision: audit.revision });
+      return audit;
     } finally {
-      if (promptPreviewPrepareOperations.get(input.requestId) === abortController) {
+      if (promptPreviewPrepareOperations.get(input.requestId)?.controller === abortController) {
         promptPreviewPrepareOperations.delete(input.requestId);
       }
     }
+  },
+  updateConversationSettings: async (conversationId: string, settings: { modelConfig?: AgentModelConfig; agentFrameworkConfig?: AgentFrameworkConfig }) => {
+    await ensureRuntimeInitialized();
+    if (!storage) throw new Error('MemeLoop storage did not initialize');
+    const conversation = await storage.getConversationMeta(conversationId);
+    if (!conversation) throw new Error('conversation_not_found');
+    await storage.appendLocalEvent({
+      kind: 'metadataPatch',
+      conversationId,
+      eventId: nanoid(),
+      originNodeId: localNodeId,
+      timestamp: Date.now(),
+      patch: { instanceDelta: { ...conversation.instanceDelta, ...settings } },
+    });
   },
   getPromptPreviewAuditPage: async (request: PromptPreviewAuditPageRequest) => promptPreviewAuditStore.getPage(request),
   getPromptPreviewAuditDetail: async (request: PromptPreviewAuditDetailRequest) => promptPreviewAuditStore.getDetail(request),
   releasePromptPreviewAuditSession: async (request: PromptPreviewAuditReleaseRequest) => {
     promptPreviewAuditStore.release(request);
+    promptPreviewConversations.delete(request.sessionId);
   },
-  cancelPromptPreview: async (requestId: string) => {
-    promptPreviewPrepareOperations.get(requestId)?.abort(new Error('prompt preview cancelled'));
+  cancelPromptPreview: async (requestId: string, conversationId?: string) => {
+    const operation = promptPreviewPrepareOperations.get(requestId);
+    if (operation && conversationId !== undefined && operation.conversationId !== conversationId) throw new Error('prompt_preview_conversation_mismatch');
+    operation?.controller.abort(new Error('prompt preview cancelled'));
     promptPreviewPrepareOperations.delete(requestId);
   },
   getDeviceCapabilities: async (): Promise<DeviceCapabilities> => {
@@ -1169,6 +1326,7 @@ const memeloopWorker = {
   ) => {
     workerLog('warn', '[memeloop-utility-process] createAgent', { definitionId });
     await ensureDesktopNodeStarted();
+    await refreshWorkerModelConfiguration();
     try {
       const activeRuntime = runtime;
       const activeStorage = storage;
@@ -1217,6 +1375,7 @@ const memeloopWorker = {
       conversationId,
     });
     await ensureDesktopNodeStarted();
+    await refreshWorkerModelConfiguration();
     const activeRuntime = runtime;
     if (!activeRuntime) throw new Error('MemeLoop runtime did not initialize');
     try {

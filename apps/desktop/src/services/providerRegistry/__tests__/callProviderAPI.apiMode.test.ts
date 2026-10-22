@@ -15,6 +15,13 @@ const provider = {
 };
 
 describe('OpenAI-compatible model API mode', () => {
+  it.each(['chat-completions', 'responses'] as const)('selects native OpenAI %s explicitly', apiMode => {
+    const model = createProviderModel({
+      ...provider,
+      account: { ...provider.account, providerType: 'openai' },
+    }, { modelId: 'logical', wireModelId: 'wire', apiMode });
+    expect(model.provider).toBe(apiMode === 'responses' ? 'openai.responses' : 'openai.chat');
+  });
   it.each(['chat-completions', 'responses'] as const)('selects the %s model transport', apiMode => {
     const route: ProviderModelRoute = { modelId: 'mixed-model', wireModelId: 'mixed-wire-model', apiMode };
     const model = createProviderModel(provider, route);

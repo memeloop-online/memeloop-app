@@ -236,7 +236,7 @@ const commonInit = async (): Promise<void> => {
       deviceNetworkService.configureRuntime({
         buildCapabilities: () => agentInstanceService.getMemeLoopDeviceCapabilities(),
         orchestrationClient: createDesktopOrchestrationClient(agentInstanceService),
-        rpcHandler: agentInstanceService.getMemeLoopDeviceRpcHandler(),
+        rpcHandler: agentInstanceService.getMemeLoopDeviceRpcHandler(peerId => deviceNetworkService.isLocallyPairedPeer(peerId)),
         syncStorage: agentInstanceService.getMemeLoopSyncStorage(),
       });
     } else {

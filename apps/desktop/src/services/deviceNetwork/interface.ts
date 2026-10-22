@@ -30,6 +30,8 @@ export interface DeviceNetworkRpcOperationOptions {
 }
 
 export interface IDeviceNetworkService extends CoreDeviceNetworkService {
+  /** Main-process-only live trust check; never exposed to renderer IPC. */
+  isLocallyPairedPeer(peerId: string): boolean;
   getLocalIdentity(): Promise<LocalDeviceIdentity>;
   getPairingInvite(): Promise<string>;
   configureRuntime(options: DeviceNetworkRuntimeOptions): void;

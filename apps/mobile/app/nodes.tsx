@@ -43,7 +43,8 @@ export default function NodesScreen() {
       await mobileDeviceNetwork.pair(invite);
       setInvite('');
       setInviteOpen(false);
-    } catch {
+    } catch (error) {
+      console.warn('Desktop pairing failed', error);
       setActionError(labels.nodes.pairFailure);
     } finally {
       setBusy(false);

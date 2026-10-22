@@ -22,13 +22,20 @@ function device(overrides) {
   };
 }
 
-test('selectMobileAgentDevice only selects trusted reachable Agent peers', () => {
+test('selectMobileAgentDevice prefers trusted online Agent peers', () => {
   assert.equal(selectMobileAgentDevice([
     device({ peerId: 'offline', reachability: { state: 'offline', paths: [] } }),
     device({ peerId: 'untrusted', trusted: false }),
     device({ peerId: 'no-agent', capabilities: { tools: [], mcpServers: [], hasWiki: false, agentLoop: false, imChannels: [], wikis: [] } }),
     device({ peerId: 'eligible' }),
   ])?.peerId, 'eligible');
+});
+
+test('restored trusted desktops remain reconnectable before capabilities are discovered', () => {
+  const restored = device({ peerId: 'restored', reachability: { state: 'offline', paths: [] },
+    capabilities: { tools: [], mcpServers: [], hasWiki: false, agentLoop: false, imChannels: [], wikis: [] } });
+  assert.equal(selectMobileAgentDevice([restored])?.peerId, 'restored');
+  assert.equal(selectMobileAgentDevice([{ ...restored, trusted: false }]), undefined);
 });
 
 test('selectMobileAgentDevice is deterministic and prefers online over nearby', () => {

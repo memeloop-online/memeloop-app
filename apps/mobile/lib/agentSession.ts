@@ -4,6 +4,7 @@ import {
   type AgentDeviceRpcClient,
   type AgentInstanceClient,
   type AgentRuntimeView,
+  type ConversationForkRequest,
   AgentSessionController,
   createAgentDeviceRpcClient,
   createAgentDeviceRpcRequestId,
@@ -12,7 +13,9 @@ import {
 import { ConversationTimelineWindowController } from '@memeloop/react-ui/native';
 
 import { mobileDeviceNetwork } from './deviceNetwork';
+import { getMobileLabels } from './i18n';
 export { MOBILE_ATTACHMENT_HOST, selectMobileAgentDevice } from './agentSessionPolicy';
+export type MobileConversationMeta = NonNullable<Awaited<ReturnType<AgentDeviceRpcClient['getConversationMeta']>>['meta']>;
 
 export const MOBILE_SESSION_MESSAGE_LIMIT = 50;
 export const MOBILE_SESSION_BYTE_LIMIT = 256 * 1024;
@@ -357,7 +360,7 @@ class RemoteAgentRuntimeBridge {
     this.agentListeners.clear();
   }
 
-  private trackRun(conversationId: string, runId: string): void {
+  trackRun(conversationId: string, runId: string): void {
     this.runControllers.get(conversationId)?.abort();
     const controller = new AbortController();
     this.runControllers.set(conversationId, controller);
@@ -411,40 +414,33 @@ export interface MobileRemoteAgentSession {
   readonly title: string;
   readonly controller: AgentSessionController;
   readonly timelineController: ConversationTimelineWindowController;
+  readonly client: AgentDeviceRpcClient;
+  acceptBranch(request: ConversationForkRequest): Promise<string>;
   start(): Promise<void>;
   dispose(): void;
 }
 
-export async function createMobileRemoteAgentSession(peerId: string, signal?: AbortSignal): Promise<MobileRemoteAgentSession> {
-  throwIfAborted(signal);
-  await mobileDeviceNetwork.start();
-  throwIfAborted(signal);
-  const client = createAgentDeviceRpcClient({
+export function createMobileAgentRpcClient(peerId: string): AgentDeviceRpcClient {
+  return createAgentDeviceRpcClient({
     peerId,
     createRequestId: createAgentDeviceRpcRequestId,
     sendRpc: (targetPeerId, method, parameters, options) =>
       mobileDeviceNetwork.getService().sendRpc(targetPeerId, method, parameters, options),
   });
-  const latest = await client.listConversations({ limit: 1, direction: 'backward' }, { signal });
-  let conversation = latest.items[0];
-  if (!conversation) {
-    const { definitions } = await client.getDefinitions({}, { signal });
-    const definition = definitions[0];
-    if (!definition) throw new Error('remote_agent_definition_not_found');
-    const created = await client.createAgent({ definitionId: definition.id }, { signal });
-    const response = await client.getConversationMeta({ conversationId: created.conversationId }, { signal });
-    conversation = response.meta ?? {
-      conversationId: created.conversationId,
-      definitionId: definition.id,
-      title: definition.name,
-      lastMessagePreview: '',
-      lastMessageTimestamp: 0,
-      messageCount: 0,
-      originNodeId: peerId,
-      originClock: 0,
-      isUserInitiated: true,
-    };
-  }
+}
+
+export async function listMobileRemoteConversations(peerId: string, signal?: AbortSignal, cursor?: string, direction: 'backward' | 'forward' = 'backward') {
+  await mobileDeviceNetwork.start();
+  return createMobileAgentRpcClient(peerId).listConversations({ limit: 50, direction, ...(cursor ? { cursor } : {}) }, { signal });
+}
+
+export async function createMobileRemoteAgentSession(peerId: string, signal?: AbortSignal, selectedConversation?: MobileConversationMeta, activeRunId?: string): Promise<MobileRemoteAgentSession> {
+  throwIfAborted(signal);
+  await mobileDeviceNetwork.start();
+  throwIfAborted(signal);
+  const client = createMobileAgentRpcClient(peerId);
+  const conversation = selectedConversation ?? (await client.getMainConversation({}, { signal })).conversation;
+  if (!conversation) throw new Error('remote_main_agent_not_configured');
   throwIfAborted(signal);
   const bridge = new RemoteAgentRuntimeBridge(client);
   const controller = new AgentSessionController({
@@ -458,15 +454,26 @@ export async function createMobileRemoteAgentSession(peerId: string, signal?: Ab
   return {
     peerId,
     conversationId: conversation.conversationId,
-    title: conversation.title || 'Remote agent',
+    title: conversation.title && conversation.title !== conversation.definitionId ? conversation.title : getMobileLabels().chat.agent,
     controller,
     timelineController,
+    client,
+    async acceptBranch(request) {
+      const accepted = await client.send({
+        conversationId: request.targetConversationId,
+        requestId: request.requestId,
+        turnId: request.replacementMessageId,
+        message: request.text,
+      });
+      return accepted.runId;
+    },
     async start() {
       if (disposed) throw new Error('mobile_agent_session_disposed');
       await controller.start({
         agentId: conversation.conversationId,
         conversationId: conversation.conversationId,
       });
+      if (activeRunId) bridge.trackRun(conversation.conversationId, activeRunId);
     },
     dispose() {
       if (disposed) return;

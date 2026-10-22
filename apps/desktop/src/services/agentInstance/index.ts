@@ -1,5 +1,4 @@
 import { createWorkerProxy, safePostMessage } from '@services/libs/workerAdapter';
-import type { ModelMessage } from 'ai';
 import { app, dialog } from 'electron';
 import type { UtilityProcess } from 'electron';
 import { inject, injectable } from 'inversify';
@@ -20,15 +19,22 @@ import {
   type AgentDeviceRpcRetryTurnResponse,
   type AgentDeviceRpcRunTurnRequest,
   type AgentDeviceRpcTurnAcceptedResponse,
+  type AgentModelConfig,
   assertAgentDeviceRpcRequest,
+  assertPortableLlmRequest,
   type AttachmentReference,
   type BeginAttachmentUploadRequest,
   type BeginAttachmentUploadResponse,
   type ChatMessage,
   type CommitAttachmentUploadRequest,
   type CommitAttachmentUploadResponse,
+  type ConversationBranchState,
+  type ConversationDraftWrite,
+  type ConversationEditSource,
+  type ConversationForkRequest,
   type ConversationMessageDetailRange,
   type ConversationMeta,
+  type ConversationModelParameters,
   type ConversationTimelinePage,
   createChatMessage,
   createFetchOrchestrationTransport,
@@ -68,10 +74,12 @@ import { container } from '@services/container';
 import type { IDatabaseService } from '@services/database/interface';
 import { AgentInstanceEntity, AgentInstanceMessageEntity, RemoteScheduledTaskProjectionEntity, ScheduledTaskEntity } from '@services/database/schema/agent';
 import { logger } from '@services/libs/log';
+import { streamPortableProviderRequest } from '@services/providerRegistry/callProviderAPI';
 import type { IProviderRegistryService } from '@services/providerRegistry/interface';
 import serviceIdentifier from '@services/serviceIdentifier';
 
 import * as repo from './agentRepository';
+import { projectDesktopModelConfiguration } from './conversationModelParameters';
 import type { ConversationMutationWake } from './conversationMutationObserver';
 import { startHeartbeat, stopHeartbeat } from './heartbeatManager';
 import type {
@@ -241,6 +249,7 @@ export class AgentInstanceService implements IAgentInstanceService {
   private memeLoopWorker?: MemeLoopWorker;
   private memeLoopWorkerLogCleanup?: () => void;
   private readonly workerConversationMutationSubscriptions = new Set<Subscription>();
+  private workerModelConfigurationSubscription?: Subscription;
   private workerAgentIdByConversationId: Map<string, string> = new Map();
   private workerActiveTurnIdByConversationId: Map<string, string> = new Map();
   private workerActiveRunIdByConversationId: Map<string, string> = new Map();
@@ -392,10 +401,24 @@ export class AgentInstanceService implements IAgentInstanceService {
     });
   }
 
-  public getMemeLoopDeviceRpcHandler(): DeviceRpcHandler {
+  public getMemeLoopDeviceRpcHandler(isLocallyPairedPeer: (peerId: string) => boolean): DeviceRpcHandler {
     return async input => {
       const worker = await this.getMemeLoopWorkerProxy();
-      return worker.handleDeviceRpc(input);
+      const { signal, ...request } = input;
+      signal?.throwIfAborted();
+      const requestId = nanoid();
+      const cancel = () => {
+        void worker.cancelDeviceRpc(requestId).catch(() => undefined);
+      };
+      signal?.addEventListener('abort', cancel, { once: true });
+      try {
+        return await worker.handleDeviceRpc(request, requestId, isLocallyPairedPeer(input.remotePeerId) ? input.remotePeerId : undefined);
+      } catch (error) {
+        logger.warn('Remote agent request failed', { method: input.method, error });
+        throw error;
+      } finally {
+        signal?.removeEventListener('abort', cancel);
+      }
     };
   }
 
@@ -407,9 +430,12 @@ export class AgentInstanceService implements IAgentInstanceService {
   /** Maintain only a disposable legacy UI projection; runtime and sync never read it. */
   private async projectSyncedConversation(meta: ConversationMeta): Promise<void> {
     if (!this.agentInstanceRepository) return;
+    const title = meta.title && meta.title !== meta.definitionId
+      ? meta.title
+      : (await this.agentDefinitionService.getAgentDef(meta.definitionId))?.name;
     const existing = await this.agentInstanceRepository.findOne({ where: { id: meta.conversationId } });
     if (existing) {
-      existing.name = meta.title || existing.name;
+      existing.name = title || existing.name;
       existing.modified = new Date(meta.lastMessageTimestamp);
       await this.agentInstanceRepository.save(existing);
       return;
@@ -417,7 +443,7 @@ export class AgentInstanceService implements IAgentInstanceService {
     await this.agentInstanceRepository.save(this.agentInstanceRepository.create({
       id: meta.conversationId,
       agentDefId: meta.definitionId,
-      name: meta.title || meta.definitionId,
+      name: title || 'Agent',
       status: { state: 'completed', modified: new Date(meta.lastMessageTimestamp) },
       created: new Date(meta.lastMessageTimestamp),
       modified: new Date(meta.lastMessageTimestamp),
@@ -642,6 +668,30 @@ export class AgentInstanceService implements IAgentInstanceService {
           return;
         }
 
+        if (m?.type === 'memeloop-model-configuration' && m.id) {
+          const requestId = m.id;
+          const registry = container.get<IProviderRegistryService>(serviceIdentifier.ProviderRegistry);
+          void Promise.all([registry.getModelAssignments(), registry.getProviderAccounts()]).then(
+            ([assignments, accounts]) => {
+              postRuntimeReply(
+                { type: 'memeloop-model-configuration-result', id: requestId, result: projectDesktopModelConfiguration(assignments, accounts) },
+                requestId,
+                'memeloop-model-configuration-error',
+              );
+            },
+            (error: unknown) => {
+              postRuntimeReply(
+                { type: 'memeloop-model-configuration-error', id: requestId, error: getWorkerErrorDetails(error) },
+                requestId,
+                'memeloop-model-configuration-error',
+              );
+            },
+          ).catch((error: unknown) => {
+            logger.debug('MemeLoop model configuration callback ended after process exit', { error });
+          });
+          return;
+        }
+
         if (m?.type === 'memeloop-tool-list' && m.id) {
           const requestId = m.id;
           try {
@@ -711,78 +761,36 @@ export class AgentInstanceService implements IAgentInstanceService {
           return;
         }
 
+        if (m?.type === 'memeloop-llm-chat-cancel' && m.id) {
+          this.workerHostCallbackAbortControllers.get(m.id)?.abort();
+          return;
+        }
         if (m?.type === 'memeloop-llm-chat' && m.id) {
           const requestId = m.id;
-          const request = m.request as {
-            conversationId?: string;
-            messages?: ModelMessage[];
-          };
+          const request = m.request;
           const callbackController = new AbortController();
           this.workerHostCallbackAbortControllers.set(requestId, callbackController);
           void (async () => {
             try {
-              const conversationId = request.conversationId;
-              const mappedAgentId = conversationId
-                ? this.workerAgentIdByConversationId.get(conversationId)
-                : undefined;
-              // Core is the only prompt/context assembler. Preserve the exact
-              // bounded ModelMessage sequence (including tool and multimodal
-              // parts) and let this host adapter do transport only.
-              const modelMessages = request.messages ?? [];
-
+              assertPortableLlmRequest(request);
               const providerRegistryService = container.get<IProviderRegistryService>(
                 serviceIdentifier.ProviderRegistry,
               );
-              const aiConfig = await providerRegistryService.getModelAssignments();
-              logger.warn('memeloop-llm-chat request prepared', {
-                conversationId,
-                agentId: mappedAgentId,
-                messageCount: modelMessages.length,
-                hasNonStringContent: modelMessages.some(
-                  (message_) => typeof message_.content !== 'string',
-                ),
-              });
-              const generator = providerRegistryService.generateFromAI(
-                modelMessages,
-                aiConfig,
-                {
-                  agentInstanceId: conversationId,
-                },
+              const accounts = await providerRegistryService.getProviderAccounts();
+              const account = accounts.find(candidate => candidate.providerId === request.providerId);
+              if (!account) throw new Error('conversation_model_route_changed');
+              const apiKey = await providerRegistryService.getProviderApiKey(request.providerId);
+              const generator = streamPortableProviderRequest(
+                { ...request, signal: callbackController.signal },
+                { account, apiKey },
               );
-              let previousSnapshot = '';
-              for await (const event of generator) {
-                logger.warn('memeloop-llm-chat event', {
-                  conversationId,
-                  status: event?.status,
-                  hasContent: event?.content !== undefined && event?.content !== null,
-                  contentType: typeof event?.content,
-                  contentPreview: typeof event?.content === 'string'
-                    ? event.content.slice(0, 120)
-                    : undefined,
-                });
-                if (event?.status === 'error') {
-                  const message_ = event.content;
-                  throw new Error(message_);
-                }
-                if (event?.status === 'update' || event?.status === 'done') {
-                  if (event?.content !== undefined && event?.content !== null) {
-                    const snapshot = event.content;
-                    const delta = snapshot.startsWith(previousSnapshot)
-                      ? snapshot.slice(previousSnapshot.length)
-                      : snapshot;
-                    previousSnapshot = snapshot;
-                    if (delta && !callbackController.signal.aborted) {
-                      postRuntimeReply(
-                        {
-                          type: 'memeloop-llm-chat-delta',
-                          id: requestId,
-                          delta,
-                        },
-                        requestId,
-                        'memeloop-llm-chat-error',
-                      );
-                    }
-                  }
+              for await (const part of generator) {
+                if (!callbackController.signal.aborted) {
+                  postRuntimeReply(
+                    { type: 'memeloop-llm-chat-part', id: requestId, part },
+                    requestId,
+                    'memeloop-llm-chat-error',
+                  );
                 }
               }
               if (!callbackController.signal.aborted) {
@@ -823,6 +831,8 @@ export class AgentInstanceService implements IAgentInstanceService {
       });
       runtimeProcess.on('exit', (code) => {
         if (this.memeLoopUtilityProcess !== runtimeProcess) return;
+        this.workerModelConfigurationSubscription?.unsubscribe();
+        this.workerModelConfigurationSubscription = undefined;
         const exitError = new Error(`MemeLoop UtilityProcess exited with code ${code}`);
         this.abortUtilityProcessHostCallbacks(exitError);
         this.memeLoopWorkerLogCleanup?.();
@@ -846,6 +856,19 @@ export class AgentInstanceService implements IAgentInstanceService {
       });
       await waitForUtilityProcessSpawn(runtimeProcess, startupAbortController.signal);
       startupAbortController.signal.throwIfAborted();
+      const modelRegistry = container.get<IProviderRegistryService>(serviceIdentifier.ProviderRegistry);
+      const publishModelConfiguration = () => {
+        postToRuntime({
+          type: 'memeloop-model-configuration-update',
+          result: projectDesktopModelConfiguration(
+            modelRegistry.modelAssignments$.getValue(),
+            modelRegistry.providerAccounts$.getValue(),
+          ),
+        });
+      };
+      this.workerModelConfigurationSubscription = new Subscription();
+      this.workerModelConfigurationSubscription.add(modelRegistry.modelAssignments$.subscribe(publishModelConfiguration));
+      this.workerModelConfigurationSubscription.add(modelRegistry.providerAccounts$.subscribe(publishModelConfiguration));
       this.memeLoopWorker = createWorkerProxy<MemeLoopWorker>(runtimeProcess, {
         observableMethods: [
           'subscribeLogs',
@@ -912,6 +935,8 @@ export class AgentInstanceService implements IAgentInstanceService {
       logger.error('Failed to initialize MemeLoop UtilityProcess', { error });
       startupAbortController.abort(error instanceof Error ? error : new Error(String(error)));
       if (utilityProcess && this.memeLoopUtilityProcess === utilityProcess) {
+        this.workerModelConfigurationSubscription?.unsubscribe();
+        this.workerModelConfigurationSubscription = undefined;
         this.memeLoopUtilityProcess = undefined;
         this.memeLoopWorker = undefined;
         this.memeLoopOrchestrationEndpoint = undefined;
@@ -1111,7 +1136,64 @@ export class AgentInstanceService implements IAgentInstanceService {
 
   public async getAgentMetadata(agentId: string): Promise<AgentInstanceMetadata | undefined> {
     this.ensureRepositories();
-    return repo.getAgentMetadata(this.agentInstanceRepository!, agentId);
+    let metadata = await repo.getAgentMetadata(this.agentInstanceRepository!, agentId);
+    if (!metadata) {
+      const conversation = await this.callMemeLoopWorkerStorage<ConversationMeta | null>('getConversationMeta', agentId);
+      if (conversation) {
+        await this.projectSyncedConversation(conversation);
+        metadata = await repo.getAgentMetadata(this.agentInstanceRepository!, agentId);
+      }
+    }
+    if (metadata && metadata.name === metadata.agentDefId) {
+      const definition = await this.agentDefinitionService.getAgentDef(metadata.agentDefId);
+      if (definition?.name) metadata = { ...metadata, name: definition.name };
+    }
+    return metadata;
+  }
+
+  public async loadConversationEditSource(conversationId: string, messageId: string): Promise<ConversationEditSource> {
+    const result = await this.callLocalAgentDeviceRpc<{ source: ConversationEditSource }>(AGENT_DEVICE_RPC_METHODS.loadConversationEditSource, { conversationId, messageId });
+    return result.source;
+  }
+
+  public async saveConversationEditDraft(request: ConversationDraftWrite): Promise<number> {
+    const result = await this.callLocalAgentDeviceRpc<{ revision: number }>(AGENT_DEVICE_RPC_METHODS.saveConversationEditDraft, request);
+    return result.revision;
+  }
+
+  public async forkConversation(request: ConversationForkRequest): Promise<string> {
+    const result = await this.callLocalAgentDeviceRpc<{ conversationId: string }>(AGENT_DEVICE_RPC_METHODS.forkConversation, request);
+    return result.conversationId;
+  }
+
+  public async getConversationBranches(conversationId: string, messageIds: readonly string[]): Promise<ConversationBranchState[]> {
+    const result = await this.callLocalAgentDeviceRpc<{ branches: ConversationBranchState[] }>(AGENT_DEVICE_RPC_METHODS.getConversationBranches, { conversationId, messageIds });
+    return result.branches;
+  }
+
+  public async getConversationModelParameters(conversationId: string): Promise<ConversationModelParameters> {
+    return this.callLocalAgentDeviceRpc(AGENT_DEVICE_RPC_METHODS.getConversationModelParameters, { conversationId });
+  }
+
+  public async setConversationModelParameters(conversationId: string, selection: AgentModelConfig): Promise<ConversationModelParameters> {
+    return this.callLocalAgentDeviceRpc(AGENT_DEVICE_RPC_METHODS.setConversationModelParameters, { conversationId, selection });
+  }
+
+  public async setMainConversation(conversationId: string): Promise<void> {
+    await this.callLocalAgentDeviceRpc(AGENT_DEVICE_RPC_METHODS.setMainConversation, { conversationId });
+  }
+
+  public async acceptConversationBranch(request: ConversationForkRequest): Promise<void> {
+    const conversation = await this.callMemeLoopWorkerStorage<ConversationMeta | null>('getConversationMeta', request.targetConversationId);
+    if (!conversation) throw new Error('conversation_branch_target_missing');
+    await this.projectSyncedConversation(conversation);
+    this.bindWorkerConversation(request.targetConversationId, request.targetConversationId);
+    await this.callLocalAgentDeviceRpc(AGENT_DEVICE_RPC_METHODS.send, {
+      conversationId: request.targetConversationId,
+      requestId: request.requestId,
+      turnId: request.replacementMessageId,
+      message: request.text,
+    });
   }
 
   private async callLocalAgentDeviceRpc<T>(method: string, parameters: unknown): Promise<T> {
@@ -1357,6 +1439,14 @@ export class AgentInstanceService implements IAgentInstanceService {
         agentId,
         data,
       );
+      if (data.modelConfig !== undefined || data.agentFrameworkConfig !== undefined) {
+        await this.ensureWorkerConversation(agentId, updatedAgent.agentDefId);
+        const worker = await this.getMemeLoopWorkerProxy();
+        await worker.updateConversationSettings(agentId, {
+          ...(data.modelConfig === undefined ? {} : { modelConfig: data.modelConfig }),
+          ...(data.agentFrameworkConfig === undefined ? {} : { agentFrameworkConfig: data.agentFrameworkConfig }),
+        });
+      }
       const metadata = await this.getAgentMetadata(agentId);
       if (!metadata) throw new Error(`Agent instance not found: ${agentId}`);
       this.notifyAgentUpdate(agentId, metadata, updatedAgent.messages[0]);
@@ -2307,6 +2397,8 @@ Result: ${JSON.stringify(approvalPrompt)}
     this.memeLoopDisposePromise = (async () => {
       this.memeLoopStartupAbortController?.abort(new Error('MemeLoop UtilityProcess shutdown requested'));
       this.memeLoopStartupAbortController = undefined;
+      this.workerModelConfigurationSubscription?.unsubscribe();
+      this.workerModelConfigurationSubscription = undefined;
       this.abortUtilityProcessHostCallbacks(new Error('MemeLoop UtilityProcess shutdown requested'));
       this.memeLoopWorkerLogCleanup?.();
       this.memeLoopWorkerLogCleanup = undefined;

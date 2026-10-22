@@ -27,8 +27,8 @@ function isPromptNode(value: unknown): value is PromptNode {
 }
 
 function isPromptPluginConfig(value: unknown): value is PromptPluginConfig {
-  return isRecord(value) && typeof value.id === 'string' && value.id.length > 0 &&
-    typeof value.toolId === 'string' && value.toolId.length > 0;
+  return isRecord(value) && typeof value.toolId === 'string' && value.toolId.length > 0 &&
+    (value.id === undefined || typeof value.id === 'string' && value.id.length > 0);
 }
 
 function isArrayOf<T>(value: unknown, guard: (item: unknown) => item is T): value is T[] {
@@ -39,30 +39,19 @@ function isArrayOf<T>(value: unknown, guard: (item: unknown) => item is T): valu
 export function toCoreAgentFrameworkConfig(
   config: AgentFrameworkConfig,
 ): AgentFrameworkConfig {
-  if (!isArrayOf(config.prompts, isPromptNode) || !isArrayOf(config.plugins, isPromptPluginConfig)) {
+  const prompts = config.prompts ?? [];
+  const plugins = config.plugins ?? [];
+  if (!isArrayOf(prompts, isPromptNode) || !isArrayOf(plugins, isPromptPluginConfig)) {
     throw new Error('prompt_preview_framework_config_invalid');
   }
   return {
-    prompts: config.prompts,
-    plugins: config.plugins,
+    prompts,
+    plugins,
     ...(Array.isArray(config.response) ? { response: config.response } : {}),
   };
 }
 
 const previewClient: PromptPreviewClient = {
-  async generatePreview(_config, execution, onProgress, options) {
-    options.signal.throwIfAborted();
-    onProgress?.({ progress: 0.5, stepCode: 'finalize' });
-    const result = {
-      flatPrompts: execution.initialPage.items.map(item => ({
-        role: item.role,
-        content: item.preview,
-      })),
-      processedPrompts: [],
-    };
-    options.signal.throwIfAborted();
-    return result;
-  },
   async getAuditPage(request, options) {
     options.signal.throwIfAborted();
     const page = await window.service.agentInstance.getPromptPreviewAuditPage(request);
@@ -97,6 +86,9 @@ async function prepareExecution(
       requestId,
       ...(inputText === undefined ? {} : { inputText }),
     });
+    if (signal.aborted) {
+      await window.service.agentInstance.releasePromptPreviewAuditSession({ sessionId: result.sessionId, expectedRevision: result.revision });
+    }
     signal.throwIfAborted();
     return result;
   } finally {

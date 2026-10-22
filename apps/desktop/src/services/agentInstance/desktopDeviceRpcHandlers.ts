@@ -21,6 +21,7 @@ export function createDesktopDeviceRpcHandlers(
   return {
     local: createAgentRuntimeDeviceRpcHandler({
       ...options,
+      authorize: undefined,
       trustedLocalOnly: true,
     }),
     network: createAgentRuntimeDeviceRpcHandler({ ...options, trustedLocalOnly: false }),

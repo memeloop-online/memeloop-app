@@ -6,8 +6,7 @@ import { logger } from '@services/libs/log';
 import { ModelMessage, streamText } from 'ai';
 import { createOllama } from 'ollama-ai-provider-v2';
 
-import { getFormattedContent } from '@/pages/ChatTabContent/components/types';
-import type { ModelAssignments, ProviderModelRoute } from 'memeloop';
+import { assertPortableLlmRequest, createFetchLLMProvider, type ModelAssignments, type PortableLlmRequest, type PortableLlmStreamPart, type ProviderModelRoute } from 'memeloop';
 import { MissingAPIKeyError, MissingBaseURLError } from './errors';
 import { normalizeOpenAIBaseURL } from './openAIBaseURL';
 import type { ProviderRuntimeConfig } from './runtimeTypes';
@@ -50,6 +49,12 @@ export function createProviderClient(providerConfig: ProviderRuntimeConfig, prov
 
 export function createProviderModel(providerConfig: ProviderRuntimeConfig, model: ProviderModelRoute) {
   const providerClass = providerConfig.account.providerType || providerConfig.account.providerId;
+  if (providerClass === 'openai' && model.apiMode === 'chat-completions') {
+    return createOpenAI({
+      apiKey: providerConfig.apiKey,
+      baseURL: providerConfig.account.baseUrl && normalizeOpenAIBaseURL(providerConfig.account.baseUrl),
+    }).chat(model.wireModelId);
+  }
   if ((providerClass === 'openAICompatible' || providerClass === 'openai') && model.apiMode === 'responses') {
     if (!providerConfig.account.baseUrl && providerClass === 'openAICompatible') {
       throw new MissingBaseURLError(providerConfig.account.providerId);
@@ -85,21 +90,41 @@ export function createProviderStreamOptions(
     wireModelId: modelConfig.modelId,
     apiMode: 'chat-completions' as const,
   };
-  const systemMessage = messages.find(message => message.role === 'system');
-  const systemPrompt = (systemMessage ? getFormattedContent(systemMessage.content) : undefined) || 'You are a helpful assistant.';
-  const nonSystemMessages = messages.filter(message => message.role !== 'system');
-  const finalMessages: Array<ModelMessage> = nonSystemMessages.length > 0 ? nonSystemMessages : [{ role: 'user', content: 'Hi' }];
   const { maxOutputTokens, topP } = resolveModelGenerationSettings(config, selectedModel);
 
   return {
     model: createProviderModel(providerConfig, selectedModel),
-    system: systemPrompt,
-    messages: finalMessages,
+    messages,
     temperature: config.default?.parameters?.temperature ?? 0.7,
     maxOutputTokens,
     topP,
+    reasoning: config.default?.parameters?.reasoningEffort,
     abortSignal: signal,
   };
+}
+
+/** Trusted main-process transport for the complete Core-prepared request. */
+export async function* streamPortableProviderRequest(
+  request: PortableLlmRequest,
+  providerConfig: ProviderRuntimeConfig,
+): AsyncGenerator<PortableLlmStreamPart> {
+  assertPortableLlmRequest(request);
+  const account = providerConfig.account;
+  const route = account.models.find(candidate => candidate.modelId === request.logicalModelId);
+  if (
+    account.enabled === false || account.providerId !== request.providerId || !route ||
+    route.wireModelId !== request.wireModelId || route.apiMode !== request.apiMode
+  ) {
+    throw new Error('conversation_model_route_changed');
+  }
+  const provider = createFetchLLMProvider({
+    name: request.providerId,
+    apiMode: route.apiMode,
+    createModel: () => createProviderModel(providerConfig, route),
+  });
+  const result = await provider.chat(request);
+  if (!result || typeof result !== 'object' || !(Symbol.asyncIterator in result)) throw new Error('invalid_portable_provider_stream');
+  yield* result;
 }
 
 export function streamFromProvider(

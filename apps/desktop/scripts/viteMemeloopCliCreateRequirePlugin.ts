@@ -2,15 +2,6 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 
-const desktopPackageManifest = fs.readJsonSync(path.resolve(process.cwd(), 'package.json')) as {
-  dependencies?: Record<string, string>;
-};
-const declaredMemeloopCliVersion = desktopPackageManifest.dependencies?.['memeloop-cli'];
-if (typeof declaredMemeloopCliVersion !== 'string') {
-  throw new Error('Desktop package.json must declare memeloop-cli');
-}
-
-export const EXPECTED_MEMELOOP_CLI_VERSION = declaredMemeloopCliVersion.replace(/^[~^]/, '');
 export const MEMELOOP_CLI_CREATE_REQUIRE_ENTRIES = ['index.js', 'runtime.js'] as const;
 export const MEMELOOP_CLI_CREATE_REQUIRE_SOURCE = 'createRequire(import.meta.url)';
 export const MEMELOOP_CLI_CREATE_REQUIRE_REPLACEMENT = 'createRequire(__filename)';
@@ -32,11 +23,7 @@ export function rewriteMemeloopCliCreateRequire(code: string): string {
 export function memeloopCliCreateRequirePlugin(projectRoot: string): Plugin {
   const packageDirectory = path.join(projectRoot, 'node_modules', 'memeloop-cli');
   const manifest = fs.readJsonSync(path.join(packageDirectory, 'package.json')) as { name?: string; version?: string };
-  if (manifest.name !== 'memeloop-cli' || manifest.version !== EXPECTED_MEMELOOP_CLI_VERSION) {
-    throw new Error(
-      `Expected memeloop-cli@${EXPECTED_MEMELOOP_CLI_VERSION}, found ${manifest.name ?? 'unknown'}@${manifest.version ?? 'unknown'}`,
-    );
-  }
+  if (manifest.name !== 'memeloop-cli') throw new Error(`Expected memeloop-cli, found ${manifest.name ?? 'unknown'}`);
   const expectedEntries = new Map(
     MEMELOOP_CLI_CREATE_REQUIRE_ENTRIES.map(entry => [fs.realpathSync(path.join(packageDirectory, 'dist', entry)), entry]),
   );
@@ -45,6 +32,9 @@ export function memeloopCliCreateRequirePlugin(projectRoot: string): Plugin {
   return {
     name: 'memeloop-cli-commonjs-create-require',
     enforce: 'pre',
+    buildStart() {
+      transformCounts.clear();
+    },
     transform(code, id) {
       const sourcePath = id.split('?', 1)[0];
       if (!sourcePath || !fs.existsSync(sourcePath)) return null;

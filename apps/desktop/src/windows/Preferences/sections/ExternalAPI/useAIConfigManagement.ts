@@ -170,4 +170,4 @@ export function useAIConfigManagement(props?: UseAIConfigManagementProps): Globa
     handleFreeModelChange,
     handleConfigChange,
   };
-};
+}

@@ -121,7 +121,7 @@ describe('legacy network production surface', () => {
     );
 
     expect(main).toContain('syncStorage: agentInstanceService.getMemeLoopSyncStorage()');
-    expect(main).toContain('rpcHandler: agentInstanceService.getMemeLoopDeviceRpcHandler()');
+    expect(main).toContain('rpcHandler: agentInstanceService.getMemeLoopDeviceRpcHandler(peerId => deviceNetworkService.isLocallyPairedPeer(peerId))');
     expect(main).toContain('buildCapabilities: () => agentInstanceService.getMemeLoopDeviceCapabilities()');
     expect(agentService).not.toContain('initializeMemeLoopRuntimeBridge');
     expect(agentService).not.toContain('createMemeLoopRuntime(');

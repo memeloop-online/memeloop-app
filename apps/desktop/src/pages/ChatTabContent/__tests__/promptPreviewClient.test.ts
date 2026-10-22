@@ -1,3 +1,4 @@
+import type { AgentFrameworkConfig } from 'memeloop';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDesktopPromptPreviewController, toCoreAgentFrameworkConfig } from '../promptPreviewClient';
@@ -88,6 +89,15 @@ describe('desktop retained prompt preview client', () => {
         plugins: [],
       })
     ).toThrow('prompt_preview_framework_config_invalid');
+  });
+
+  it('accepts the built-in fullReplacement plugin without an optional node id', () => {
+    expect(
+      toCoreAgentFrameworkConfig({
+        prompts: [{ id: 'builtin-system', role: 'system', text: 'Answer the user.' }],
+        plugins: [{ toolId: 'fullReplacement' }],
+      } as unknown as AgentFrameworkConfig).plugins,
+    ).toEqual([{ toolId: 'fullReplacement' }]);
   });
 
   it('moves only an opaque bounded audit descriptor across renderer IPC', async () => {

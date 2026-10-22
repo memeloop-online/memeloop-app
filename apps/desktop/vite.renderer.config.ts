@@ -56,8 +56,16 @@ export default defineConfig({
     ],
   },
   optimizeDeps: {
-    include: ['monaco-editor'],
-    exclude: ['memeloop', 'memeloop-cli', '@memeloop/react-ui'],
+    include: [
+      'monaco-editor',
+      '@mui/utils > react-is',
+      'prop-types',
+      '@memeloop/react-ui/agent',
+      '@memeloop/react-ui/chat',
+      '@memeloop/react-ui/agent/prompts',
+      '@memeloop/react-ui/agent/scheduling',
+    ],
+    exclude: ['memeloop', 'memeloop-cli'],
   },
   build: {
     // Output to .vite/renderer for consistency
@@ -77,5 +85,8 @@ export default defineConfig({
   },
   server: {
     port: 3012, // Match the port from webpack config
+    watch: {
+      ignored: ['**/userData-test/**', '**/userData-dev/**', '**/test-artifacts/**', '**/logs/**', '**/.vite/**'],
+    },
   },
 });
