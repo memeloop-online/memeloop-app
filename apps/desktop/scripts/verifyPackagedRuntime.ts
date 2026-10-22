@@ -47,24 +47,8 @@ const utilityProcessPath = path.join(unpackedRoot, ...utilityProcessEntry.slice(
 if (!fs.existsSync(utilityProcessPath)) {
   throw new Error(`Packaged UtilityProcess entry is not present in app.asar.unpacked: ${utilityProcessPath}`);
 }
-const utilityProcessBundle = extractArchiveFile(utilityProcessEntry.slice(1)).toString('utf8');
-// Rolldown minifies the workerAdapter export name, so checking the source
-// symbol is brittle. The entry must instead import that dedicated adapter
-// chunk and invoke one of its exports with the worker RPC service object.
-const workerAdapterImport = utilityProcessBundle.match(
-  /\b([A-Za-z_$][\w$]*)=require\(["']\.\/workerAdapter-[A-Za-z0-9_-]+\.js["']\)/u,
-);
-if (!workerAdapterImport?.[1]) {
-  throw new Error(`Packaged UtilityProcess entry does not import the worker RPC adapter: ${utilityProcessEntry}`);
-}
-const workerAdapterBinding = workerAdapterImport[1];
-const workerHandlerInvocation = new RegExp(
-  `\\b${workerAdapterBinding}\\.[A-Za-z_$][\\w$]*\\(\\{configureHost:`,
-  'u',
-);
-if (!workerHandlerInvocation.test(utilityProcessBundle)) {
-  throw new Error(`Packaged UtilityProcess entry does not invoke the worker RPC adapter: ${utilityProcessEntry}`);
-}
+// verifyPackagedStartup exercises configureHost, ping and startServer through
+// the worker RPC adapter. Rolldown may merge that adapter into any shared chunk.
 const buildBundleEntries = [...archiveEntries].filter(entry => /^\/\.vite\/build\/[^/]+\.js$/u.test(entry));
 const missingUnpackedBuildEntries = buildBundleEntries.filter(entry => !unpackedArchiveEntries.has(entry));
 if (missingUnpackedBuildEntries.length > 0) {
