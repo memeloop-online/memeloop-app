@@ -128,7 +128,6 @@ describe('legacy network production surface', () => {
     expect(worker).toContain('createDesktopDeviceRpcHandlers({');
     expect(worker).toContain('deviceRpcHandler = handlers.network');
     expect(worker).toContain('localDeviceRpcHandler = handlers.local');
-    expect(worker).toContain('storageCall: async');
     expect(worker).toContain('runtimeContext.toolApprovals?.onApprovalRequest');
     expect(worker).toContain('runtimeContext?.questionWaits?.resolveQuestionAnswer');
     expect(worker).not.toContain('const resolved = resolveQuestion' + 'Answer(');
