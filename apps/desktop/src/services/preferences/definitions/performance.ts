@@ -9,14 +9,6 @@ export const performanceSection: ISectionDefinition = {
   items: [
     {
       type: 'preference-boolean',
-      key: 'hibernateUnusedWorkspacesAtLaunch',
-      titleKey: 'Preference.HibernateAllUnusedWorkspaces',
-      descriptionKey: 'Preference.HibernateAllUnusedWorkspacesDescription',
-      zod: z.boolean(),
-    },
-    { type: 'divider' },
-    {
-      type: 'preference-boolean',
       key: 'useHardwareAcceleration',
       titleKey: 'Preference.hardwareAcceleration',
       needsRestart: true,

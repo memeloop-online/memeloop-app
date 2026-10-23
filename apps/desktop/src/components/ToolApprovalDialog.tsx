@@ -61,7 +61,7 @@ export function ToolApprovalDialog(): React.JSX.Element {
 
   let parametersDisplay: string;
   try {
-    const parsed = JSON.parse(currentRequest.parameters);
+    const parsed = JSON.parse(currentRequest.parameters) as unknown;
     parametersDisplay = JSON.stringify(parsed, null, 2);
   } catch {
     parametersDisplay = currentRequest.parameters;

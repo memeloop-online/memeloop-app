@@ -1,8 +1,12 @@
 import path from 'path';
 import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
+import { viteMemeLoopSourceAliases } from './scripts/viteMemeLoopSourceAliases';
 
 export default defineConfig({
+  // SWC performs the transform below; disable Vitest's default Oxc pass so
+  // tests do not run two competing JSX/TS transforms.
+  oxc: false,
   plugins: [swc.vite({
     jsc: {
       transform: {
@@ -17,7 +21,9 @@ export default defineConfig({
     // Test environment
     environment: 'jsdom',
 
-    // features/ tests (HTTP/Node.js integration) run in node environment; src/ tests need jsdom
+    // Vitest 4 still accepts this runtime option, although it is absent from
+    // the public InlineConfig type.
+    // @ts-expect-error Vitest runtime compatibility option
     environmentMatchGlobs: [
       ['features/**', 'node'],
     ],
@@ -50,33 +56,29 @@ export default defineConfig({
       ],
     },
 
-    pool: 'forks',
-    poolOptions: {
-      forks: {
-        maxForks: 6,
-        minForks: 2,
-      },
-      isolate: true,
-    },
-
     testTimeout: 30000,
     hookTimeout: 30000,
     reporters: ['default', 'hanging-process'],
   },
 
+  pool: 'forks',
+  poolOptions: {
+    forks: {
+      maxForks: 6,
+      minForks: 2,
+    },
+    isolate: true,
+  },
+
   resolve: {
-    preserveSymlinks: true,
     dedupe: ['react', 'react-dom'],
     alias: [
+      ...viteMemeLoopSourceAliases(__dirname),
       { find: '@', replacement: path.resolve(__dirname, './src') },
       { find: '@services', replacement: path.resolve(__dirname, './src/services') },
-      { find: 'memeloop', replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop/src') },
-      { find: 'memeloop-node', replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop-node/dist') },
-      { find: '@memeloop/protocol', replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop-protocol/src') },
-      { find: '@memeloop/ui', replacement: path.resolve(__dirname, '../../../memeloop/packages/memeloop-ui/dist') },
       { find: /agentInstance\/memeloopWorkerFactory(\.ts)?$/, replacement: path.resolve(__dirname, './src/__tests__/__stubs__/memeloopWorkerFactoryStub.ts') },
-      { find: /\?nodeWorker$/, replacement: path.resolve(__dirname, './src/__tests__/__stubs__/memeloopWorkerFactoryStub.ts') },
-      // Force React-family packages from linked @memeloop/ui to resolve from memeloop-desktop
+      { find: /\?utilityProcess(?:&.*)?$/, replacement: path.resolve(__dirname, './src/__tests__/__stubs__/memeloopWorkerFactoryStub.ts') },
+      // Force React-family packages to resolve from memeloop-desktop.
       { find: /^react$/, replacement: path.resolve(__dirname, './node_modules/react') },
       { find: /^react\/(.*)/, replacement: path.resolve(__dirname, './node_modules/react/$1') },
       { find: /^react-dom$/, replacement: path.resolve(__dirname, './node_modules/react-dom') },

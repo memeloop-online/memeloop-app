@@ -1,58 +1,56 @@
 import { Autocomplete, Box, Typography } from '@mui/material';
-import { ModelSelection } from '@services/agentInstance/promptConcat/promptConcatSchema';
-import { AIProviderConfig, ModelInfo } from '@services/providerRegistry/interface';
+import type { AgentModelConfig, ProviderAccountConfig, ProviderModelRoute } from 'memeloop';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { TextField } from '../../../PreferenceComponents';
+import { modelFeaturesForRoute, modelLabel, modelOptionKey } from './modelCatalogFeatures';
 import { ModelFeatureChip } from './ModelFeatureChip';
 
+export type ModelOption = readonly [ProviderAccountConfig, ProviderModelRoute];
+
+export function createModelOption(account: ProviderAccountConfig, route: ProviderModelRoute): ModelOption {
+  return [account, route];
+}
+
 interface ModelSelectorProps {
-  selectedModel: ModelSelection | undefined;
-  modelOptions: Array<[AIProviderConfig, ModelInfo]>;
-  onChange: (provider: string, model: string) => void;
+  selectedModel: AgentModelConfig | undefined;
+  modelOptions: readonly ModelOption[];
+  onChange: (providerId: string, modelId: string) => void;
   onClear?: () => void;
   onlyShowEnabled?: boolean;
 }
 
 export function ModelSelector({ selectedModel, modelOptions, onChange, onClear, onlyShowEnabled }: ModelSelectorProps) {
   const { t } = useTranslation('agent');
-
-  const selectedValue = selectedModel && selectedModel.model && selectedModel.provider &&
-      selectedModel.model !== '' && selectedModel.provider !== ''
-    ? modelOptions.find(m => m[0].provider === selectedModel.provider && m[1].name === selectedModel.model) || null
+  const filteredModelOptions = onlyShowEnabled
+    ? modelOptions.filter(([account]) => account.enabled !== false)
+    : modelOptions;
+  const selectedValue = selectedModel
+    ? filteredModelOptions.find(([account, route]) => account.providerId === selectedModel.providerId && route.modelId === selectedModel.modelId) ?? null
     : null;
 
-  const filteredModelOptions = onlyShowEnabled
-    ? modelOptions.filter(m => m[0].enabled)
-    : modelOptions;
-
   return (
-    <Autocomplete
+    <Autocomplete<ModelOption>
       value={selectedValue}
       onChange={(_, value) => {
         if (value) {
-          onChange(value[0].provider, value[1].name);
-        } else if (onClear) {
-          onClear();
+          onChange(value[0].providerId, value[1].modelId);
+        } else {
+          onClear?.();
         }
       }}
       options={filteredModelOptions}
-      groupBy={(option) => option[0].provider}
-      getOptionLabel={(option) => option[1].caption || option[1].name}
+      groupBy={([account]) => account.providerId}
+      getOptionLabel={([account, route]) => `${account.providerId} - ${modelLabel(account, route)}`}
       renderOption={(props, option) => {
-        const modelInfo = option[1];
+        const [account, route] = option;
         return (
-          <li {...props}>
+          <li {...props} key={modelOptionKey(account, route)}>
             <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
-              <Typography variant='body1'>
-                {modelInfo.caption || modelInfo.name}
-              </Typography>
-
-              {modelInfo.features && modelInfo.features.length > 0 && (
-                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
-                  {modelInfo.features.map(feature => <ModelFeatureChip key={feature} feature={feature} />)}
-                </Box>
-              )}
+              <Typography variant='body1'>{modelLabel(account, route)}</Typography>
+              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                {modelFeaturesForRoute(account, route).map(feature => <ModelFeatureChip key={feature} feature={feature} />)}
+              </Box>
             </Box>
           </li>
         );
@@ -65,6 +63,8 @@ export function ModelSelector({ selectedModel, modelOptions, onChange, onClear, 
           fullWidth
         />
       )}
+      isOptionEqualToValue={([leftAccount, leftRoute], [rightAccount, rightRoute]) =>
+        leftAccount.providerId === rightAccount.providerId && leftRoute.modelId === rightRoute.modelId}
       fullWidth
       sx={{ minWidth: 250 }}
     />

@@ -1,17 +1,74 @@
 import { inject, injectable } from 'inversify';
-import { pick } from 'lodash';
+import type { AgentDefinition } from 'memeloop';
 import { nanoid } from 'nanoid';
 import { DataSource, Repository } from 'typeorm';
 
 import type { IAgentBrowserService } from '@services/agentBrowser/interface';
-import defaultAgents from '@services/agentInstance/agentFrameworks/taskAgents.json';
 import type { IAgentInstanceService } from '@services/agentInstance/interface';
 import { container } from '@services/container';
 import type { IDatabaseService } from '@services/database/interface';
 import { AgentDefinitionEntity } from '@services/database/schema/agent';
 import { logger } from '@services/libs/log';
 import serviceIdentifier from '@services/serviceIdentifier';
-import type { AgentDefinition, IAgentDefinitionService } from './interface';
+import type { AgentInitializationStatus } from '@services/startupLifecycle';
+import { DEFAULT_AGENT_DEFINITION_ID, getOfficialAgentDefinitions } from './builtinAgentDefinitions';
+import type { IAgentDefinitionService } from './interface';
+
+/** Map the physical TypeORM row to Core's portable definition exactly once. */
+function isDefined<T>(value: T | null | undefined): value is T {
+  return value !== undefined && value !== null;
+}
+
+function entityToAgentDefinition(entity: AgentDefinitionEntity): AgentDefinition {
+  return {
+    id: entity.id,
+    name: entity.name,
+    description: entity.description,
+    systemPrompt: entity.systemPrompt,
+    tools: [...entity.tools],
+    version: entity.version,
+    ...(isDefined(entity.modelConfig) ? { modelConfig: entity.modelConfig } : {}),
+    ...(isDefined(entity.promptSchema) ? { promptSchema: entity.promptSchema } : {}),
+    ...(isDefined(entity.agentFrameworkConfig) ? { agentFrameworkConfig: entity.agentFrameworkConfig } : {}),
+    ...(isDefined(entity.agentTools) ? { agentTools: entity.agentTools } : {}),
+    ...(isDefined(entity.avatarUrl) ? { avatarUrl: entity.avatarUrl } : {}),
+    ...(isDefined(entity.agentFrameworkID) ? { agentFrameworkID: entity.agentFrameworkID } : {}),
+    ...(isDefined(entity.heartbeat) ? { heartbeat: entity.heartbeat } : {}),
+  };
+}
+
+function agentDefinitionToEntity(definition: AgentDefinition): Partial<AgentDefinitionEntity> {
+  return {
+    id: definition.id,
+    name: definition.name,
+    description: definition.description,
+    systemPrompt: definition.systemPrompt,
+    tools: [...definition.tools],
+    version: definition.version,
+    modelConfig: definition.modelConfig,
+    promptSchema: definition.promptSchema,
+    agentFrameworkConfig: definition.agentFrameworkConfig,
+    agentTools: definition.agentTools,
+    avatarUrl: definition.avatarUrl,
+    agentFrameworkID: definition.agentFrameworkID,
+    heartbeat: definition.heartbeat,
+  };
+}
+
+function applyAgentDefinitionPatch(entity: AgentDefinitionEntity, patch: Partial<AgentDefinition>): void {
+  if (patch.name !== undefined) entity.name = patch.name;
+  if (patch.description !== undefined) entity.description = patch.description;
+  if (patch.systemPrompt !== undefined) entity.systemPrompt = patch.systemPrompt;
+  if (patch.tools !== undefined) entity.tools = [...patch.tools];
+  if (patch.version !== undefined) entity.version = patch.version;
+  if (patch.modelConfig !== undefined) entity.modelConfig = patch.modelConfig;
+  if (patch.promptSchema !== undefined) entity.promptSchema = patch.promptSchema;
+  if (patch.agentFrameworkConfig !== undefined) entity.agentFrameworkConfig = patch.agentFrameworkConfig;
+  if (patch.agentTools !== undefined) entity.agentTools = patch.agentTools;
+  if (patch.avatarUrl !== undefined) entity.avatarUrl = patch.avatarUrl;
+  if (patch.agentFrameworkID !== undefined) entity.agentFrameworkID = patch.agentFrameworkID;
+  if (patch.heartbeat !== undefined) entity.heartbeat = patch.heartbeat;
+}
 
 @injectable()
 export class AgentDefinitionService implements IAgentDefinitionService {
@@ -22,14 +79,26 @@ export class AgentDefinitionService implements IAgentDefinitionService {
 
   private dataSource: DataSource | null = null;
   private agentDefRepository: Repository<AgentDefinitionEntity> | null = null;
+  private initializationStatus: AgentInitializationStatus = {
+    state: 'starting',
+    recoveryRequired: false,
+  };
+
+  public getInitializationStatus(): AgentInitializationStatus {
+    return { ...this.initializationStatus };
+  }
 
   public async initialize(): Promise<void> {
+    this.initializationStatus = { state: 'starting', recoveryRequired: false };
     try {
       // Initialize the database
       await this.databaseService.initializeDatabase('agent');
-      logger.debug('Agent database initialized');
       this.dataSource = await this.databaseService.getDatabase('agent');
       this.agentDefRepository = this.dataSource.getRepository(AgentDefinitionEntity);
+      // Only report success after TypeORM has connected and completed schema
+      // setup. `initializeDatabase` intentionally skips existing files, so a
+      // stale cache can still fail during getDatabase().
+      logger.debug('Agent database initialized');
       logger.debug('Agent repositories initialized');
 
       // Check if database is empty and initialize with default agents if needed
@@ -49,7 +118,9 @@ export class AgentDefinitionService implements IAgentDefinitionService {
       } else {
         logger.warn('agentBrowserService not ready yet during AgentDefinitionService initialization');
       }
+      this.initializationStatus = { state: 'ready', recoveryRequired: false };
     } catch (error) {
+      this.initializationStatus = { state: 'unavailable', recoveryRequired: true };
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`Failed to initialize agent service: ${errorMessage}`);
       throw error;
@@ -69,21 +140,11 @@ export class AgentDefinitionService implements IAgentDefinitionService {
       const existingCount = await this.agentDefRepository.count();
       if (existingCount === 0) {
         logger.info('Agent database is empty, initializing with default agents');
-        const defaultAgentsList = defaultAgents as AgentDefinition[];
-        // Create agent definition entities with complete data from taskAgents.json
-        const agentDefinitionEntities = defaultAgentsList.map(defaultAgent =>
-          this.agentDefRepository!.create({
-            id: defaultAgent.id,
-            name: defaultAgent.name,
-            description: defaultAgent.description,
-            avatarUrl: defaultAgent.avatarUrl,
-            agentFrameworkID: defaultAgent.agentFrameworkID,
-            agentFrameworkConfig: defaultAgent.agentFrameworkConfig,
-            aiApiConfig: defaultAgent.aiApiConfig,
-            agentTools: defaultAgent.agentTools,
-            heartbeat: (defaultAgent).heartbeat,
-          })
-        );
+        const defaultAgentsList = getOfficialAgentDefinitions();
+        // Core owns the built-in profiles. This database is only the App UI's
+        // editable/listing projection; the UtilityProcess executes Core's
+        // canonical profile for the same id.
+        const agentDefinitionEntities = defaultAgentsList.map(defaultAgent => this.agentDefRepository!.create(agentDefinitionToEntity(defaultAgent)));
         // Save all default agents to database
         await this.agentDefRepository.save(agentDefinitionEntities);
         logger.info(`Initialized ${defaultAgentsList.length} default agents in database`);
@@ -115,14 +176,12 @@ export class AgentDefinitionService implements IAgentDefinitionService {
         agent.id = nanoid();
       }
 
-      const agentDefinitionEntity = this.agentDefRepository!.create({
-        ...agent,
-      });
+      const agentDefinitionEntity = this.agentDefRepository!.create(agentDefinitionToEntity(agent));
 
       await this.agentDefRepository!.save(agentDefinitionEntity);
       logger.info(`Created agent definition: ${agent.id}`);
 
-      return agent;
+      return entityToAgentDefinition(agentDefinitionEntity);
     } catch (error) {
       logger.error(`Failed to create agent definition: ${error as Error}`);
       throw error;
@@ -143,13 +202,12 @@ export class AgentDefinitionService implements IAgentDefinitionService {
         throw new Error(`Agent definition not found: ${agent.id}`);
       }
 
-      const pickedProperties = pick(agent, ['name', 'description', 'avatarUrl', 'agentFrameworkID', 'agentFrameworkConfig', 'aiApiConfig', 'heartbeat']);
-      Object.assign(existingAgent, pickedProperties);
+      applyAgentDefinitionPatch(existingAgent, agent);
 
       await this.agentDefRepository!.save(existingAgent);
       logger.info(`Updated agent definition: ${agent.id}`);
 
-      return existingAgent as AgentDefinition;
+      return entityToAgentDefinition(existingAgent);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`Failed to update agent definition: ${errorMessage}`);
@@ -165,20 +223,7 @@ export class AgentDefinitionService implements IAgentDefinitionService {
       // Get agent definitions from database (no server-side search; client should filter)
       const agentDefsFromDB = await this.agentDefRepository!.find();
 
-      // Convert entities to agent definitions
-      const agentDefs: AgentDefinition[] = agentDefsFromDB.map(entity => ({
-        id: entity.id,
-        name: entity.name || undefined,
-        description: entity.description || undefined,
-        avatarUrl: entity.avatarUrl || undefined,
-        agentFrameworkID: entity.agentFrameworkID || undefined,
-        agentFrameworkConfig: entity.agentFrameworkConfig || {},
-        aiApiConfig: entity.aiApiConfig || undefined,
-        agentTools: entity.agentTools || undefined,
-        heartbeat: entity.heartbeat || undefined,
-      }));
-
-      return agentDefs;
+      return agentDefsFromDB.map(entityToAgentDefinition);
     } catch (error) {
       logger.error(`Failed to get agent definitions: ${error as Error}`);
       throw error;
@@ -190,12 +235,10 @@ export class AgentDefinitionService implements IAgentDefinitionService {
     this.ensureRepositories();
 
     try {
-      // Get default agent definition if ID not provided
-      // TODO: Get default agent from preferences
+      // Get Core's explicit default profile when no ID was provided. Database
+      // order must not silently change the default execution contract.
       if (!definitionId) {
-        // Temporary solution: get the first agent definition
-        const agents = await this.getAgentDefs();
-        return agents.length > 0 ? agents[0] : undefined;
+        definitionId = DEFAULT_AGENT_DEFINITION_ID;
       }
 
       // Find agent in database
@@ -207,20 +250,7 @@ export class AgentDefinitionService implements IAgentDefinitionService {
         return undefined;
       }
 
-      // Convert entity to agent definition
-      const agentDefinition: AgentDefinition = {
-        id: entity.id,
-        name: entity.name || undefined,
-        description: entity.description || undefined,
-        avatarUrl: entity.avatarUrl || undefined,
-        agentFrameworkID: entity.agentFrameworkID || undefined,
-        agentFrameworkConfig: entity.agentFrameworkConfig || {},
-        aiApiConfig: entity.aiApiConfig || undefined,
-        agentTools: entity.agentTools || undefined,
-        heartbeat: entity.heartbeat || undefined,
-      };
-
-      return agentDefinition;
+      return entityToAgentDefinition(entity);
     } catch (error) {
       logger.error(`Failed to get agent definition: ${error as Error}`);
       throw error;
@@ -246,8 +276,8 @@ export class AgentDefinitionService implements IAgentDefinitionService {
     try {
       const templates: AgentDefinition[] = [];
 
-      // Add default agents from JSON
-      const defaultAgentsList = defaultAgents as AgentDefinition[];
+      // Project the current Core profiles instead of returning a bundled copy.
+      const defaultAgentsList = getOfficialAgentDefinitions();
       templates.push(...defaultAgentsList);
 
       logger.debug(`Found ${templates.length} agent templates`, {

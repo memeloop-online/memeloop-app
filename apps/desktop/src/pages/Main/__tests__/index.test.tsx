@@ -1,41 +1,24 @@
-import { render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { HelmetProvider } from '@dr.pogodin/react-helmet';
 import { ThemeProvider } from '@mui/material/styles';
-import { lightTheme } from '@services/theme/defaultTheme';
-import { BehaviorSubject } from 'rxjs';
+import { render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { lightTheme } from '@services/theme/defaultTheme';
 import Main from '../index';
-
-const preferencesSubject = new BehaviorSubject({
-  sidebar: true,
-  tidgiMiniWindowShowSidebar: true,
-  showSideBarText: true,
-  showSideBarIcon: true,
-});
-
-Object.defineProperty(window.observables.preference, 'preference$', {
-  value: preferencesSubject.asObservable(),
-  writable: true,
-});
 
 vi.mock('../subPages', () => ({
   subPages: {
-    Help: () => <div data-testid='help-page'>Help Page Content</div>,
-    Guide: () => <div data-testid='guide-page'>Guide Page Content</div>,
     Agent: () => <div data-testid='agent-page'>Agent Page Content</div>,
   },
 }));
 
 describe('Main Page', () => {
-  const renderMain = (initialPath: string = '/') => {
-    const { hook } = memoryLocation({
-      path: initialPath,
-      record: true,
-    });
-    const rendered = render(
+  const renderMain = (initialPath = '/') => {
+    const { hook } = memoryLocation({ path: initialPath, record: true });
+    render(
       <HelmetProvider>
         <ThemeProvider theme={lightTheme}>
           <Router hook={hook}>
@@ -44,58 +27,23 @@ describe('Main Page', () => {
         </ThemeProvider>
       </HelmetProvider>,
     );
-    return rendered;
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('should display agent page content by default', async () => {
+  it('renders the agent page full-width without the TidGi workspace sidebar', async () => {
     renderMain();
-    await waitFor(() => {
-      expect(screen.getByTestId('agent-page')).toBeInTheDocument();
-    });
-    const agents = screen.getAllByTestId('agent-page');
-    expect(agents.length).toBe(1);
+
+    expect(await screen.findByTestId('agent-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('main-sidebar')).not.toBeInTheDocument();
   });
 
-  it('should display project session sidebar', async () => {
-    renderMain();
-    await waitFor(() => {
-      expect(screen.getByTestId('main-sidebar')).toBeInTheDocument();
-    });
-  });
+  it('falls back to the agent page for removed TidGi routes', async () => {
+    renderMain('/legacy-workspace');
 
-  it('should display settings button in sidebar', async () => {
-    renderMain();
-    await waitFor(() => {
-      expect(screen.getByTestId('SettingsIcon')).toBeInTheDocument();
-    });
-  });
-
-  it('should switch to Guide page when navigating', async () => {
-    renderMain('/guide');
-    await waitFor(() => {
-      expect(screen.getByTestId('guide-page')).toBeInTheDocument();
-    });
-    const guides = screen.getAllByTestId('guide-page');
-    expect(guides.length).toBe(1);
-  });
-
-  it('should switch to Help page when navigating', async () => {
-    renderMain('/help');
-    await waitFor(() => {
-      expect(screen.getByTestId('help-page')).toBeInTheDocument();
-    });
-    const helps = screen.getAllByTestId('help-page');
-    expect(helps.length).toBe(1);
-  });
-
-  it('should navigate to agent page for unknown routes', async () => {
-    renderMain('/unknown-route');
-    await waitFor(() => {
-      expect(screen.getByTestId('agent-page')).toBeInTheDocument();
-    });
+    expect(await screen.findByTestId('agent-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('main-sidebar')).not.toBeInTheDocument();
   });
 });

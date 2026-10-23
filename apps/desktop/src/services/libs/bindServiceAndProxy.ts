@@ -1,314 +1,106 @@
 /**
- * Don't forget to edit src/preload/common/services.ts to export service to renderer process
+ * MemeLoop App main-process composition root.
+ *
+ * Keep this list intentionally explicit: TiddlyWiki, workspace, Git,
+ * BrowserView and TidGi mini-window services are host-adapter concerns and
+ * must not become reachable just because App was forked from TidGi.
  */
 import { registerProxy } from 'electron-ipc-cat/server';
 
-import { container } from '@services/container';
-import serviceIdentifier from '@services/serviceIdentifier';
-
 import { AgentBrowserService } from '@services/agentBrowser';
-import { AgentDefinitionService } from '@services/agentDefinition';
-import { AgentInstanceService } from '@services/agentInstance';
-import { Authentication } from '@services/auth';
-import { ContextService } from '@services/context';
-import { DatabaseService } from '@services/database';
-import { DeepLinkService } from '@services/deepLink';
-import { Git } from '@services/git';
-import { GitServerService } from '@services/gitServer';
-import { MemeloopNode } from '@services/memeloopNode';
-import { MenuService } from '@services/menu';
-import { NativeService } from '@services/native';
-import { NotificationService } from '@services/notifications';
-import { Preference } from '@services/preferences';
-import { Sync } from '@services/sync';
-import { SystemPreference } from '@services/systemPreferences';
-import { ThemeService } from '@services/theme';
-import { ToolPermissions } from '@services/toolPermissions';
-import { Updater } from '@services/updater';
-import { View } from '@services/view';
-import { Wiki } from '@services/wiki';
-import { WikiEmbeddingService } from '@services/wikiEmbedding';
-import { WikiGitWorkspace } from '@services/wikiGitWorkspace';
-import { Window } from '@services/windows';
-import { Workspace } from '@services/workspaces';
-import { WorkspaceView } from '@services/workspacesView';
-
 import { AgentBrowserServiceIPCDescriptor, type IAgentBrowserService } from '@services/agentBrowser/interface';
+import { AgentDefinitionService } from '@services/agentDefinition';
 import { AgentDefinitionServiceIPCDescriptor, type IAgentDefinitionService } from '@services/agentDefinition/interface';
+import { AgentInstanceService } from '@services/agentInstance';
 import { AgentInstanceServiceIPCDescriptor, type IAgentInstanceService } from '@services/agentInstance/interface';
-import type { IAuthenticationService } from '@services/auth/interface';
-import { AuthenticationServiceIPCDescriptor } from '@services/auth/interface';
-import type { IContextService } from '@services/context/interface';
-import { ContextServiceIPCDescriptor } from '@services/context/interface';
-import type { IDatabaseService } from '@services/database/interface';
-import { DatabaseServiceIPCDescriptor } from '@services/database/interface';
-import type { IDeepLinkService } from '@services/deepLink/interface';
-import { DeepLinkServiceIPCDescriptor } from '@services/deepLink/interface';
-import type { IGitService } from '@services/git/interface';
-import { GitServiceIPCDescriptor } from '@services/git/interface';
-import type { IGitServerService } from '@services/gitServer/interface';
-import { GitServerServiceIPCDescriptor } from '@services/gitServer/interface';
-import type { IMemeloopNodeService } from '@services/memeloopNode/interface';
-import { MemeloopNodeServiceIPCDescriptor } from '@services/memeloopNode/interface';
-import type { IMenuService } from '@services/menu/interface';
-import { MenuServiceIPCDescriptor } from '@services/menu/interface';
-import type { INativeService } from '@services/native/interface';
-import { NativeServiceIPCDescriptor } from '@services/native/interface';
-import type { INotificationService } from '@services/notifications/interface';
-import { NotificationServiceIPCDescriptor } from '@services/notifications/interface';
-import type { IPreferenceService } from '@services/preferences/interface';
-import { PreferenceServiceIPCDescriptor } from '@services/preferences/interface';
-import type { ISyncService } from '@services/sync/interface';
-import { SyncServiceIPCDescriptor } from '@services/sync/interface';
-import type { ISystemPreferenceService } from '@services/systemPreferences/interface';
-import { SystemPreferenceServiceIPCDescriptor } from '@services/systemPreferences/interface';
-import type { IThemeService } from '@services/theme/interface';
-import { ThemeServiceIPCDescriptor } from '@services/theme/interface';
-import type { IToolPermissionsService } from '@services/toolPermissions/interface';
-import { ToolPermissionsServiceIPCDescriptor } from '@services/toolPermissions/interface';
-import type { IUpdaterService } from '@services/updater/interface';
-import { UpdaterServiceIPCDescriptor } from '@services/updater/interface';
-import type { IViewService } from '@services/view/interface';
-import { ViewServiceIPCDescriptor } from '@services/view/interface';
-import type { IWikiEmbeddingService } from '@services/wikiEmbedding/interface';
-import { WikiEmbeddingServiceIPCDescriptor } from '@services/wikiEmbedding/interface';
-import type { IWikiGitWorkspaceService } from '@services/wikiGitWorkspace/interface';
-import { WikiGitWorkspaceServiceIPCDescriptor } from '@services/wikiGitWorkspace/interface';
-import type { IWikiService } from '@services/wiki/interface';
-import { WikiServiceIPCDescriptor } from '@services/wiki/interface';
-import type { IWindowService } from '@services/windows/interface';
-import { WindowServiceIPCDescriptor } from '@services/windows/interface';
-import type { IWorkspaceService } from '@services/workspaces/interface';
-import { WorkspaceServiceIPCDescriptor } from '@services/workspaces/interface';
-import type { IWorkspaceViewService } from '@services/workspacesView/interface';
-import { WorkspaceViewServiceIPCDescriptor } from '@services/workspacesView/interface';
+import { AnalyticsService } from '@services/analytics';
+import { AnalyticsServiceIPCDescriptor, type IAnalyticsService } from '@services/analytics/interface';
+import { container } from '@services/container';
+import { ContextService } from '@services/context';
+import { ContextServiceIPCDescriptor, type IContextService } from '@services/context/interface';
+import { DatabaseService } from '@services/database';
+import { DatabaseServiceIPCDescriptor, type IDatabaseService } from '@services/database/interface';
+import { DeepLinkService } from '@services/deepLink';
+import { DeepLinkServiceIPCDescriptor, type IDeepLinkService } from '@services/deepLink/interface';
+import { DeviceNetworkService } from '@services/deviceNetwork';
+import { DeviceNetworkServiceIPCDescriptor, type IDeviceNetworkService } from '@services/deviceNetwork/interface';
+import { NativeService } from '@services/native';
+import { type INativeService, NativeServiceIPCDescriptor } from '@services/native/interface';
+import { NotificationService } from '@services/notifications';
+import { type INotificationService, NotificationServiceIPCDescriptor } from '@services/notifications/interface';
+import { Preference } from '@services/preferences';
+import { type IPreferenceService, PreferenceServiceIPCDescriptor } from '@services/preferences/interface';
+import serviceIdentifier from '@services/serviceIdentifier';
+import { SystemPreference } from '@services/systemPreferences';
+import { type ISystemPreferenceService, SystemPreferenceServiceIPCDescriptor } from '@services/systemPreferences/interface';
+import { ThemeService } from '@services/theme';
+import { type IThemeService, ThemeServiceIPCDescriptor } from '@services/theme/interface';
+import { ToolPermissions } from '@services/toolPermissions';
+import { type IToolPermissionsService, ToolPermissionsServiceIPCDescriptor } from '@services/toolPermissions/interface';
+import { Updater } from '@services/updater';
+import { type IUpdaterService, UpdaterServiceIPCDescriptor } from '@services/updater/interface';
+import { AppWindow } from '@services/windows/appWindow';
+import { type IWindowService, WindowServiceIPCDescriptor } from '@services/windows/interface';
 import { ProviderRegistryService } from '../providerRegistry';
 import { type IProviderRegistryService, ProviderRegistryServiceIPCDescriptor } from '../providerRegistry/interface';
-import { RemoteTerminalService } from '../remoteTerminal';
-import { type IRemoteTerminalService, RemoteTerminalServiceIPCDescriptor } from '../remoteTerminal/interface';
-import { RemoteSetupService } from '../sshRemote/service';
 import { type IRemoteSetupService, RemoteSetupServiceIPCDescriptor } from '../sshRemote/interface';
+import { RemoteSetupService } from '../sshRemote/service';
+
+type Binding<T> = {
+  id: symbol;
+  implementation: new(...arguments_: never[]) => T;
+  descriptor: Parameters<typeof registerProxy>[1];
+};
+
+const bindings: Array<Binding<unknown>> = [
+  { id: serviceIdentifier.AgentBrowser, implementation: AgentBrowserService, descriptor: AgentBrowserServiceIPCDescriptor },
+  { id: serviceIdentifier.AgentDefinition, implementation: AgentDefinitionService, descriptor: AgentDefinitionServiceIPCDescriptor },
+  { id: serviceIdentifier.AgentInstance, implementation: AgentInstanceService, descriptor: AgentInstanceServiceIPCDescriptor },
+  { id: serviceIdentifier.Analytics, implementation: AnalyticsService, descriptor: AnalyticsServiceIPCDescriptor },
+  { id: serviceIdentifier.Context, implementation: ContextService, descriptor: ContextServiceIPCDescriptor },
+  { id: serviceIdentifier.Database, implementation: DatabaseService, descriptor: DatabaseServiceIPCDescriptor },
+  { id: serviceIdentifier.DeepLink, implementation: DeepLinkService, descriptor: DeepLinkServiceIPCDescriptor },
+  { id: serviceIdentifier.DeviceNetwork, implementation: DeviceNetworkService, descriptor: DeviceNetworkServiceIPCDescriptor },
+  { id: serviceIdentifier.ProviderRegistry, implementation: ProviderRegistryService, descriptor: ProviderRegistryServiceIPCDescriptor },
+  { id: serviceIdentifier.NativeService, implementation: NativeService, descriptor: NativeServiceIPCDescriptor },
+  { id: serviceIdentifier.NotificationService, implementation: NotificationService, descriptor: NotificationServiceIPCDescriptor },
+  { id: serviceIdentifier.Preference, implementation: Preference, descriptor: PreferenceServiceIPCDescriptor },
+  { id: serviceIdentifier.RemoteSetup, implementation: RemoteSetupService, descriptor: RemoteSetupServiceIPCDescriptor },
+  { id: serviceIdentifier.SystemPreference, implementation: SystemPreference, descriptor: SystemPreferenceServiceIPCDescriptor },
+  { id: serviceIdentifier.ThemeService, implementation: ThemeService, descriptor: ThemeServiceIPCDescriptor },
+  { id: serviceIdentifier.ToolPermissions, implementation: ToolPermissions, descriptor: ToolPermissionsServiceIPCDescriptor },
+  { id: serviceIdentifier.Updater, implementation: Updater, descriptor: UpdaterServiceIPCDescriptor },
+  { id: serviceIdentifier.Window, implementation: AppWindow, descriptor: WindowServiceIPCDescriptor },
+];
 
 export function bindServiceAndProxy(): void {
-  container
-    .bind<IAgentBrowserService>(serviceIdentifier.AgentBrowser)
-    .to(AgentBrowserService)
-    .inSingletonScope();
-  container
-    .bind<IAgentDefinitionService>(serviceIdentifier.AgentDefinition)
-    .to(AgentDefinitionService)
-    .inSingletonScope();
-  container
-    .bind<IAgentInstanceService>(serviceIdentifier.AgentInstance)
-    .to(AgentInstanceService)
-    .inSingletonScope();
-  container
-    .bind<IAuthenticationService>(serviceIdentifier.Authentication)
-    .to(Authentication)
-    .inSingletonScope();
-  container
-    .bind<IContextService>(serviceIdentifier.Context)
-    .to(ContextService)
-    .inSingletonScope();
-  container
-    .bind<IDatabaseService>(serviceIdentifier.Database)
-    .to(DatabaseService)
-    .inSingletonScope();
-  container
-    .bind<IDeepLinkService>(serviceIdentifier.DeepLink)
-    .to(DeepLinkService)
-    .inSingletonScope();
-  container
-    .bind<IProviderRegistryService>(serviceIdentifier.ProviderRegistry)
-    .to(ProviderRegistryService)
-    .inSingletonScope();
-  container.bind<IGitService>(serviceIdentifier.Git).to(Git).inSingletonScope();
-  container
-    .bind<IGitServerService>(serviceIdentifier.GitServer)
-    .to(GitServerService)
-    .inSingletonScope();
-  container
-    .bind<IMemeloopNodeService>(serviceIdentifier.MemeloopNode)
-    .to(MemeloopNode)
-    .inSingletonScope();
-  container
-    .bind<IMenuService>(serviceIdentifier.MenuService)
-    .to(MenuService)
-    .inSingletonScope();
-  container
-    .bind<INativeService>(serviceIdentifier.NativeService)
-    .to(NativeService)
-    .inSingletonScope();
-  container
-    .bind<INotificationService>(serviceIdentifier.NotificationService)
-    .to(NotificationService)
-    .inSingletonScope();
-  container
-    .bind<IPreferenceService>(serviceIdentifier.Preference)
-    .to(Preference)
-    .inSingletonScope();
-  container
-    .bind<IRemoteSetupService>(serviceIdentifier.RemoteSetup)
-    .to(RemoteSetupService)
-    .inSingletonScope();
-  container
-    .bind<IRemoteTerminalService>(serviceIdentifier.RemoteTerminal)
-    .to(RemoteTerminalService)
-    .inSingletonScope();
-  container
-    .bind<ISyncService>(serviceIdentifier.Sync)
-    .to(Sync)
-    .inSingletonScope();
-  container
-    .bind<ISystemPreferenceService>(serviceIdentifier.SystemPreference)
-    .to(SystemPreference)
-    .inSingletonScope();
-  container
-    .bind<IThemeService>(serviceIdentifier.ThemeService)
-    .to(ThemeService)
-    .inSingletonScope();
-  container
-    .bind<IToolPermissionsService>(serviceIdentifier.ToolPermissions)
-    .to(ToolPermissions)
-    .inSingletonScope();
-  container
-    .bind<IUpdaterService>(serviceIdentifier.Updater)
-    .to(Updater)
-    .inSingletonScope();
-  container
-    .bind<IViewService>(serviceIdentifier.View)
-    .to(View)
-    .inSingletonScope();
-  container
-    .bind<IWindowService>(serviceIdentifier.Window)
-    .to(Window)
-    .inSingletonScope();
-  container
-    .bind<IWorkspaceService>(serviceIdentifier.Workspace)
-    .to(Workspace)
-    .inSingletonScope();
-  container
-    .bind<IWorkspaceViewService>(serviceIdentifier.WorkspaceView)
-    .to(WorkspaceView)
-    .inSingletonScope();
-  container
-    .bind<IWikiService>(serviceIdentifier.Wiki)
-    .to(Wiki)
-    .inSingletonScope();
-  container
-    .bind<IWikiEmbeddingService>(serviceIdentifier.WikiEmbedding)
-    .to(WikiEmbeddingService)
-    .inSingletonScope();
-  container
-    .bind<IWikiGitWorkspaceService>(serviceIdentifier.WikiGitWorkspace)
-    .to(WikiGitWorkspace)
-    .inSingletonScope();
-
-  const agentBrowserService = container.get<IAgentBrowserService>(
-    serviceIdentifier.AgentBrowser,
-  );
-  const agentDefinitionService = container.get<IAgentDefinitionService>(
-    serviceIdentifier.AgentDefinition,
-  );
-  const agentInstanceService = container.get<IAgentInstanceService>(
-    serviceIdentifier.AgentInstance,
-  );
-  const authService = container.get<IAuthenticationService>(
-    serviceIdentifier.Authentication,
-  );
-  const contextService = container.get<IContextService>(
-    serviceIdentifier.Context,
-  );
-  const databaseService = container.get<IDatabaseService>(
-    serviceIdentifier.Database,
-  );
-  const deepLinkService = container.get<IDeepLinkService>(
-    serviceIdentifier.DeepLink,
-  );
-  const providerRegistryService = container.get<IProviderRegistryService>(
-    serviceIdentifier.ProviderRegistry,
-  );
-  const gitService = container.get<IGitService>(serviceIdentifier.Git);
-  const gitServerService = container.get<IGitServerService>(
-    serviceIdentifier.GitServer,
-  );
-  const memeloopNodeService = container.get<IMemeloopNodeService>(
-    serviceIdentifier.MemeloopNode,
-  );
-  const menuService = container.get<IMenuService>(
-    serviceIdentifier.MenuService,
-  );
-  const nativeService = container.get<INativeService>(
-    serviceIdentifier.NativeService,
-  );
-  const notificationService = container.get<INotificationService>(
-    serviceIdentifier.NotificationService,
-  );
-  const preferenceService = container.get<IPreferenceService>(
-    serviceIdentifier.Preference,
-  );
-  const remoteTerminalService = container.get<IRemoteTerminalService>(
-    serviceIdentifier.RemoteTerminal,
-  );
-  const remoteSetupService = container.get<IRemoteSetupService>(
-    serviceIdentifier.RemoteSetup,
-  );
-  const syncService = container.get<ISyncService>(serviceIdentifier.Sync);
-  const systemPreferenceService = container.get<ISystemPreferenceService>(
-    serviceIdentifier.SystemPreference,
-  );
-  const themeService = container.get<IThemeService>(
-    serviceIdentifier.ThemeService,
-  );
-  const toolPermissionsService = container.get<IToolPermissionsService>(
-    serviceIdentifier.ToolPermissions,
-  );
-  const updaterService = container.get<IUpdaterService>(
-    serviceIdentifier.Updater,
-  );
-  const viewService = container.get<IViewService>(serviceIdentifier.View);
-  const windowService = container.get<IWindowService>(serviceIdentifier.Window);
-  const workspaceService = container.get<IWorkspaceService>(
-    serviceIdentifier.Workspace,
-  );
-  const workspaceViewService = container.get<IWorkspaceViewService>(
-    serviceIdentifier.WorkspaceView,
-  );
-  const wikiService = container.get<IWikiService>(serviceIdentifier.Wiki);
-  const wikiEmbeddingService = container.get<IWikiEmbeddingService>(
-    serviceIdentifier.WikiEmbedding,
-  );
-  const wikiGitWorkspaceService = container.get<IWikiGitWorkspaceService>(
-    serviceIdentifier.WikiGitWorkspace,
-  );
-
-  registerProxy(agentBrowserService, AgentBrowserServiceIPCDescriptor);
-  registerProxy(agentDefinitionService, AgentDefinitionServiceIPCDescriptor);
-  registerProxy(agentInstanceService, AgentInstanceServiceIPCDescriptor);
-  registerProxy(authService, AuthenticationServiceIPCDescriptor);
-  registerProxy(contextService, ContextServiceIPCDescriptor);
-  registerProxy(databaseService, DatabaseServiceIPCDescriptor);
-  registerProxy(deepLinkService, DeepLinkServiceIPCDescriptor);
-  registerProxy(providerRegistryService, ProviderRegistryServiceIPCDescriptor);
-  registerProxy(gitService, GitServiceIPCDescriptor);
-  registerProxy(gitServerService, GitServerServiceIPCDescriptor);
-  registerProxy(memeloopNodeService, MemeloopNodeServiceIPCDescriptor);
-  registerProxy(menuService, MenuServiceIPCDescriptor);
-  registerProxy(nativeService, NativeServiceIPCDescriptor);
-  registerProxy(notificationService, NotificationServiceIPCDescriptor);
-  registerProxy(preferenceService, PreferenceServiceIPCDescriptor);
-  registerProxy(remoteTerminalService, RemoteTerminalServiceIPCDescriptor);
-  registerProxy(remoteSetupService, RemoteSetupServiceIPCDescriptor);
-  registerProxy(syncService, SyncServiceIPCDescriptor);
-  registerProxy(systemPreferenceService, SystemPreferenceServiceIPCDescriptor);
-  registerProxy(themeService, ThemeServiceIPCDescriptor);
-  registerProxy(toolPermissionsService, ToolPermissionsServiceIPCDescriptor);
-  registerProxy(updaterService, UpdaterServiceIPCDescriptor);
-  registerProxy(viewService, ViewServiceIPCDescriptor);
-  registerProxy(windowService, WindowServiceIPCDescriptor);
-  registerProxy(workspaceService, WorkspaceServiceIPCDescriptor);
-  registerProxy(workspaceViewService, WorkspaceViewServiceIPCDescriptor);
-  registerProxy(wikiService, WikiServiceIPCDescriptor);
-  registerProxy(wikiEmbeddingService, WikiEmbeddingServiceIPCDescriptor);
-  registerProxy(wikiGitWorkspaceService, WikiGitWorkspaceServiceIPCDescriptor);
+  for (const binding of bindings) {
+    container.bind(binding.id).to(binding.implementation).inSingletonScope();
+  }
+  for (const binding of bindings) {
+    registerProxy(container.get(binding.id), binding.descriptor);
+  }
 }
+
+// Compile-time checks keep accidental interface drift visible without adding
+// another runtime registration surface.
+type AppServices =
+  | IAgentBrowserService
+  | IAgentDefinitionService
+  | IAgentInstanceService
+  | IAnalyticsService
+  | IContextService
+  | IDatabaseService
+  | IDeepLinkService
+  | IDeviceNetworkService
+  | IProviderRegistryService
+  | INativeService
+  | INotificationService
+  | IPreferenceService
+  | IRemoteSetupService
+  | ISystemPreferenceService
+  | IThemeService
+  | IToolPermissionsService
+  | IUpdaterService
+  | IWindowService;
+void (undefined as AppServices | undefined);

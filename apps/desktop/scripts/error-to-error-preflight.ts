@@ -13,7 +13,7 @@ function runSmokeCalibration(): void {
     cwd: process.cwd(),
     env: {
       ...process.env,
-      TIDGI_E2E_IS_CALIBRATION: 'true',
+      MEMELOOP_E2E_IS_CALIBRATION: 'true',
     },
   });
 

@@ -5,8 +5,10 @@ dist
 out/
 .vite/
 .pnpm-store/
+.electron-packager/
 coverage/
 userData-test/
+userdata-test/
 userData-dev/
 test-artifacts/
 wiki-test/

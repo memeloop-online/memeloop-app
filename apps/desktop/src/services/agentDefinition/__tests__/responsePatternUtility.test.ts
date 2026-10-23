@@ -1,5 +1,10 @@
+import type { ToolCallingMatch } from '@services/agentDefinition/interface';
 import { describe, expect, it } from 'vitest';
 import { addToolPattern, getToolPatterns, matchToolCalling } from '../responsePatternUtility';
+
+function assertFound(result: ToolCallingMatch): asserts result is Extract<ToolCallingMatch, { found: true }> {
+  expect(result.found).toBe(true);
+}
 
 describe('matchToolCalling', () => {
   describe('XML-style patterns', () => {
@@ -19,7 +24,7 @@ Let me find the relevant information for you.
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       expect(result.toolId).toBe('wiki-search');
       expect(result.parameters).toEqual({
         workspaceName: 'documentation',
@@ -44,7 +49,7 @@ Let me find the relevant information for you.
 
         const result = matchToolCalling(responseText);
 
-        expect(result.found).toBe(true);
+        assertFound(result);
         expect(result.parameters).toEqual({
           stringValue: 'hello',
           numberValue: 42,
@@ -62,7 +67,7 @@ Let me find the relevant information for you.
 
         const result = matchToolCalling(responseText);
 
-        expect(result.found).toBe(true);
+        assertFound(result);
         expect(result.toolId).toBe('no-params');
         expect(result.parameters).toEqual({});
       });
@@ -77,7 +82,7 @@ Just some random text
 
         const result = matchToolCalling(responseText);
 
-        expect(result.found).toBe(true);
+        assertFound(result);
         expect(result.toolId).toBe('malformed-tool');
         expect(result.parameters).toEqual({
           input: 'This is not valid JSON or key-value pairs\nJust some random text',
@@ -99,7 +104,7 @@ Just some random text
 
         const result = matchToolCalling(responseText);
 
-        expect(result.found).toBe(true);
+        assertFound(result);
         expect(result.toolId).toBe('first-tool');
         expect(result.parameters).toEqual({ param: 'value1' });
       });
@@ -111,10 +116,7 @@ Just some random text
 
         const result = matchToolCalling(responseText);
 
-        expect(result.found).toBe(false);
-        expect(result.toolId).toBeUndefined();
-        expect(result.parameters).toBeUndefined();
-        expect(result.originalText).toBeUndefined();
+        expect(result).toEqual({ found: false });
       });
 
       it('should return not found for malformed tool patterns', () => {
@@ -136,7 +138,7 @@ Just some random text
 
         const result = matchToolCalling(responseText);
 
-        expect(result.found).toBe(true);
+        assertFound(result);
         expect(result.toolId).toBe('uppercase-tool');
       });
 
@@ -149,7 +151,7 @@ Just some random text
 
         const result = matchToolCalling(responseText);
 
-        expect(result.found).toBe(true);
+        assertFound(result);
         expect(result.toolId).toBe('test-tool');
         expect(result.parameters).toEqual({ query: 'test' });
       });
@@ -170,7 +172,7 @@ Just some random text
 
         const result = matchToolCalling(responseText);
 
-        expect(result.found).toBe(true);
+        assertFound(result);
         expect(result.parameters?.longText).toContain('spans multiple lines');
         expect(result.parameters?.array).toEqual(['item1', 'item2', 'item3']);
       });
@@ -232,7 +234,7 @@ Just some random text
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       expect(result.toolId).toBe('my-tool');
       expect(result.parameters).toEqual({ param: 'value' });
     });
@@ -249,7 +251,7 @@ Just some random text
 
       const result = matchToolCalling(responseText);
 
-      expect(result.found).toBe(true);
+      assertFound(result);
       expect(result.toolId).toBe('test-tool');
     });
   });

@@ -15,3 +15,4 @@ export default function RootLayout() {
     </PaperProvider>
   );
 }
+import 'react-native-get-random-values';

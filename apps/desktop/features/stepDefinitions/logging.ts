@@ -1,8 +1,7 @@
-import { After, DataTable, Then, When } from '@cucumber/cucumber';
+import { DataTable, Then } from '@cucumber/cucumber';
 import { backOff } from 'exponential-backoff';
 import fs from 'fs';
 import path from 'path';
-import { MockOAuthServer } from '../supports/mockOAuthServer';
 import { ApplicationWorld } from './application';
 
 Then(
@@ -19,8 +18,7 @@ Then(
     const logsDirectory = path.resolve(scenarioRoot, 'userData-test', 'logs');
 
     // Poll for expected log entries with retries.
-    // Wiki worker logs (written via logFor → IPC → winston DailyRotateFile) may arrive
-    // after a short delay due to the main→worker→main IPC round-trip and async file I/O.
+    // Renderer logs cross IPC before the rotating file transport flushes them.
     const maxAttempts = 20;
     const pollIntervalMs = 500;
     let lastMissing: string[] = [];
@@ -110,38 +108,3 @@ Then(
     );
   },
 );
-
-// OAuth Server Steps
-When(
-  'I start Mock OAuth Server on port {int}',
-  async function(this: ApplicationWorld, port: number) {
-    this.mockOAuthServer = new MockOAuthServer(
-      { clientId: 'test-client-id' },
-      port,
-    );
-    await this.mockOAuthServer.start();
-  },
-);
-
-When('I stop Mock OAuth Server', async function(this: ApplicationWorld) {
-  if (this.mockOAuthServer) {
-    await this.mockOAuthServer.stop();
-    this.mockOAuthServer = undefined;
-  }
-});
-
-// Clean up Mock OAuth Server after @oauth tests
-After({ tags: '@oauth' }, async function(this: ApplicationWorld) {
-  if (this.mockOAuthServer) {
-    try {
-      await Promise.race([
-        this.mockOAuthServer.stop(),
-        new Promise<void>((resolve) => setTimeout(resolve, 2000)),
-      ]);
-    } catch {
-      // Ignore errors during cleanup
-    } finally {
-      this.mockOAuthServer = undefined;
-    }
-  }
-});
