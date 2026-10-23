@@ -436,7 +436,17 @@ export class DatabaseService implements IDatabaseService {
 
   public immediatelyStoreSettingsToBackupFile() {
     if (!this.settingFileContent) return;
-    this.settingBackupStream?.write(JSON.stringify(this.settingFileContent) + '\n', 'utf8');
+    this.settingBackupStream?.write(JSON.stringify(this.settingsSnapshot()) + '\n', 'utf8');
+  }
+
+  private settingsSnapshot(): ElectronSettingsObject {
+    const snapshot = toElectronSettingsObject(this.settingFileContent!);
+    // DeviceNetwork owns this subtree and writes it directly after our startup
+    // snapshot. Preserve its current identity, trust and Cloud state, including deletions.
+    delete snapshot.deviceNetwork;
+    const deviceNetwork = settings.getSync('deviceNetwork');
+    if (deviceNetwork !== undefined) snapshot.deviceNetwork = deviceNetwork;
+    return snapshot;
   }
 
   public async immediatelyStoreSettingsToFile() {
@@ -444,15 +454,20 @@ export class DatabaseService implements IDatabaseService {
       logger.error('immediatelyStoreSettingsToFile called before initializeForApp()');
       return;
     }
+    let snapshot: ElectronSettingsObject | undefined;
     try {
       if (this.storeSettingsToFileLock) return;
       this.storeSettingsToFileLock = true;
-      await settings.set(toElectronSettingsObject(this.settingFileContent));
+      snapshot = this.settingsSnapshot();
+      // Keep read/merge/write in one synchronous turn: an asynchronous whole-file
+      // write could otherwise finish after a newer DeviceNetwork setSync.
+      settings.setSync(snapshot);
     } catch (error) {
-      logger.error('Setting file format bad in debouncedSetSettingFile, will try force writing', { error, settingFileContent: JSON.stringify(this.settingFileContent) });
+      logger.error('Setting file format bad in debouncedSetSettingFile, will try force writing', { error });
+      if (!snapshot) throw error;
       ensureSettingFolderExist();
       fixSettingFileWhenError(error instanceof Error ? error : new Error(String(error)));
-      fs.writeJSONSync(settings.file(), this.settingFileContent);
+      fs.writeJSONSync(settings.file(), snapshot);
     } finally {
       this.storeSettingsToFileLock = false;
     }

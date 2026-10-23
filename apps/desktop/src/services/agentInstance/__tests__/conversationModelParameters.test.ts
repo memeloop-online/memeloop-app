@@ -17,6 +17,19 @@ const accounts: ProviderAccountConfig[] = [{
 }];
 
 describe('canonical worker conversation model parameters', () => {
+  it('projects wire metadata for aliases but prefers explicit logical metadata regardless of catalog order', () => {
+    const models = [...accounts[0].catalogProvider!.models];
+    const aliasedAccounts = [{ ...accounts[0], catalogProvider: { ...accounts[0].catalogProvider!, models } }];
+    const logical = models[0];
+    models.splice(0, 1, { ...logical, id: 'wire', name: 'Wire model' });
+    expect(projectDesktopModelConfiguration({}, aliasedAccounts).routes[0]?.model?.name).toBe('Wire model');
+    models.push({ ...logical, reasoningEfforts: ['low'] });
+    const route = projectDesktopModelConfiguration({}, aliasedAccounts).routes[0];
+    expect(route?.model?.name).toBe('Model');
+    expect(route?.model?.reasoningEfforts).toEqual(['low']);
+    expect(route?.modelId).toBe('model');
+  });
+
   it('projects a credential-free bridge payload', () => {
     const config = projectDesktopModelConfiguration({ default: { providerId: 'provider', modelId: 'model' } }, accounts);
     expect(config.routes[0]?.parameters).toEqual({ maxOutputTokens: 1024, topP: 0.8 });

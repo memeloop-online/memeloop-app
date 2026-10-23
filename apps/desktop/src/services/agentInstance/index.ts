@@ -127,6 +127,7 @@ import type {
 } from './scheduledTaskTypes';
 import { cleanupMCPClient } from './tools/modelContextProtocol';
 import { type AppAgentToolRuntime, bootstrapAppAgentToolRuntime } from './tools/runtime';
+import { callWorkerStorage } from './workerStorageBridge';
 
 const MEMELOOP_UTILITY_PROCESS_INITIALIZATION_TIMEOUT_MS = 30_000;
 const MAX_UTILITY_PROCESS_LOG_BYTES = 4 * 1024;
@@ -324,11 +325,11 @@ export class AgentInstanceService implements IAgentInstanceService {
     if (this.memeLoopSyncStorage) return this.memeLoopSyncStorage;
     const call = <T>(method: string, ...arguments_: unknown[]): Promise<T> => this.callMemeLoopWorkerStorage(method, ...arguments_);
     const storage: FullAgentStorage = {
-      listConversationsPage: options => call('listConversationsPage', options),
-      getMessagePage: (conversationId, options) => call('getMessagePage', conversationId, options),
-      getFullContentMessagePage: (conversationId, options) => call('getFullContentMessagePage', conversationId, options),
-      getMessageWindowAround: (conversationId, options) => call('getMessageWindowAround', conversationId, options),
-      getConversationTimelinePage: (conversationId, options) => call('getConversationTimelinePage', conversationId, options),
+      listConversationsPage: (options, callOptions) => call('listConversationsPage', options, callOptions),
+      getMessagePage: (conversationId, options, callOptions) => call('getMessagePage', conversationId, options, callOptions),
+      getFullContentMessagePage: (conversationId, options, callOptions) => call('getFullContentMessagePage', conversationId, options, callOptions),
+      getMessageWindowAround: (conversationId, options, callOptions) => call('getMessageWindowAround', conversationId, options, callOptions),
+      getConversationTimelinePage: (conversationId, options, callOptions) => call('getConversationTimelinePage', conversationId, options, callOptions),
       getMessageIdentity: (conversationId, messageId, options) => call('getMessageIdentity', conversationId, messageId, options),
       readMessageDetailRange: (conversationId, messageId, offset, maxBytes, options) => call('readMessageDetailRange', conversationId, messageId, offset, maxBytes, options),
       getConversationEventPage: (conversationId, options) => call('getConversationEventPage', conversationId, options),
@@ -347,7 +348,7 @@ export class AgentInstanceService implements IAgentInstanceService {
       getConversationMeta: (conversationId, options) => call('getConversationMeta', conversationId, options),
       getAttachment: (contentHash, options) => call('getAttachment', contentHash, options),
       saveAttachment: (reference, data) => call('saveAttachment', reference, data),
-      readAttachmentData: contentHash => call('readAttachmentData', contentHash),
+      readAttachmentData: (contentHash, options) => call('readAttachmentData', contentHash, options),
       readAttachmentRange: (contentHash, offset, maxBytes, options) => call('readAttachmentRange', contentHash, offset, maxBytes, options),
       stageAttachmentChunk: (reference, offset, data, options) => call('stageAttachmentChunk', reference, offset, data, options),
       commitStagedAttachment: (contentHash, options) => call('commitStagedAttachment', contentHash, options),
@@ -364,7 +365,7 @@ export class AgentInstanceService implements IAgentInstanceService {
 
   private async callMemeLoopWorkerStorage<T>(method: string, ...arguments_: unknown[]): Promise<T> {
     const worker = await this.getMemeLoopWorkerProxy();
-    return await worker.storageCall(method, arguments_) as T;
+    return await callWorkerStorage(worker, nanoid(), method, arguments_) as T;
   }
 
   /**

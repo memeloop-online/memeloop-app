@@ -1,8 +1,52 @@
+import settings from 'electron-settings';
 import fs from 'fs-extra';
 import { DataSource } from 'typeorm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DatabaseService } from '../index';
+import type { ISettingFile } from '../interface';
+
+vi.hoisted(() => vi.resetModules());
+
+vi.mock('electron-settings', () => ({
+  default: {
+    getSync: vi.fn(),
+    setSync: vi.fn(),
+    set: vi.fn(),
+    file: () => 'userData-test/settings/settings.json',
+  },
+}));
+
+describe('DatabaseService settings persistence', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('preserves identity and trust written after the cached settings were loaded, including removals', async () => {
+    const service = new DatabaseService();
+    const cached = {
+      preferences: {},
+      deviceNetwork: { identity: { v1: { peerId: 'old-peer' } }, cloudConfiguration: { v1: { cloudUrl: 'old-cloud' } } },
+    };
+    const access = service as unknown as { settingFileContent: ISettingFile; settingBackupStream: { write: ReturnType<typeof vi.fn> } };
+    access.settingFileContent = cached as unknown as ISettingFile;
+    access.settingBackupStream = { write: vi.fn() };
+    const fresh = { identity: { v1: { peerId: 'stable-peer' } }, trustedDevices: { v2: { records: [{ peerId: 'mobile-peer' }] } } };
+    vi.spyOn(settings, 'getSync').mockImplementation(() => structuredClone(fresh));
+    const write = vi.spyOn(settings, 'setSync').mockImplementation(() => undefined);
+    const asyncWrite = vi.spyOn(settings, 'set');
+
+    await service.immediatelyStoreSettingsToFile();
+    expect(write).toHaveBeenLastCalledWith({ preferences: {}, deviceNetwork: fresh });
+    expect(asyncWrite).not.toHaveBeenCalled();
+    service.immediatelyStoreSettingsToBackupFile();
+    expect(JSON.parse(access.settingBackupStream.write.mock.calls[0][0] as string)).toEqual({ preferences: {}, deviceNetwork: fresh });
+
+    vi.mocked(settings.getSync).mockReset();
+    await service.immediatelyStoreSettingsToFile();
+    expect(write).toHaveBeenLastCalledWith({ preferences: {} });
+  });
+});
 
 describe('DatabaseService.getDatabase', () => {
   afterEach(() => {

@@ -54,7 +54,10 @@ export function projectDesktopModelConfiguration(assignments: ModelAssignments, 
     routes: accounts.filter(account => account.enabled !== false).flatMap(account =>
       account.models.map(route => {
         const defaults = route.requestDefaults;
-        const model = publicModel(account.catalogProvider?.models.find(model => model.id === route.modelId));
+        const model = publicModel(
+          account.catalogProvider?.models.find(model => model.id === route.modelId) ??
+            account.catalogProvider?.models.find(model => model.id === route.wireModelId),
+        );
         return {
           providerId: account.providerId,
           modelId: route.modelId,

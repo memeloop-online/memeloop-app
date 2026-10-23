@@ -7,6 +7,7 @@ import {
   type RawSeedDeviceIdentity,
 } from '@memeloop/libp2p/browser';
 import * as SecureStore from './deviceStorage';
+import { pairingBootstrapAddresses } from './pairingAddresses';
 import {
   type Device,
   type DeviceNetworkService,
@@ -223,19 +224,12 @@ class MobileDeviceNetworkController {
     const stored = await Promise.all(
       peerIds
         .filter((peerId): peerId is string => typeof peerId === 'string')
-        .map((peerId) => readJson(addressKey(peerId))),
+        .map(async (peerId) => {
+          const addresses = await readJson(addressKey(peerId));
+          return pairingBootstrapAddresses(peerId, addresses);
+        }),
     );
-    return [
-      ...new Set(
-        stored.flatMap((addresses) =>
-          Array.isArray(addresses)
-            ? addresses.filter(
-                (address): address is string => typeof address === 'string',
-              )
-            : []
-        ),
-      ),
-    ];
+    return [...new Set(stored.flat())];
   }
 
   private setState(

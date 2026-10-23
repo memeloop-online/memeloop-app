@@ -47,6 +47,7 @@ import type {
 import { TerminalSessionManager } from './terminal/sessionManager';
 import { ensureMemeLoopWorkerDataDirectory } from './workerDataDirectory';
 import { DesktopWorkerModelRegistry } from './workerModelRegistry';
+import { createWorkerStorageBridge, type WorkerStorageRequest } from './workerStorageBridge';
 
 // Electron UtilityProcess exposes `process.parentPort`; the worker adapter
 // normalizes it to the transport shape used by the RPC adapter.  The runtime
@@ -175,6 +176,11 @@ const pendingMainToolCall = new Map<string, PendingMainRequest<unknown>>();
 const pendingMainScheduledTaskCall = new Map<string, PendingMainRequest<unknown>>();
 const pendingMainModelConfiguration = new Map<string, PendingMainRequest<DesktopModelConfiguration>>();
 const pendingNetworkRpc = new Map<string, AbortController>();
+const workerStorageBridge = createWorkerStorageBridge(async () => {
+  await ensureRuntimeInitialized();
+  if (!storage) throw new Error('MemeLoop storage did not initialize');
+  return storage;
+});
 
 function rejectPendingMainRequests(error: Error): void {
   for (const pending of pendingMainToolList.values()) pending.reject(error);
@@ -748,10 +754,6 @@ function isAgentRuntimeRpcStorage(value: unknown): value is AgentRuntimeRpcStora
   ].every(method => typeof Reflect.get(value, method) === 'function');
 }
 
-function isCallable(value: unknown): value is (...arguments_: unknown[]) => unknown {
-  return typeof value === 'function';
-}
-
 function createWorkerConversationModelParameters() {
   if (!storage) throw new Error('MemeLoop storage did not initialize');
   return createDesktopConversationModelParameters({
@@ -1105,6 +1107,7 @@ async function shutdownDesktopNode(): Promise<void> {
     await stopDesktopHttpServer();
     for (const controller of pendingNetworkRpc.values()) controller.abort(new Error('MemeLoop UtilityProcess is shutting down'));
     pendingNetworkRpc.clear();
+    workerStorageBridge.abortAll();
     for (const { controller } of promptPreviewPrepareOperations.values()) {
       controller.abort(new Error('MemeLoop UtilityProcess is shutting down'));
     }
@@ -1234,14 +1237,9 @@ const memeloopWorker = {
    * never leaves this UtilityProcess and can remain the single sync/runtime
    * source of truth.
    */
-  storageCall: async (method: string, arguments_: unknown[]) => {
-    await ensureRuntimeInitialized();
-    if (!storage) throw new Error('MemeLoop storage did not initialize');
-    const callable: unknown = Reflect.get(storage, method);
-    if (!isCallable(callable)) {
-      throw new Error(`memeloop_storage_method_not_supported:${method}`);
-    }
-    return Reflect.apply(callable, storage, arguments_);
+  storageCall: (request: WorkerStorageRequest) => workerStorageBridge.call(request),
+  cancelStorageCall: async (requestId: string): Promise<void> => {
+    workerStorageBridge.cancel(requestId);
   },
   preparePromptPreviewExecution: async (input: {
     conversationId: string;

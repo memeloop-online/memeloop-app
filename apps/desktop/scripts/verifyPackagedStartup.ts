@@ -139,10 +139,14 @@ const removeIsolatedDirectory = async (directory: string): Promise<void> => {
         '& { param([string]$Target) Remove-Item -LiteralPath $Target -Recurse -Force -ErrorAction Stop }',
         directory,
       ],
-      { stdio: 'ignore' },
+      { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true },
     );
+    let cleanupError = '';
+    removeProcess.stderr?.on('data', chunk => {
+      cleanupError += String(chunk);
+    });
     if (!(await waitForExit(removeProcess, 30_000)) || removeProcess.exitCode !== 0) {
-      throw new Error(`Failed to remove isolated Windows startup directory: ${directory}`);
+      throw new Error(`Failed to remove isolated Windows startup directory: ${directory}\n${cleanupError.trim()}`);
     }
     return;
   }
