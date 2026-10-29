@@ -48,6 +48,7 @@ import { logger } from '@services/libs/log';
 
 import { createDesktopCloudConnectionCoordinator, signDesktopCloudHeartbeat } from './cloudCoordinator';
 import type { DeviceNetworkRpcOperationOptions, DeviceNetworkRuntimeOptions, IDeviceNetworkService } from './interface';
+import { boundListenPorts, listenAddresses, readListenPorts } from './listenPorts';
 import { selectPairingAddresses } from './pairingAddresses';
 
 const DEVICE_IDENTITY_KEY = 'deviceNetwork.identity.v1';
@@ -343,12 +344,14 @@ export class DeviceNetworkService implements IDeviceNetworkService {
     await this.refreshCapabilities();
     this.mutableAuthorizer = new MutableDeviceAuthorizer(this.createLocalPairingAuthorizer());
     const orchestrationClient = this.runtimeOptions.orchestrationClient;
+    const listenPorts = readListenPorts(settings.getSync('deviceNetwork.listenPorts.v1'));
     this.core = new Libp2pDeviceNetworkService({
       identity: this.identity!,
       capabilities: this.currentCapabilities,
       trustStore: this.trustStore,
       authorizer: this.mutableAuthorizer,
       enableMdns: true,
+      listen: { addresses: listenAddresses(listenPorts) },
       syncStorage: this.runtimeOptions.syncStorage,
       rpcHandler: this.runtimeOptions.rpcHandler,
       orchestrationHandler: orchestrationClient
@@ -362,7 +365,23 @@ export class DeviceNetworkService implements IDeviceNetworkService {
         })
         : undefined,
     });
-    await this.core.start();
+    try {
+      await this.core.start();
+      settings.setSync('deviceNetwork.listenPorts.v1', toElectronSettingsValue(boundListenPorts(this.core.getMultiaddrs())));
+    } catch (error) {
+      await this.core.stop().catch(() => undefined);
+      this.core = undefined;
+      this.mutableAuthorizer = undefined;
+      if (listenPorts) {
+        throw new Error(
+          `Device network could not start on saved ports (TCP ${listenPorts.tcpPort}, WebSocket ${listenPorts.webSocketPort}): ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
     this.started = true;
     // Wire core observables to IPC-serializable BehaviorSubjects.
     // The core's observe methods return unsubscribe functions that cannot cross IPC,
