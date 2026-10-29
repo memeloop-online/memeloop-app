@@ -4,12 +4,12 @@ import {
   useAgentSessionCoreAdapter,
 } from '@memeloop/react-ui/native';
 import { resolveAgentRunErrorPresentation } from '@memeloop/react-ui/chat/core';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { setStringAsync } from 'expo-clipboard';
 import { createAgentDeviceRpcRequestId, createConversationEditingAdapter, type ConversationBranchState } from 'memeloop/mobile';
-import { useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { AppState, ScrollView, StyleSheet, View } from 'react-native';
-import { Button, Card, Text } from 'react-native-paper';
+import { Button, Card, Dialog, IconButton, List, Menu, Portal, Text, useTheme } from 'react-native-paper';
 
 import {
   createMobileRemoteAgentSession,
@@ -27,7 +27,7 @@ import {
 import { getMobileLabels } from '../lib/i18n';
 import { RemoteConversationSettings } from '../lib/RemoteConversationSettings';
 
-function AgentChat({ session, onConversationChange }: { session: MobileRemoteAgentSession; onConversationChange: (conversationId: string, runId?: string) => Promise<void> }) {
+function AgentChat({ session, onConversationChange, headerActions }: { headerActions: ReactNode; session: MobileRemoteAgentSession; onConversationChange: (conversationId: string, runId?: string) => Promise<void> }) {
   const router = useRouter();
   const labels = getMobileLabels();
   const baseAdapter = useAgentSessionCoreAdapter({
@@ -72,11 +72,12 @@ function AgentChat({ session, onConversationChange }: { session: MobileRemoteAge
   return (
     <NativeAgentChatView
       adapter={adapter}
-      title={session.title}
+      headerActions={headerActions}
       placeholder={labels.chat.placeholder}
       emptyMessage={labels.chat.empty}
       loadingMessage={labels.chat.loading}
       labels={{
+        send: labels.chat.editing.send,
         copyMessage: labels.chat.copyMessage,
         retryTurn: labels.chat.retry,
         editing: labels.chat.editing,
@@ -138,6 +139,7 @@ function AgentChat({ session, onConversationChange }: { session: MobileRemoteAge
 export default function ChatScreen() {
   const router = useRouter();
   const labels = getMobileLabels();
+  const theme = useTheme();
   const [network, setNetwork] = useState<MobileDeviceNetworkState>(mobileDeviceNetwork.getState());
   const [loadState, setLoadState] = useState<{
     key: string;
@@ -147,9 +149,11 @@ export default function ChatScreen() {
   const [retryGeneration, setRetryGeneration] = useState(0);
   const [chosen, setChosen] = useState<{ peerId: string; conversation: MobileConversationMeta; runId?: string }>();
   const [choices, setChoices] = useState<MobileConversationMeta[]>();
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [choicePage, setChoicePage] = useState<{ previousCursor?: string; nextCursor?: string; hasMoreBefore: boolean; hasMoreAfter: boolean }>();
   const [choiceError, setChoiceError] = useState(false);
   const [choosing, setChoosing] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [settingsMode, setSettingsMode] = useState<'prompt' | 'parameters'>();
   const target = useMemo(() => selectMobileAgentDevice(network.devices), [network.devices]);
   const targetPeerId = target?.peerId;
@@ -159,6 +163,7 @@ export default function ChatScreen() {
   const chooseConversation = async (cursor?: string, direction?: 'backward' | 'forward') => {
     if (!targetPeerId) return;
     setChoosing(true);
+    setHistoryOpen(true);
     setChoiceError(false);
     try {
       const page = await listMobileRemoteConversations(targetPeerId, undefined, cursor, direction);
@@ -166,7 +171,6 @@ export default function ChatScreen() {
       setChoicePage(page);
     } catch {
       setChoiceError(true);
-      setLoadState({ key: loadKey, failed: true });
     } finally {
       setChoosing(false);
     }
@@ -205,47 +209,63 @@ export default function ChatScreen() {
   const session = loadState?.key === loadKey ? loadState.session : undefined;
   const initializationFailed = loadState?.key === loadKey && loadState.failed === true;
 
-  if (choices && targetPeerId) {
-    return (
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text variant="titleMedium">{labels.chat.chooseConversation}</Text>
-        {choiceError && <Text accessibilityRole="alert">{labels.chat.operationFailedMessage}</Text>}
-        {choices.map(conversation => (
-          <Card key={conversation.conversationId}>
-            <Card.Title title={conversation.title && conversation.title !== conversation.definitionId ? conversation.title : labels.chat.agent} subtitle={conversation.lastMessagePreview} />
-            <Card.Actions>
-              <Button onPress={() => {
+  const conversationPicker = (
+    <Portal>
+      <Dialog visible={historyOpen} onDismiss={() => setHistoryOpen(false)}>
+        <Dialog.Title>{labels.chat.chooseConversation}</Dialog.Title>
+        <Dialog.ScrollArea style={styles.historyScroll}>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            {choiceError && <Text accessibilityRole="alert">{labels.chat.operationFailedMessage}</Text>}
+            {choices?.map(conversation => (
+              <List.Item key={conversation.conversationId}
+                title={conversation.title && conversation.title !== conversation.definitionId ? conversation.title : labels.chat.agent}
+                titleNumberOfLines={2}
+                description={conversation.lastMessagePreview || undefined}
+                descriptionNumberOfLines={1}
+                left={props => <List.Icon {...props} icon={conversation.conversationId === session?.conversationId ? 'chat' : 'chat-outline'} />}
+                onPress={() => {
+                if (!targetPeerId) return;
                 setChosen({ peerId: targetPeerId, conversation });
-                setChoices(undefined);
-              }}>{labels.chat.chooseConversation}</Button>
-              <Button onPress={() => {
+                setHistoryOpen(false);
+              }}
+                right={props => <IconButton {...props} icon="star-outline" accessibilityLabel={labels.chat.useAsMain} onPress={() => {
+                if (!targetPeerId) return;
                 void createMobileAgentRpcClient(targetPeerId).setMainConversation({ conversationId: conversation.conversationId }).then(() => {
                   setChosen({ peerId: targetPeerId, conversation });
-                  setChoices(undefined);
+                  setHistoryOpen(false);
                 }).catch(() => setChoiceError(true));
-              }}>{labels.chat.useAsMain}</Button>
-            </Card.Actions>
-          </Card>
-        ))}
-        {choicePage?.hasMoreBefore && <Button disabled={choosing} onPress={() => { void chooseConversation(choicePage.previousCursor, 'backward'); }}>{labels.chat.loadEarlier}</Button>}
-        {choicePage?.hasMoreAfter && <Button disabled={choosing} onPress={() => { void chooseConversation(choicePage.nextCursor, 'forward'); }}>{labels.chat.loadLater}</Button>}
-        <Button onPress={() => setChoices(undefined)}>{labels.chat.close}</Button>
-      </ScrollView>
-    );
-  }
+              }} />}
+              />
+            ))}
+            {choicePage?.hasMoreBefore && <Button disabled={choosing} onPress={() => { void chooseConversation(choicePage.previousCursor, 'backward'); }}>{labels.chat.loadEarlier}</Button>}
+            {choicePage?.hasMoreAfter && <Button disabled={choosing} onPress={() => { void chooseConversation(choicePage.nextCursor, 'forward'); }}>{labels.chat.loadLater}</Button>}
+          </ScrollView>
+        </Dialog.ScrollArea>
+        <Dialog.Actions>
+          {choiceError && <Button loading={choosing} onPress={() => { void chooseConversation(); }}>{labels.chat.retry}</Button>}
+          <Button onPress={() => setHistoryOpen(false)}>{labels.chat.close}</Button>
+        </Dialog.Actions>
+      </Dialog>
+    </Portal>
+  );
 
   if (session) {
     return (
-      <View style={styles.chat}>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-          <Button loading={choosing} onPress={() => { void chooseConversation(); }}>{labels.chat.chooseConversation}</Button>
-          <Button onPress={() => setSettingsMode('prompt')}>{labels.chat.prompt}</Button>
-          <Button onPress={() => setSettingsMode('parameters')}>{labels.chat.parameters}</Button>
-        </View>
+      <View style={[styles.chat, { backgroundColor: theme.colors.background }]}>
+        <Stack.Screen options={{ title: session.title || labels.chat.agent }} />
+        {conversationPicker}
         {settingsMode && <RemoteConversationSettings key={`${session.conversationId}:${settingsMode}`} client={session.client} conversationId={session.conversationId}
           mode={settingsMode} onClose={() => setSettingsMode(undefined)} />}
         <AgentSessionProvider controller={session.controller}>
-          <AgentChat session={session} onConversationChange={async (conversationId, runId) => {
+          <AgentChat session={session} headerActions={
+            <>
+              <IconButton icon='chat-outline' accessibilityLabel={labels.chat.chooseConversation} onPress={() => { void chooseConversation(); }} />
+              <Menu visible={actionsOpen} onDismiss={() => setActionsOpen(false)} anchor={<IconButton icon='dots-vertical' accessibilityLabel={labels.chat.actions} onPress={() => setActionsOpen(true)} />}>
+                <Menu.Item leadingIcon='tune-variant' title={labels.chat.parameters} onPress={() => { setActionsOpen(false); setSettingsMode('parameters'); }} />
+                <Menu.Item leadingIcon='text-box-search-outline' title={labels.chat.prompt} onPress={() => { setActionsOpen(false); setSettingsMode('prompt'); }} />
+              </Menu>
+            </>
+          } onConversationChange={async (conversationId, runId) => {
             const { meta } = await session.client.getConversationMeta({ conversationId });
             if (!meta) throw new Error('remote_agent_conversation_not_found');
             setChosen({ peerId: session.peerId, conversation: meta, runId });
@@ -257,7 +277,9 @@ export default function ChatScreen() {
 
   const noTarget = network.status === 'online' && !target;
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <Stack.Screen options={{ title: labels.chat.agent }} />
+      {conversationPicker}
       <Card>
         <Card.Content>
           <Text variant="titleMedium">
@@ -291,6 +313,7 @@ export default function ChatScreen() {
 
 const styles = StyleSheet.create({
   chat: { flex: 1 },
-  container: { flex: 1, padding: 16, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, padding: 16 },
+  historyScroll: { maxHeight: '70%' },
   description: { marginTop: 8 },
 });

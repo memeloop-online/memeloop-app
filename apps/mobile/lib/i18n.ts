@@ -93,6 +93,7 @@ export interface MobileLabels {
     useAsMain: string;
     prompt: string;
     parameters: string;
+    actions: string;
     save: string;
     inspection: {
       tree: string; flat: string; request: string; back: string; earlier: string; later: string;
@@ -209,6 +210,7 @@ const ENGLISH_LABELS: MobileLabels = {
     useAsMain: "Use as main conversation",
     prompt: "Prompt",
     parameters: "Model parameters",
+    actions: "Conversation actions",
     save: "Save",
     inspection: {
       tree: "Tree", flat: "Messages", request: "Model request", back: "Back", earlier: "Previous", later: "Next",
@@ -323,6 +325,7 @@ const CHINESE_LABELS: MobileLabels = {
     useAsMain: "设为主对话",
     prompt: "提示词",
     parameters: "模型参数",
+    actions: "对话操作",
     save: "保存",
     inspection: {
       tree: "树形视图", flat: "消息列表", request: "模型请求", back: "返回", earlier: "上一页", later: "下一页",
@@ -437,6 +440,7 @@ const JAPANESE_LABELS: MobileLabels = {
     useAsMain: "メインの会話に設定",
     prompt: "プロンプト",
     parameters: "モデル設定",
+    actions: "会話の操作",
     save: "保存",
     inspection: {
       tree: "ツリー", flat: "メッセージ", request: "モデルへのリクエスト", back: "戻る", earlier: "前へ", later: "次へ",

@@ -8,7 +8,7 @@ overrides:
   '@memeloop/libp2p': 0.3.5
   memeloop: 0.3.9
   memeloop-cli: 0.3.5
-  '@memeloop/react-ui': 0.2.9
+  '@memeloop/react-ui': 0.2.10
   prebuild-install: 7.1.3
   node-addon-api: ^7.1.1
   git-sync-js>fs-extra: 11.4.0
@@ -74,8 +74,8 @@ importers:
         specifier: 0.3.5
         version: 0.3.5(memeloop@0.3.9(@ai-sdk/anthropic@4.0.19(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3)))
       '@memeloop/react-ui':
-        specifier: 0.2.9
-        version: 0.2.9(7296602eba9fe8471f1f0881fbf1826c)
+        specifier: 0.2.10
+        version: 0.2.10(7296602eba9fe8471f1f0881fbf1826c)
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(supports-color@10.2.2)(zod@4.4.3)
@@ -2003,8 +2003,8 @@ packages:
     peerDependencies:
       memeloop: 0.3.9
 
-  '@memeloop/react-ui@0.2.9':
-    resolution: {integrity: sha512-dgUhi90L0pHdKPmL7uOh3TGgnDDFduhOi7u93zxXgZWqjXjSKm2FPnCwdQMoxmAg3thlEdC6XX086NnqkpbDxw==}
+  '@memeloop/react-ui@0.2.10':
+    resolution: {integrity: sha512-xDlR4ajSoklrm45zTGZmuSr3+Xyh/EB38luODSFeTVulMy1k7ux1BZAcSmg8lJ4Xwa7a/iJiY+fvNuy8MP8dvg==}
     peerDependencies:
       '@assistant-ui/react': ^0.15.16
       '@emotion/react': '>=11.0.0 <12.0.0'
@@ -11527,7 +11527,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@memeloop/react-ui@0.2.9(7296602eba9fe8471f1f0881fbf1826c)':
+  '@memeloop/react-ui@0.2.10(7296602eba9fe8471f1f0881fbf1826c)':
     dependencies:
       '@assistant-ui/react': 0.15.16(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.15)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(use-sync-external-store@1.6.0(react@19.2.8))
       '@emotion/react': 11.14.0(@types/react@19.2.17)(react@19.2.8)(supports-color@10.2.2)

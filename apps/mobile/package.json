@@ -9,14 +9,14 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "eslint . --ext .ts,.tsx",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test lib/__tests__/*.test.mjs",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test lib/__tests__/*.test.mjs && vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@babel/runtime": "^7.29.7",
     "@expo/vector-icons": "^15.1.1",
     "@memeloop/libp2p": "0.3.5",
-    "@memeloop/react-ui": "0.2.9",
+    "@memeloop/react-ui": "0.2.10",
     "@react-navigation/native": "^7.0.0",
     "@react-navigation/native-stack": "^7.0.0",
     "expo": "~57.0.17",
@@ -47,12 +47,15 @@
   "devDependencies": {
     "@babel/traverse": "^7.29.7",
     "@react-native/metro-config": "0.86.3",
+    "@testing-library/react": "16.3.2",
     "@types/react": "^19.2.17",
     "@typescript-eslint/eslint-plugin": "^8.65.0",
     "@typescript-eslint/parser": "^8.65.0",
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "typescript": "~6.0.3"
+    "jsdom": "29.1.1",
+    "typescript": "~6.0.3",
+    "vitest": "4.1.10"
   },
   "private": true
 }
