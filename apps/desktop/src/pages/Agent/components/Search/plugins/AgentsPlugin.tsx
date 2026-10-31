@@ -132,7 +132,7 @@ export const createAgentsPlugin = (options: AgentsPluginOptions = {}): Autocompl
             try {
               // If custom onSelect callback is provided, use it
               if (options.onSelect) {
-                options.onSelect(item as AgentDefinition);
+                options.onSelect(item);
                 return;
               }
 
@@ -147,7 +147,7 @@ export const createAgentsPlugin = (options: AgentsPluginOptions = {}): Autocompl
                   // Important: avoid race with the subsequent `addTab(...)`.
                   // If we close in parallel, `TabContentArea` can temporarily lose `activeTabId`
                   // and render `NewTabContent`, causing E2E selectors to fail.
-                  await closeTab(activeTabId);
+                  closeTab(activeTabId);
                 }
               }
 
@@ -194,8 +194,9 @@ function highlightHits({
       } else {
         value = JSON.stringify(attributeValue);
       }
-    } catch {
+    } catch (error) {
       // Conversion failed, keep empty string
+      console.debug('Failed to stringify agent search attribute', { error, attribute });
     }
   }
 

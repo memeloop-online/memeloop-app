@@ -1,70 +1,62 @@
+import { APICallError, LoadAPIKeyError, NoSuchModelError } from 'ai';
+
 import { isProviderConfigError } from './errors';
 
-/**
- * Extract structured error details from various error types
- */
-export function extractErrorDetails(error: unknown, provider: string): {
+export interface StructuredProviderErrorDetail {
   name: string;
   code: string;
   provider: string;
-  message?: string;
-} {
-  // Check if it's already a known provider error type
+}
+
+/**
+ * Convert only explicit provider/configuration error metadata into a stable
+ * code. Raw exception messages and response bodies are diagnostics, not a UI
+ * or persistence contract, so this function never parses or returns them.
+ */
+export function extractErrorDetails(error: unknown, provider: string): StructuredProviderErrorDetail {
   if (isProviderConfigError(error)) {
     return {
       name: error.name,
       code: error.code,
       provider: error.provider,
-      message: error.message,
     };
   }
 
-  // Convert error to string for analysis
-  const errorMessage = error instanceof Error ? error.message : String(error);
-
-  // Check common error patterns
-  if (errorMessage.includes('API key') && errorMessage.includes('not found')) {
-    return {
-      name: 'MissingAPIKeyError',
-      code: 'MISSING_API_KEY',
-      provider,
-      message: `API key for ${provider} not found`,
-    };
-  } else if (errorMessage.includes('requires baseURL')) {
-    return {
-      name: 'MissingBaseURLError',
-      code: 'MISSING_BASE_URL',
-      provider,
-      message: `${provider} provider requires baseURL`,
-    };
-  } else if (errorMessage.includes('authentication failed') || errorMessage.includes('401')) {
-    return {
-      name: 'AuthenticationError',
-      code: 'AUTHENTICATION_FAILED',
-      provider,
-      message: `${provider} authentication failed: Invalid API key`,
-    };
-  } else if (errorMessage.includes('404')) {
-    return {
-      name: 'ModelNotFoundError',
-      code: 'MODEL_NOT_FOUND',
-      provider,
-      message: `Model not found for ${provider}`,
-    };
-  } else if (errorMessage.includes('429')) {
-    return {
-      name: 'RateLimitError',
-      code: 'RATE_LIMIT_EXCEEDED',
-      provider,
-      message: `${provider} rate limit exceeded. Reduce request frequency or check API limits.`,
-    };
+  if (LoadAPIKeyError.isInstance(error)) {
+    return { name: 'MissingAPIKeyError', code: 'MISSING_API_KEY', provider };
   }
 
-  // Generic error
-  return {
-    name: 'AIProviderError',
-    code: 'UNKNOWN_ERROR',
-    provider,
-    message: errorMessage,
-  };
+  if (NoSuchModelError.isInstance(error)) {
+    return { name: 'ModelNotFoundError', code: 'MODEL_NOT_FOUND', provider };
+  }
+
+  if (APICallError.isInstance(error)) {
+    switch (error.statusCode) {
+      case 401:
+      case 403: {
+        return { name: 'AuthenticationError', code: 'AUTHENTICATION_FAILED', provider };
+      }
+      case 404: {
+        return { name: 'ModelNotFoundError', code: 'MODEL_NOT_FOUND', provider };
+      }
+      case 429: {
+        return { name: 'RateLimitError', code: 'RATE_LIMIT_EXCEEDED', provider };
+      }
+      default: {
+        return {
+          name: 'AIProviderError',
+          code: typeof error.statusCode === 'number' && error.statusCode >= 500
+            ? 'PROVIDER_UNAVAILABLE'
+            : 'PROVIDER_REQUEST_FAILED',
+          provider,
+        };
+      }
+    }
+  }
+
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return { name: 'AbortError', code: 'CANCELLED', provider };
+  }
+
+  return { name: 'AIProviderError', code: 'UNKNOWN_ERROR', provider };
 }

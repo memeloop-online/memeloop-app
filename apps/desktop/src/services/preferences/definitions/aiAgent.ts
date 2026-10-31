@@ -1,5 +1,4 @@
 import StorageIcon from '@mui/icons-material/Storage';
-import { z } from 'zod';
 import type { ISectionDefinition } from './types';
 
 export const aiAgentSection: ISectionDefinition = {
@@ -17,52 +16,18 @@ export const aiAgentSection: ISectionDefinition = {
     },
     { type: 'divider' },
     {
-      type: 'preference-number',
-      key: 'memeloopNodePort',
-      titleKey: 'Preference.MemeloopNodePort',
-      descriptionKey: 'Preference.MemeloopNodePortDescription',
-      ns: 'agent',
-      needsRestart: true,
-      zod: z.number().int().min(1024).max(65535),
-    },
-    { type: 'divider' },
-    {
       type: 'action',
-      titleKey: 'Preference.NodeIdentity',
-      descriptionKey: 'Preference.NodeIdentityDescription',
+      titleKey: 'Preference.NodeManagement',
+      descriptionKey: 'Preference.NodeManagementDescription',
       ns: 'agent',
-      handler: 'memeloopNode.showIdentity',
+      handler: 'deviceNetwork.openManagement',
     },
     {
       type: 'action',
-      titleKey: 'Preference.KnownNodes',
-      descriptionKey: 'Preference.KnownNodesDescription',
+      titleKey: 'Preference.RemoteSetup',
+      descriptionKey: 'Preference.RemoteSetupDescription',
       ns: 'agent',
-      handler: 'memeloopNode.showKnownNodes',
-    },
-    {
-      type: 'action-input',
-      titleKey: 'Preference.ConnectPeer',
-      descriptionKey: 'Preference.ConnectPeerDescription',
-      ns: 'agent',
-      handler: 'memeloopNode.addPeer',
-      buttonTextKey: 'Preference.WikiSync.Connect',
-      buttonTextNs: 'translation',
-      placeholderKey: 'ws://192.168.1.100:9000',
-    },
-    {
-      type: 'action',
-      titleKey: 'Preference.SyncStatus',
-      descriptionKey: 'Preference.SyncStatusDescription',
-      ns: 'agent',
-      handler: 'memeloopNode.showSyncStatus',
-    },
-    {
-      type: 'action',
-      titleKey: 'Preference.RemoteWikis',
-      descriptionKey: 'Preference.RemoteWikisDescription',
-      ns: 'agent',
-      handler: 'memeloopNode.showRemoteWikis',
+      handler: 'remoteSetup.open',
     },
   ],
 };

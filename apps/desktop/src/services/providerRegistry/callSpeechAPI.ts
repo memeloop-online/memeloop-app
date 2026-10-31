@@ -1,8 +1,10 @@
 import { logger } from '@services/libs/log';
 
-import { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema';
-import { AuthenticationError, MissingAPIKeyError, MissingBaseURLError } from './errors';
-import type { AIProviderConfig, AISpeechResponse } from './interface';
+import type { ModelAssignments } from 'memeloop';
+import { AuthenticationError } from './errors';
+import type { AISpeechResponse } from './interface';
+import { resolveProviderTransport } from './providerTransport';
+import type { ProviderRuntimeConfig } from './runtimeTypes';
 
 interface SpeechOptions {
   /** Response audio format (mp3, wav, opus, etc.) */
@@ -26,9 +28,9 @@ interface SpeechOptions {
  */
 export async function generateSpeechFromProvider(
   input: string,
-  config: AiAPIConfig,
+  config: ModelAssignments,
   signal: AbortSignal,
-  providerConfig?: AIProviderConfig,
+  providerConfig?: ProviderRuntimeConfig,
   options: SpeechOptions = {},
 ): Promise<AISpeechResponse> {
   // Extract provider and model from config
@@ -37,60 +39,18 @@ export async function generateSpeechFromProvider(
   if (!speechConfig) {
     throw new Error('No speech model or default model configured');
   }
-  const provider = speechConfig.provider;
-  const model = speechConfig.model;
+  const provider = speechConfig.providerId;
+  const model = speechConfig.modelId;
 
   logger.info(`Using AI speech provider: ${provider}, model: ${model}`);
 
   try {
-    // Check if API key is required
-    const isOllama = providerConfig?.providerClass === 'ollama';
-    const isLocalOpenAICompatible = providerConfig?.providerClass === 'openAICompatible' &&
-      providerConfig?.baseURL &&
-      (providerConfig.baseURL.includes('localhost') || providerConfig.baseURL.includes('127.0.0.1'));
-
-    if (!providerConfig?.apiKey && !isOllama && !isLocalOpenAICompatible) {
-      throw new MissingAPIKeyError(provider);
-    }
-
-    // Get base URL and prepare headers
-    let baseURL = providerConfig?.baseURL || '';
+    const transport = resolveProviderTransport(providerConfig, provider, 'speech');
+    const baseURL = transport.baseURL;
     const headers: Record<string, string> = {
+      ...transport.headers,
       'Content-Type': 'application/json',
     };
-
-    // Set up provider-specific configuration
-    switch (providerConfig?.providerClass || provider) {
-      case 'openai':
-        baseURL = 'https://api.openai.com/v1';
-        headers['Authorization'] = `Bearer ${providerConfig?.apiKey}`;
-        break;
-      case 'openAICompatible':
-        if (!providerConfig?.baseURL) {
-          throw new MissingBaseURLError(provider);
-        }
-        baseURL = providerConfig.baseURL;
-        if (providerConfig.apiKey) {
-          headers['Authorization'] = `Bearer ${providerConfig.apiKey}`;
-        }
-        break;
-      case 'deepseek':
-        throw new Error(`DeepSeek provider does not support speech generation`);
-      case 'anthropic':
-        throw new Error(`Anthropic provider does not support speech generation`);
-      case 'ollama':
-        throw new Error(`Ollama provider does not support speech generation via this API`);
-      default:
-        // For silicon flow and other openai-compatible providers
-        if (!providerConfig?.baseURL) {
-          throw new MissingBaseURLError(provider);
-        }
-        baseURL = providerConfig.baseURL;
-        if (providerConfig.apiKey) {
-          headers['Authorization'] = `Bearer ${providerConfig.apiKey}`;
-        }
-        break;
-    }
 
     // Prepare request body based on provider
     const requestBody: Record<string, unknown> = {

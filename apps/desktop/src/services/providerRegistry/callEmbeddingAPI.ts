@@ -1,8 +1,10 @@
 import { logger } from '@services/libs/log';
 
-import { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema';
-import { AuthenticationError, MissingAPIKeyError, MissingBaseURLError } from './errors';
-import type { AIEmbeddingResponse, AIProviderConfig } from './interface';
+import type { ModelAssignments } from 'memeloop';
+import { AuthenticationError } from './errors';
+import type { AIEmbeddingResponse } from './interface';
+import { providerClass, resolveProviderTransport } from './providerTransport';
+import type { ProviderRuntimeConfig } from './runtimeTypes';
 
 interface EmbeddingAPIResponse {
   data?: Array<{ embedding: number[] }>;
@@ -25,9 +27,9 @@ interface EmbeddingOptions {
  */
 export async function generateEmbeddingsFromProvider(
   inputs: string[],
-  config: AiAPIConfig,
+  config: ModelAssignments,
   signal: AbortSignal,
-  providerConfig?: AIProviderConfig,
+  providerConfig?: ProviderRuntimeConfig,
   options: EmbeddingOptions = {},
 ): Promise<AIEmbeddingResponse> {
   // Extract provider and model from config
@@ -36,66 +38,18 @@ export async function generateEmbeddingsFromProvider(
   if (!embeddingConfig) {
     throw new Error('No embedding model or default model configured');
   }
-  const provider = embeddingConfig.provider;
-  const model = embeddingConfig.model;
+  const provider = embeddingConfig.providerId;
+  const model = embeddingConfig.modelId;
 
   logger.info(`Using AI embedding provider: ${provider}, model: ${model}`);
 
   try {
-    // Check if API key is required
-    const isOllama = providerConfig?.providerClass === 'ollama';
-    const isLocalOpenAICompatible = providerConfig?.providerClass === 'openAICompatible' &&
-      providerConfig?.baseURL &&
-      (providerConfig.baseURL.includes('localhost') || providerConfig.baseURL.includes('127.0.0.1'));
-
-    if (!providerConfig?.apiKey && !isOllama && !isLocalOpenAICompatible) {
-      throw new MissingAPIKeyError(provider);
-    }
-
-    // Get base URL and prepare headers
-    let baseURL = providerConfig?.baseURL || '';
+    const transport = resolveProviderTransport(providerConfig, provider, 'embedding');
+    const baseURL = transport.baseURL;
     const headers: Record<string, string> = {
+      ...transport.headers,
       'Content-Type': 'application/json',
     };
-
-    // Set up provider-specific configuration
-    switch (providerConfig?.providerClass || provider) {
-      case 'openai':
-        baseURL = 'https://api.openai.com/v1';
-        headers['Authorization'] = `Bearer ${providerConfig?.apiKey}`;
-        break;
-      case 'openAICompatible':
-        if (!providerConfig?.baseURL) {
-          throw new MissingBaseURLError(provider);
-        }
-        baseURL = providerConfig.baseURL;
-        if (providerConfig.apiKey) {
-          headers['Authorization'] = `Bearer ${providerConfig.apiKey}`;
-        }
-        break;
-      case 'deepseek':
-        baseURL = 'https://api.deepseek.com/v1';
-        headers['Authorization'] = `Bearer ${providerConfig?.apiKey}`;
-        break;
-      case 'anthropic':
-        throw new Error(`Anthropic provider does not support embeddings`);
-      case 'ollama':
-        if (!providerConfig?.baseURL) {
-          throw new MissingBaseURLError(provider);
-        }
-        baseURL = providerConfig.baseURL;
-        break;
-      default:
-        // For silicon flow and other openai-compatible providers
-        if (!providerConfig?.baseURL) {
-          throw new MissingBaseURLError(provider);
-        }
-        baseURL = providerConfig.baseURL;
-        if (providerConfig.apiKey) {
-          headers['Authorization'] = `Bearer ${providerConfig.apiKey}`;
-        }
-        break;
-    }
 
     // Prepare request body
     const requestBody: Record<string, unknown> = {
@@ -104,7 +58,7 @@ export async function generateEmbeddingsFromProvider(
     };
 
     // Add optional parameters based on provider support
-    if (options.dimensions && (providerConfig?.providerClass === 'openAICompatible' || provider === 'siliconflow')) {
+    if (options.dimensions && (providerClass(providerConfig, provider) === 'openAICompatible' || provider === 'siliconflow')) {
       requestBody.dimensions = options.dimensions;
     }
 

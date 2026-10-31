@@ -1,4 +1,4 @@
-import { Divider, List, ListItem, MenuItem, Select, Switch, TextField, Typography } from '@mui/material';
+import { Divider, List, ListItem, MenuItem, Select, Switch, Typography } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import type { TFunction } from 'i18next';
 import i18next from 'i18next';
@@ -138,7 +138,7 @@ function BooleanField({ item, preferences, query, onNeedsRestart }: {
   const description = item.descriptionKey ? tx(t, item.descriptionKey, item.ns) : undefined;
 
   const handleChange = useCallback(async (checked: boolean) => {
-    await window.service.preference.set(item.key, checked as IPreferences[typeof item.key]);
+    await window.service.preference.set(item.key, checked);
     if (item.sideEffectId) {
       const sideEffect = getSideEffect(item.sideEffectId);
       if (sideEffect) {
@@ -201,7 +201,7 @@ function EnumField({ item, preferences, query, onNeedsRestart }: {
         <Select
           value={value}
           onChange={async (event) => {
-            await window.service.preference.set(item.key, event.target.value as IPreferences[typeof item.key]);
+            await window.service.preference.set(item.key, event.target.value);
             if (item.needsRestart) onNeedsRestart();
           }}
           size='small'
@@ -210,49 +210,6 @@ function EnumField({ item, preferences, query, onNeedsRestart }: {
         >
           {item.enumValues.map((v, index) => <MenuItem key={v} value={v}>{t(item.enumNames[index] ?? v)}</MenuItem>)}
         </Select>
-      </ControlBlock>
-    </SettingRow>
-  );
-}
-
-function NumberField({ item, preferences, query, onNeedsRestart }: {
-  item: PreferenceItem;
-  onNeedsRestart: () => void;
-  preferences: IPreferences;
-  query: string;
-}): React.JSX.Element {
-  const { t } = useTranslation(['translation', 'agent']);
-  const value = preferences[item.key] as number;
-  const title = tx(t, item.titleKey, item.ns);
-  const description = item.descriptionKey ? tx(t, item.descriptionKey, item.ns) : undefined;
-
-  return (
-    <SettingRow disablePadding>
-      <SettingTextBlock>
-        <SettingTitle>
-          <HighlightText text={title} query={query} />
-        </SettingTitle>
-        {description && (
-          <SettingDescription>
-            <HighlightText text={description} query={query} />
-          </SettingDescription>
-        )}
-      </SettingTextBlock>
-      <ControlBlock>
-        <TextField
-          type='number'
-          value={value}
-          onChange={async (event) => {
-            const newValue = Number(event.target.value);
-            if (!Number.isNaN(newValue)) {
-              await window.service.preference.set(item.key, newValue as IPreferences[typeof item.key]);
-              if (item.needsRestart) onNeedsRestart();
-            }
-          }}
-          size='small'
-          variant='outlined'
-          sx={{ width: 120 }}
-        />
       </ControlBlock>
     </SettingRow>
   );
@@ -317,8 +274,6 @@ function renderHit(hit: ISearchHit, preferences: IPreferences, query: string, on
       return <BooleanField item={item} preferences={preferences} query={query} onNeedsRestart={onNeedsRestart} />;
     case 'preference-enum':
       return <EnumField item={item} preferences={preferences} query={query} onNeedsRestart={onNeedsRestart} />;
-    case 'preference-number':
-      return <NumberField item={item} preferences={preferences} query={query} onNeedsRestart={onNeedsRestart} />;
     default:
       return <ReadOnlyRow item={item} query={query} />;
   }

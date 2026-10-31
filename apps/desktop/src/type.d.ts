@@ -1,8 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-declare module '@fetsorn/vite-node-worker' {
-  import type { Plugin } from 'vite';
-  export function workerPlugin(): Plugin;
+// `?utilityProcess` import — emits the module as a separate chunk and returns
+// a factory that calls `utilityProcess.fork(path)`. See vite.main.config.ts
+// `utilityProcessPlugin` for the implementation.
+declare module '*?utilityProcess' {
+  import type { UtilityProcess } from 'electron';
+  export default function forkUtilityProcess(
+    options?: Parameters<typeof UtilityProcess.fork>[2],
+  ): UtilityProcess;
 }
 
 // Electron Forge Vite Plugin 提供的全局变量
@@ -85,35 +90,6 @@ declare module '*.png' {
 declare module '*.svg' {
   const value: string;
   export default value;
-}
-
-interface IDefaultGatewayInfo {
-  gateway: string;
-  interface: 'WLAN';
-}
-declare module 'default-gateway/ibmi' {
-  export function v4(): Promise<IDefaultGatewayInfo>;
-}
-declare module 'default-gateway/android' {
-  export function v4(): Promise<IDefaultGatewayInfo>;
-}
-declare module 'default-gateway/darwin' {
-  export function v4(): Promise<IDefaultGatewayInfo>;
-}
-declare module 'default-gateway/freebsd' {
-  export function v4(): Promise<IDefaultGatewayInfo>;
-}
-declare module 'default-gateway/linux' {
-  export function v4(): Promise<IDefaultGatewayInfo>;
-}
-declare module 'default-gateway/openbsd' {
-  export function v4(): Promise<IDefaultGatewayInfo>;
-}
-declare module 'default-gateway/sunos' {
-  export function v4(): Promise<IDefaultGatewayInfo>;
-}
-declare module 'default-gateway/win32' {
-  export function v4(): Promise<IDefaultGatewayInfo>;
 }
 
 declare module '@modelcontextprotocol/sdk/client/index.js' {

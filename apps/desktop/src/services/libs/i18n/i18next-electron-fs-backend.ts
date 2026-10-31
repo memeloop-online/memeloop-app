@@ -16,19 +16,21 @@ function mergeNestedI18NObject<T extends Record<string, unknown>>(object: T, pat
   for (let index = tokens.length - 2; index >= 0; index--) {
     temporary = { [tokens[index]]: temporary };
   }
-  return merge(object, temporary) as T;
+  return merge(object, temporary);
 }
 // Safe interpolate wrapper: avoid using `any` on interpolator and provide a fallback
 type InterpolatorLike = { interpolate: (template: string, variables: Record<string, unknown>, options?: unknown, postProcess?: unknown) => string };
 function hasInterpolate(x: unknown): x is InterpolatorLike {
-  return !!x && typeof (x as InterpolatorLike).interpolate === 'function';
+  return isRecord(x) && typeof x.interpolate === 'function';
 }
 function safeInterpolate(interpolator: unknown, template: string, variables: { [k: string]: unknown }): string {
   if (hasInterpolate(interpolator)) {
     try {
       return interpolator.interpolate(template, variables);
-    } catch {
-      // fallthrough to naive replacement
+    } catch (error) {
+      console.debug('i18next interpolation failed; using token replacement fallback', {
+        error,
+      });
     }
   }
   // naive replacement for common tokens
@@ -63,8 +65,65 @@ export interface ReadCallbackEntry {
 }
 
 export interface I18NextElectronBackendAdaptor {
-  onReceive(channel: string, callback: (arguments_: unknown) => void): void;
-  send(channel: string, payload: unknown): void;
+  onReceive(channel: I18NChannels, callback: (arguments_: unknown) => void): void;
+  send(channel: I18NChannels, payload: unknown): void | Promise<void>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function resolveRendererBackend(): I18NextElectronBackendAdaptor | undefined {
+  if (typeof window === 'undefined' || !('i18n' in window)) return undefined;
+  const i18nValue = window.i18n;
+  if (!isRecord(i18nValue)) return undefined;
+  const backendValue = i18nValue.i18nextElectronBackend;
+  if (!isRecord(backendValue)) return undefined;
+  const onReceive = backendValue.onReceive;
+  const send = backendValue.send;
+  if (typeof onReceive !== 'function' || typeof send !== 'function') return undefined;
+  return {
+    onReceive: (channel, callback) => {
+      onReceive.call(backendValue, channel, callback);
+    },
+    send: (channel, payload) => {
+      void Reflect.apply(send, backendValue, [channel, payload]);
+    },
+  };
+}
+
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  return 'Unknown i18n backend error';
+}
+
+interface ReadFileResponse {
+  key?: string;
+  error?: unknown;
+  data?: string;
+  filename?: string;
+}
+
+function parseReadFileResponse(value: unknown): ReadFileResponse {
+  if (!isRecord(value)) return {};
+  return {
+    key: typeof value.key === 'string' ? value.key : undefined,
+    error: value.error,
+    data: typeof value.data === 'string' ? value.data : undefined,
+    filename: typeof value.filename === 'string' ? value.filename : undefined,
+  };
+}
+
+interface WriteFileResponse {
+  keys: string[];
+  error?: unknown;
+}
+
+function parseWriteFileResponse(value: unknown): WriteFileResponse {
+  if (!isRecord(value) || !Array.isArray(value.keys)) return { keys: [] };
+  const keys = value.keys.filter((key): key is string => typeof key === 'string');
+  return { keys, error: value.error };
 }
 
 export class Backend implements BackendModule {
@@ -105,16 +164,15 @@ export class Backend implements BackendModule {
   }
 
   init(services: Services, backendOptions: Record<string, unknown>, i18nextOptions: InitOptions<Record<string, unknown>>) {
-    // safely access window.i18n without using `any`
-    const maybeI18n = typeof window !== 'undefined' ? (window as unknown as { i18n?: { i18nextElectronBackend?: unknown } }).i18n : undefined;
-    if (typeof window !== 'undefined' && maybeI18n?.i18nextElectronBackend === undefined) {
+    const rendererBackend = resolveRendererBackend();
+    if (typeof window !== 'undefined' && rendererBackend === undefined) {
       throw new TypeError("'window.i18n.i18nextElectronBackend' is not defined! Be sure you are setting up your BrowserWindow's preload script properly!");
     }
     this.services = services;
     this.backendOptions = {
       ...defaultOptions,
       ...backendOptions,
-      i18nextElectronBackend: maybeI18n?.i18nextElectronBackend as I18NextElectronBackendAdaptor | undefined,
+      i18nextElectronBackend: rendererBackend,
     };
     this.i18nextOptions = i18nextOptions;
     // log-related
@@ -131,7 +189,7 @@ export class Backend implements BackendModule {
     if (!i18nextElectronBackend) return;
 
     i18nextElectronBackend.onReceive(I18NChannels.readFileResponse, (arguments_: unknown) => {
-      const payload = arguments_ as { key?: string; error?: unknown; data?: string; filename?: string };
+      const payload = parseReadFileResponse(arguments_);
       // args:
       // {
       //   key
@@ -160,7 +218,7 @@ export class Backend implements BackendModule {
         try {
           result = JSON.parse(payload.data ?? 'null');
         } catch (parseError) {
-          const parseError_ = parseError as Error;
+          const parseError_ = parseError instanceof Error ? parseError : new Error(String(parseError));
           parseError_.message = `Error parsing '${String(payload.filename)}'. Message: '${String(parseError)}'.`;
           const entry = this.readCallbacks[payload.key];
           const callback__ = entry?.callback;
@@ -174,19 +232,18 @@ export class Backend implements BackendModule {
         const callback_ = entry?.callback;
         this.readCallbacks[payload.key] = undefined;
         if (callback_ !== null && typeof callback_ === 'function') {
-          callback_(null, result as Readonly<Record<string, unknown>>);
+          callback_(null, result);
         }
       }
     });
     i18nextElectronBackend.onReceive(I18NChannels.writeFileResponse, (arguments_: unknown) => {
-      const payload = arguments_ as { keys?: string[]; error?: unknown };
+      const payload = parseWriteFileResponse(arguments_);
       // args:
       // {
       //   keys
       //   error
       // }
       const { keys } = payload;
-      if (!keys) return;
       for (const key of keys) {
         // Write methods don't have any callbacks from what I've seen,
         // so this is called more than I thought; but necessary!
@@ -213,14 +270,14 @@ export class Backend implements BackendModule {
     // Group by filename so we can make one request
     // for all changes within a given file
     const toWork = groupByArray(writeQueue, 'filename');
-    for (const element of toWork as Array<{ key: string; values: Array<{ key: string; fallbackValue: string; callback?: (error?: unknown) => void }> }>) {
+    for (const element of toWork) {
       const anonymous = (error: unknown, data: unknown) => {
         if (error) {
           console.error(`${this.rendererLog} encountered error when trying to read file '${element.key}' before writing missing translation`, { error });
           return;
         }
         const keySeparator = Boolean(this.i18nextOptions.keySeparator); // Do we have a key separator or not?
-        const dataObject: Record<string, unknown> = typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : {};
+        const dataObject: Record<string, unknown> = isRecord(data) ? data : {};
         const writeKeys: string[] = [];
         for (let index = 0; index < element.values.length; index++) {
           const value = element.values[index];
@@ -246,7 +303,7 @@ export class Backend implements BackendModule {
         if (debug) {
           console.debug(`${this.rendererLog} requesting the missing key '${String(writeKeys)}' be written to file '${element.key}'.`);
         }
-        i18nextElectronBackend.send(I18NChannels.writeFileRequest, {
+        void i18nextElectronBackend.send(I18NChannels.writeFileRequest, {
           keys: writeKeys,
           filename: element.key,
           data: dataObject,
@@ -271,7 +328,7 @@ export class Backend implements BackendModule {
       callback,
     };
     // Send out the message to the ipcMain process
-    i18nextElectronBackend.send(I18NChannels.readFileRequest, {
+    void i18nextElectronBackend.send(I18NChannels.readFileRequest, {
       key,
       filename,
     });
@@ -284,10 +341,12 @@ export class Backend implements BackendModule {
     this.requestFileRead(filename, (error?: unknown, data?: unknown) => {
       type ReadCallbackParameters = Parameters<ReadCallback>;
       if (error) {
-        callback(error as unknown as ReadCallbackParameters[0], false as unknown as ReadCallbackParameters[1]);
+        const callbackError = error instanceof Error || typeof error === 'string' ? error : new Error(describeError(error));
+        callback(callbackError, false);
         return;
       }
-      callback(null as unknown as ReadCallbackParameters[0], data as ReadCallbackParameters[1]);
+      const resource = typeof data === 'string' || isRecord(data) ? data : {};
+      callback(null, resource satisfies ReadCallbackParameters[1]);
     });
   }
 

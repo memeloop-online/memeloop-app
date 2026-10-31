@@ -1,57 +1,30 @@
-import type { HunspellLanguages } from '@/constants/hunspellLanguages';
 import { z } from 'zod';
 import { aiAgentSection } from './aiAgent';
 import { aiModelsSection } from './aiModels';
-import { developersSection } from './developers';
 import { downloadsSection } from './downloads';
 import { externalAPISection } from './externalAPI';
-import { friendLinksSection } from './friendLinks';
 import { generalSection } from './general';
 import { languagesSection } from './languages';
-import { miscSection } from './misc';
-import { networkSection } from './network';
 import { notificationsSection } from './notifications';
 import { performanceSection } from './performance';
-import { privacySection } from './privacy';
-import { searchSection } from './search';
-import { syncSection } from './sync';
 import { systemSection } from './system';
-import { tidgiMiniWindowSection } from './tidgiMiniWindow';
-import type {
-  IBooleanPreferenceItem,
-  IEnumPreferenceItem,
-  INumberPreferenceItem,
-  ISectionDefinition,
-  IStringArrayPreferenceItem,
-  IStringPreferenceItem,
-  PreferenceItemDefinition,
-} from './types';
+import type { IBooleanPreferenceItem, IEnumPreferenceItem, ISectionDefinition, IStringPreferenceItem, PreferenceItemDefinition } from './types';
 import { updatesSection } from './updates';
-import { wikiSection } from './wiki';
 
 /**
  * Ordered list of all sections. Display order matches array order.
  */
 export const allSections: ISectionDefinition[] = [
-  wikiSection,
   generalSection,
-  tidgiMiniWindowSection,
-  syncSection,
   externalAPISection,
   aiModelsSection,
   aiAgentSection,
-  searchSection,
   notificationsSection,
   systemSection,
   languagesSection,
-  developersSection,
   downloadsSection,
-  networkSection,
-  privacySection,
   performanceSection,
   updatesSection,
-  friendLinksSection,
-  miscSection,
 ];
 
 /** Map from section ID to its definition */
@@ -65,9 +38,7 @@ export const sectionById = new Map<string, ISectionDefinition>(
 export type PreferenceItem =
   | IBooleanPreferenceItem
   | IEnumPreferenceItem
-  | INumberPreferenceItem
-  | IStringPreferenceItem
-  | IStringArrayPreferenceItem;
+  | IStringPreferenceItem;
 
 export function isPreferenceItem(
   item: PreferenceItemDefinition,
@@ -93,7 +64,7 @@ export function getAllPreferenceItems(): PreferenceItem[] {
 
 /**
  * Build the unified Zod schema from all section definitions.
- * Fields not covered by definitions (like keyboardShortcuts, spellcheckLanguages)
+ * Fields not covered by definitions (such as internal notification/analytics state)
  * are added here as extra fields.
  */
 export function buildZodSchema(): z.ZodObject<Record<string, z.ZodType>> {
@@ -102,10 +73,6 @@ export function buildZodSchema(): z.ZodObject<Record<string, z.ZodType>> {
     shape[item.key] = item.zod;
   }
   // Extra fields not managed by section definitions but part of IPreferences
-  shape.keyboardShortcuts = z.record(z.string(), z.string());
-  shape.spellcheckLanguages = z.array(
-    z.string() as z.ZodType<HunspellLanguages>,
-  );
   shape.pauseNotifications = z.string().optional();
   // Schedule fields rendered by custom TimePicker component
   shape.pauseNotificationsBySchedule = z.boolean();
@@ -113,9 +80,13 @@ export function buildZodSchema(): z.ZodObject<Record<string, z.ZodType>> {
   shape.pauseNotificationsByScheduleTo = z.string();
   // Language is managed by a custom selector
   shape.language = z.string();
-  // Memeloop node server port
-  shape.memeloopNodePort = z.number();
-  return z.object(shape) as z.ZodObject<Record<string, z.ZodType>>;
+  // Service settings not currently rendered by a built-in preference item.
+  shape.analyticsEnabled = z.boolean();
+  shape.analyticsHost = z.string();
+  shape.analyticsHostname = z.string();
+  shape.analyticsSiteId = z.string();
+  shape.externalAPIDebug = z.boolean();
+  return z.object(shape);
 }
 
 /** The derived Zod schema — replaces the old zodSchema.ts */

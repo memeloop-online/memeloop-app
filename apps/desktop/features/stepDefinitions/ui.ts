@@ -1,9 +1,7 @@
 import { DataTable, Then, When } from '@cucumber/cucumber';
 import { backOff } from 'exponential-backoff';
-import fs from 'fs';
-import path from 'path';
 import { parseDataTableRows } from '../supports/dataTable';
-import { getWikiTestRootPath } from '../supports/paths';
+import { getScenarioFilesPath } from '../supports/paths';
 import { PLAYWRIGHT_SHORT_TIMEOUT, PLAYWRIGHT_TIMEOUT } from '../supports/timeouts';
 import type { ApplicationWorld } from './application';
 
@@ -37,7 +35,8 @@ When(
         await this.appLaunchPromise;
       } catch (error) {
         throw new Error(
-          `Failed to launch TidGi application: ${error as Error}. You should run \`pnpm run test:prepare-e2e\` before running the tests to ensure the app is built, and build with binaries like "dugite" and "tiddlywiki", see scripts/afterPack.js for more details.`,
+          `Failed to launch MemeLoop application: ${error as Error}. Run \`pnpm run test:prepare-e2e\` first to build the packaged test application.`,
+          { cause: error },
         );
       } finally {
         this.appLaunchPromise = undefined;
@@ -55,69 +54,15 @@ When(
     await currentWindow?.waitForLoadState('domcontentloaded', {
       timeout: PLAYWRIGHT_TIMEOUT,
     });
-    // Short networkidle gives workspace-creation and other startup IPC time to finish
-    // without blocking on long-lived connections. 3s is intentionally different from
+    // A short network-idle grace period lets startup IPC settle without
+    // blocking on long-lived agent/network connections. It is intentionally different from
     // PLAYWRIGHT_TIMEOUT — this is just a grace period, not a hard requirement.
     try {
       await currentWindow?.waitForLoadState('networkidle', { timeout: 3000 });
-    } catch {
-      // Ignore – DOM is already ready.
+    } catch (error) {
+      // DOM is already ready, but retain the network-idle timeout diagnostic.
+      console.debug('Network-idle wait timed out after DOM was ready', error);
     }
-
-    const scenarioLogsDirectory = path.resolve(
-      process.cwd(),
-      'test-artifacts',
-      this.scenarioSlug,
-      'userData-test',
-      'logs',
-    );
-    const readyMarker = '[test-id-ALL_WORKSPACE_VIEW_INITIALIZED] All workspace views initialized';
-
-    await backOff(
-      async () => {
-        if (!fs.existsSync(scenarioLogsDirectory)) {
-          throw new Error(
-            `Logs directory not found yet: ${scenarioLogsDirectory}`,
-          );
-        }
-
-        const logFiles = fs
-          .readdirSync(scenarioLogsDirectory)
-          .filter((fileName) => fileName.endsWith('.log'));
-        if (logFiles.length === 0) {
-          throw new Error('No log files available yet');
-        }
-
-        const hasReadyMarker = logFiles.some((fileName) => {
-          try {
-            const content = fs.readFileSync(
-              path.join(scenarioLogsDirectory, fileName),
-              'utf8',
-            );
-            return content.includes(readyMarker);
-          } catch {
-            return false;
-          }
-        });
-
-        if (!hasReadyMarker) {
-          throw new Error(
-            'Workspace initialization marker not found in logs yet',
-          );
-        }
-      },
-      {
-        numOfAttempts: 25,
-        startingDelay: 200,
-        timeMultiple: 1,
-        maxDelay: 200,
-        delayFirstAttempt: true,
-      },
-    ).catch(() => {
-      // The marker is useful when startup fully settles before the step returns,
-      // but packaged test boot can still finish that async tail slightly later.
-      // Subsequent selector-based assertions remain the authoritative readiness check.
-    });
   },
 );
 
@@ -228,7 +173,7 @@ Then(
     } catch (error) {
       if (error instanceof Error && error.message.includes('timeout')) {
         // Element still visible after timeout — get parent HTML for debugging
-        let parentHtml = '';
+        let parentHtml: string;
         try {
           const element = currentWindow.locator(selector).first();
           const parent = element.locator('xpath=..');
@@ -239,6 +184,7 @@ Then(
         throw new Error(
           `Element "${elementComment}" with selector "${selector}" should not be visible but was found\n` +
             `Parent element HTML:\n${parentHtml}`,
+          { cause: error },
         );
       }
       // Other errors (element not in DOM at all) are expected — pass
@@ -283,8 +229,10 @@ Then(
                 );
               }
             }
-          } catch {
-            // Element not found is expected
+          } catch (error) {
+            // Element lookup failures are expected for transiently removed
+            // nodes, but retain a diagnostic for unexpected locator errors.
+            console.debug(`Unable to inspect hidden-state selector "${selector}"`, error);
           }
         }
         if (errors.length > 0) {
@@ -322,14 +270,21 @@ When(
       });
       const isVisible = await targetWindow.isVisible(selector);
       if (!isVisible) {
+        const html = await targetWindow.content();
+        const diagnostics = {
+          title: await targetWindow.title(),
+          preferenceTestIds: [...html.matchAll(/data-testid=["'](preference-section-[^"']+)/g)].map(match => match[1]),
+          body: (await targetWindow.locator('body').innerText()).slice(0, 1000),
+        };
         throw new Error(
-          `Element "${elementComment}" with selector "${selector}" is not visible`,
+          `Element "${elementComment}" with selector "${selector}" is not visible: ${JSON.stringify(diagnostics)}`,
         );
       }
       await targetWindow.click(selector);
     } catch (error) {
       throw new Error(
         `Failed to find and click ${elementComment} with selector "${selector}" in current window: ${error as Error}`,
+        { cause: error },
       );
     }
   },
@@ -366,6 +321,7 @@ When(
     } catch (error) {
       throw new Error(
         `Failed to ctrl-click ${elementComment} with selector "${selector}" in current window: ${error as Error}`,
+        { cause: error },
       );
     }
   },
@@ -448,6 +404,7 @@ When(
     } catch (error) {
       throw new Error(
         `Failed to find and right-click ${elementComment} with selector "${selector}" in current window: ${error as Error}`,
+        { cause: error },
       );
     }
   },
@@ -484,13 +441,18 @@ When(
         await locator
           .nth(index)
           .scrollIntoViewIfNeeded()
-          .catch(() => {});
+          .catch((error: unknown) => {
+            // Scrolling is best-effort; the click below still has a forced
+            // action, but retain the diagnostic instead of hiding the failure.
+            console.debug(`Unable to scroll ${elementComment} at index ${index}`, error);
+          });
         await locator.nth(index).click({ force: true, timeout: 3000 });
         // Brief pause for the UI to settle after each close
         await new Promise((resolve) => setTimeout(resolve, 300));
       } catch (error) {
         throw new Error(
           `Failed to click ${elementComment} at index ${index} with selector "${selector}": ${error as Error}`,
+          { cause: error },
         );
       }
     }
@@ -511,7 +473,7 @@ When(
     }
 
     // Replace {tmpDir} placeholder with actual test root path
-    const actualText = text.replace('{tmpDir}', getWikiTestRootPath(this));
+    const actualText = text.replace('{tmpDir}', getScenarioFilesPath(this));
 
     try {
       await currentWindow.waitForSelector(selector, {
@@ -522,6 +484,7 @@ When(
     } catch (error) {
       throw new Error(
         `Failed to type in ${elementComment} element with selector "${selector}": ${error as Error}`,
+        { cause: error },
       );
     }
   },
@@ -558,7 +521,7 @@ When(
       const elementComment = descriptions[index];
 
       // Replace {tmpDir} placeholder with actual test root path
-      const actualText = text.replace('{tmpDir}', getWikiTestRootPath(this));
+      const actualText = text.replace('{tmpDir}', getScenarioFilesPath(this));
 
       try {
         await currentWindow.waitForSelector(selector, {
@@ -600,6 +563,7 @@ When(
     } catch (error) {
       throw new Error(
         `Failed to clear text in ${elementComment} element with selector "${selector}": ${error as Error}`,
+        { cause: error },
       );
     }
   },
@@ -621,7 +585,7 @@ When(
         );
       }
     } catch (error) {
-      throw new Error(`Failed to check window title: ${error as Error}`);
+      throw new Error(`Failed to check window title: ${error as Error}`, { cause: error });
     }
   },
 );
@@ -858,6 +822,7 @@ When(
     } catch (error) {
       throw new Error(
         `Failed to select option "${optionValue}" from MUI Select with test id "${testId}": ${String(error)}`,
+        { cause: error },
       );
     }
   },
@@ -932,6 +897,7 @@ When(
     } catch (error: unknown) {
       throw new Error(
         `Failed to set checkbox ${selector} to ${targetState}: ${String(error)}`,
+        { cause: error },
       );
     }
   },

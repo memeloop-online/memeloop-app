@@ -1,5 +1,5 @@
 // pnpm exec cross-env NODE_ENV=test tsx ./scripts/start-e2e-app.ts
-// or: pnpm exec cross-env NODE_ENV=test tsx ./scripts/start-e2e-app.ts "Configure root tiddler and verify content loads after restart"
+// or: pnpm exec cross-env NODE_ENV=test tsx ./scripts/start-e2e-app.ts "Start a new agent conversation"
 /* eslint-disable unicorn/prevent-abbreviations */
 import { spawn } from 'child_process';
 import fs from 'fs-extra';
@@ -49,10 +49,10 @@ const appPath = getPackedAppPath();
 const scenarioName = scenarioArgument || getMostRecentScenarioName();
 
 if (scenarioName) {
-  console.log('Starting TidGi E2E app with scenario:', scenarioName);
+  console.log('Starting MemeLoop E2E app with scenario:', scenarioName);
 } else {
   console.log(
-    'Starting TidGi E2E app without scenario (using legacy userData-test)',
+    'Starting MemeLoop E2E app without a scenario',
   );
 }
 console.log('App path:', useDevMcpMode ? 'pnpm run start:dev:mcp' : appPath);
@@ -79,6 +79,6 @@ const child = spawn(executablePath, args, {
 });
 child.on('exit', (code) => process.exit(code ?? 0));
 child.on('error', (error) => {
-  console.error('Failed to start TidGi app:', error);
+  console.error('Failed to start MemeLoop app:', error);
   process.exit(1);
 });

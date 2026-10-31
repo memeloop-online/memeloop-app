@@ -1,6 +1,6 @@
 import { ThemeProvider } from '@mui/material/styles';
 import i18next from 'i18next';
-import React, { JSX, StrictMode, Suspense, useEffect } from 'react';
+import React, { JSX, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { I18nextProvider } from 'react-i18next';
 import { Router } from 'wouter';
@@ -29,15 +29,6 @@ import { Pages } from './windows';
 
 function App(): JSX.Element {
   const theme = useThemeObservable();
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'test') {
-      // Lazy-load test-only keyboard shortcut fallback to avoid any overhead in production
-      void import('./helpers/testKeyboardShortcuts').then(({ initTestKeyboardShortcutFallback }) => {
-        initTestKeyboardShortcutFallback();
-      });
-    }
-  }, []);
-
   return (
     <StrictMode>
       <ErrorBoundary>

@@ -19,11 +19,16 @@ export const PageRoot = styled('div')`
 export const PageInner = styled('div')`
   width: 100%;
   max-width: 550px;
-  /* Use min-width so the skeleton placeholders never cause a narrower layout that
-     makes the scrollbar appear momentarily during progressive section rendering. */
-  min-width: 300px;
+  /* Allow the preferences window to shrink below the desktop form width. */
+  min-width: 0;
   float: right;
   box-sizing: border-box;
+
+  @media (max-width: 720px) {
+    float: none;
+    width: 100%;
+    max-width: none;
+  }
 `;
 
 const animateMoveFromRight = keyframes`

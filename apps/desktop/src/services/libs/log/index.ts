@@ -4,6 +4,7 @@ import winston, { format } from 'winston';
 import 'winston-daily-rotate-file';
 import type { TransformableInfo } from 'logform';
 import RendererTransport from './rendererTransport';
+import { isElectronUtilityProcess } from './runtime';
 
 /**
  * Custom formatter to serialize Error objects using serialize-error package.
@@ -25,39 +26,45 @@ const errorSerializer = format((info: TransformableInfo) => {
   return info;
 });
 
+function createPrimaryTransports(): winston.transport[] {
+  const transports: winston.transport[] = [new winston.transports.Console()];
+  if (!isElectronUtilityProcess()) {
+    transports.push(
+      new winston.transports.DailyRotateFile({
+        filename: 'MemeLoop-%DATE%.log',
+        datePattern: 'YYYY-MM-DD',
+        zippedArchive: false,
+        maxSize: '20mb',
+        maxFiles: '14d',
+        dirname: LOG_FOLDER,
+        level: 'debug',
+      }),
+      new RendererTransport(),
+    );
+  }
+  return transports;
+}
+
 const logger = winston.createLogger({
-  transports: [
-    new winston.transports.Console(),
-    new winston.transports.DailyRotateFile({
-      filename: 'TidGi-%DATE%.log',
-      datePattern: 'YYYY-MM-DD',
-      zippedArchive: false,
-      maxSize: '20mb',
-      maxFiles: '14d',
-      dirname: LOG_FOLDER,
-      level: 'debug',
-    }),
-    new RendererTransport(),
-  ],
+  transports: createPrimaryTransports(),
   format: format.combine(errorSerializer(), format.timestamp(), format.json()),
 });
 export { logger };
 
 /**
- * Store for labeled loggers (e.g., per-wiki loggers)
+ * Store for runtime-labeled loggers.
  */
 const labeledLoggers = new Map<string, winston.Logger>();
 
 /**
- * Get or create a logger for a specific label (e.g., wiki name)
+ * Get or create a logger for a specific runtime label.
  * Each labeled logger writes to its own log file
- * @param label The label for the logger (e.g., wiki workspace name)
+ * @param label The label for the logger.
  * @returns A winston logger instance for the specified label
  */
 export function getLoggerForLabel(label: string): winston.Logger {
-  // Special case: if label is 'TidGi', return the main logger to avoid file write conflicts
-  // This allows main window console logs to merge into the same TidGi-*.log file
-  if (label === 'TidGi') {
+  // Merge the main runtime label into the primary rotating file.
+  if (label === 'MemeLoop') {
     return logger;
   }
 
@@ -66,10 +73,9 @@ export function getLoggerForLabel(label: string): winston.Logger {
     return existingLogger;
   }
 
-  // Create new logger for this label
-  const labeledLogger = winston.createLogger({
-    transports: [
-      new winston.transports.Console(),
+  const transports: winston.transport[] = [new winston.transports.Console()];
+  if (!isElectronUtilityProcess()) {
+    transports.push(
       new winston.transports.DailyRotateFile({
         filename: `${label}-%DATE%.log`,
         datePattern: 'YYYY-MM-DD',
@@ -79,7 +85,12 @@ export function getLoggerForLabel(label: string): winston.Logger {
         dirname: LOG_FOLDER,
         level: 'debug',
       }),
-    ],
+    );
+  }
+
+  // Create new logger for this label
+  const labeledLogger = winston.createLogger({
+    transports,
     format: format.combine(errorSerializer(), format.label({ label }), format.timestamp(), format.json()),
   });
 
@@ -96,8 +107,10 @@ export function destroyLogger(): void {
       try {
         // May cause `TypeError: Cannot read properties of undefined (reading 'length') at DerivedLogger.remove`
         logger.remove(t);
-      } catch {
-        // Ignore because without logger we can't even log the error
+      } catch (error) {
+        // The logger transport is unavailable, so use the process console as
+        // the final diagnostic sink during teardown.
+        console.debug('Failed to remove primary logger transport', error);
       }
     }
   });
@@ -108,8 +121,10 @@ export function destroyLogger(): void {
       if (t) {
         try {
           labeledLogger.remove(t);
-        } catch {
-          // Ignore because without logger we can't even log the error
+        } catch (error) {
+          // The logger transport is unavailable, so use the process console as
+          // the final diagnostic sink during teardown.
+          console.debug(`Failed to remove labeled logger transport (${label})`, error);
         }
       }
     });

@@ -1,6 +1,5 @@
 import { AgentDefinitionService } from '@services/agentDefinition';
-import { AgentDefinition } from '@services/agentDefinition/interface';
-import defaultAgents from '@services/agentInstance/agentFrameworks/taskAgents.json';
+import { DEFAULT_AGENT_DEFINITION_ID, getOfficialAgentDefinitions } from '@services/agentDefinition/builtinAgentDefinitions';
 import type { IAgentInstanceService } from '@services/agentInstance/interface';
 import { container } from '@services/container';
 import type { IDatabaseService } from '@services/database/interface';
@@ -81,7 +80,7 @@ describe('AgentDefinitionService getAgentDefs integration', () => {
     expect(defs.length).toBeGreaterThan(0);
 
     // Fixed
-    const exampleAgent = defs.find(d => d.id === (defaultAgents as unknown as AgentDefinition[])[0].id);
+    const exampleAgent = defs.find(d => d.id === DEFAULT_AGENT_DEFINITION_ID);
     expect(exampleAgent).toBeDefined();
     expect(exampleAgent!.name).toBeDefined();
     expect(exampleAgent!.agentFrameworkID).toBeDefined();
@@ -95,24 +94,31 @@ describe('AgentDefinitionService getAgentDefs integration', () => {
     const realDataSource = await realDatabaseService.getDatabase('agent');
     const agentDefRepo = realDataSource.getRepository(AgentDefinitionEntity);
 
-    // Save only minimal record (id only) to test new behavior
-    const example = (defaultAgents as unknown as AgentDefinition[])[0];
+    // Save a complete Core definition with no optional framework fields.
+    const example = getOfficialAgentDefinitions()[0];
     await agentDefRepo.save({
       id: example.id,
+      name: 'Stored Agent',
+      description: 'Stored description',
+      systemPrompt: 'Stored system prompt',
+      tools: [],
+      version: '1.0.0',
     });
 
     const defs = await agentDefinitionService.getAgentDefs();
 
     const found = defs.find(d => d.id === example.id);
     expect(found).toBeDefined();
-    // With new behavior, only id should be present, other fields should be undefined or empty
+    // The service returns the stored row and does not fall back to Core's profile.
     expect(found!.id).toBe(example.id);
+    expect(found!.name).toBe('Stored Agent');
+    expect(found!.description).toBe('Stored description');
+    expect(found!.systemPrompt).toBe('Stored system prompt');
+    expect(found!.tools).toEqual([]);
+    expect(found!.version).toBe('1.0.0');
     expect(found!.agentFrameworkID).toBeUndefined();
-    expect(found!.name).toBeUndefined();
-    expect(found!.description).toBeUndefined();
     expect(found!.avatarUrl).toBeUndefined();
-    expect(found!.agentFrameworkConfig).toEqual({});
-    expect(found!.aiApiConfig).toBeUndefined();
+    expect(found!.agentFrameworkConfig).toBeUndefined();
     expect(found!.agentTools).toBeUndefined();
   });
 
@@ -122,10 +128,15 @@ describe('AgentDefinitionService getAgentDefs integration', () => {
     const realDataSource = await realDatabaseService.getDatabase('agent');
     const agentDefRepo = realDataSource.getRepository(AgentDefinitionEntity);
 
-    // Save only minimal record (id only) as per new behavior
-    const example = (defaultAgents as unknown as AgentDefinition[])[0];
+    // Save a complete Core definition with no optional framework fields.
+    const example = getOfficialAgentDefinitions()[0];
     await agentDefRepo.save({
       id: example.id,
+      name: 'Stored Agent',
+      description: 'Stored description',
+      systemPrompt: 'Stored system prompt',
+      tools: [],
+      version: '1.0.0',
     });
 
     // Directly query the database entity
@@ -135,13 +146,14 @@ describe('AgentDefinitionService getAgentDefs integration', () => {
 
     expect(entity).toBeDefined();
     expect(entity!.id).toBe(example.id);
-    // Other fields should be null/undefined since we only saved id
-    expect(entity!.name).toBeNull();
-    expect(entity!.description).toBeNull();
+    expect(entity!.name).toBe('Stored Agent');
+    expect(entity!.description).toBe('Stored description');
+    expect(entity!.systemPrompt).toBe('Stored system prompt');
+    expect(entity!.tools).toEqual([]);
+    expect(entity!.version).toBe('1.0.0');
     expect(entity!.avatarUrl).toBeNull();
     expect(entity!.agentFrameworkID).toBeNull();
     expect(entity!.agentFrameworkConfig).toBeNull();
-    expect(entity!.aiApiConfig).toBeNull();
     expect(entity!.agentTools).toBeNull();
   });
 
@@ -149,10 +161,10 @@ describe('AgentDefinitionService getAgentDefs integration', () => {
     const templates = await agentDefinitionService.getAgentTemplates();
 
     // Should include all default agents
-    expect(templates.length).toBe((defaultAgents as unknown as AgentDefinition[]).length);
+    expect(templates.length).toBe(getOfficialAgentDefinitions().length);
 
     // Check that template has complete data from taskAgents.json
-    const exampleTemplate = templates.find(t => t.id === (defaultAgents as unknown as AgentDefinition[])[0].id);
+    const exampleTemplate = templates.find(t => t.id === DEFAULT_AGENT_DEFINITION_ID);
     expect(exampleTemplate).toBeDefined();
     expect(exampleTemplate!.name).toBeDefined();
     expect(exampleTemplate!.agentFrameworkID).toBeDefined();
@@ -165,6 +177,4 @@ describe('AgentDefinitionService getAgentDefs integration', () => {
     const templates = await agentDefinitionService.getAgentTemplates();
     expect(Array.isArray(templates)).toBe(true);
   });
-
-
 });

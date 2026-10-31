@@ -1,19 +1,24 @@
 /**
- * Agent CRUD Repository — Database operations for AgentInstance lifecycle.
- *
- * Pure functions that receive repositories as parameters.
- * Extracted from AgentInstanceService to reduce class size.
+ * Agent CRUD repository.  TypeORM rows are translated to Core contracts only
+ * at this persistence boundary; service/UI code never receives SQL-shaped DTOs.
  */
 import { backOff } from 'exponential-backoff';
-import { pick } from 'lodash';
 import { Repository } from 'typeorm';
 
 import type { IAgentDefinitionService } from '@services/agentDefinition/interface';
 import { AgentInstanceEntity, AgentInstanceMessageEntity } from '@services/database/schema/agent';
 import { logger } from '@services/libs/log';
+import { materializeAgentInstanceModel } from 'memeloop';
 
-import type { AgentInstance, AgentInstanceMessage } from './interface';
-import { AGENT_INSTANCE_FIELDS, createAgentInstanceData, MESSAGE_FIELDS, toDatabaseCompatibleInstance, toDatabaseCompatibleMessage } from './utilities';
+import type { AgentInstance, AgentInstanceMessage, AgentInstanceMetadata } from './interface';
+import {
+  createAgentInstanceData,
+  projectAgentInstanceMetadata,
+  projectAgentMessage,
+  toDatabaseCompatibleInstance,
+  toDatabaseCompatibleMessage,
+  toMetadataUpdate,
+} from './utilities';
 
 export async function createAgent(
   agentInstanceRepo: Repository<AgentInstanceEntity>,
@@ -21,35 +26,19 @@ export async function createAgent(
   agentDefinitionID?: string,
   options?: { preview?: boolean; volatile?: boolean },
 ): Promise<AgentInstance> {
-  // Get agent definition with exponential backoff to handle initialization race conditions
   const agentDefinition = await backOff(
     async () => {
       const definition = await agentDefinitionService.getAgentDef(agentDefinitionID);
-      if (!definition) {
-        throw new Error(`Agent definition not found: ${agentDefinitionID}`);
-      }
+      if (!definition) throw new Error(`Agent definition not found: ${agentDefinitionID}`);
       return definition;
     },
-    {
-      numOfAttempts: 3,
-      startingDelay: 300,
-      timeMultiple: 1.5,
-    },
+    { numOfAttempts: 3, startingDelay: 300, timeMultiple: 1.5 },
   );
 
-  if (!agentDefinition.name) {
-    throw new Error(`Agent definition missing required field 'name': ${agentDefinitionID}`);
-  }
-
-  const { instanceData, instanceId, now } = createAgentInstanceData(agentDefinition as Required<Pick<typeof agentDefinition, 'name'>> & typeof agentDefinition);
-
-  if (options?.preview || options?.volatile) {
-    instanceData.volatile = true;
-  }
-
-  const instanceEntity = agentInstanceRepo.create(toDatabaseCompatibleInstance(instanceData));
-
-  // Add timeout to database save operation
+  const { instanceData, instanceId } = createAgentInstanceData(agentDefinition, options);
+  const instanceEntity = agentInstanceRepo.create(toDatabaseCompatibleInstance(instanceData, {
+    preview: options?.preview,
+  }));
   const savePromise = agentInstanceRepo.save(instanceEntity);
   const timeoutPromise = new Promise<never>((_, reject) => {
     setTimeout(() => {
@@ -64,70 +53,50 @@ export async function createAgent(
     preview: !!options?.preview,
     volatile: !!options?.volatile || !!options?.preview,
   });
-
-  return { ...instanceData, created: now, modified: now };
+  return instanceData;
 }
 
-export async function getAgent(
+/** Read metadata without joining its potentially large message log. */
+export async function getAgentMetadata(
   agentInstanceRepo: Repository<AgentInstanceEntity>,
   agentId: string,
-): Promise<AgentInstance | undefined> {
-  const instanceEntity = await agentInstanceRepo.findOne({
-    where: { id: agentId },
-    relations: ['messages'],
-    order: { messages: { modified: 'ASC' } },
-  });
-  if (!instanceEntity) return undefined;
-
-  const messages = (instanceEntity.messages || []).slice().sort((a, b) => {
-    const aTime = a.created ? new Date(a.created).getTime() : (a.modified ? new Date(a.modified).getTime() : 0);
-    const bTime = b.created ? new Date(b.created).getTime() : (b.modified ? new Date(b.modified).getTime() : 0);
-    return aTime - bTime;
-  });
-  return { ...pick(instanceEntity, AGENT_INSTANCE_FIELDS), messages };
+): Promise<AgentInstanceMetadata | undefined> {
+  const entity = await agentInstanceRepo.findOne({ where: { id: agentId } });
+  return entity ? projectAgentInstanceMetadata(entity) : undefined;
 }
 
 export async function updateAgent(
   agentInstanceRepo: Repository<AgentInstanceEntity>,
   agentMessageRepo: Repository<AgentInstanceMessageEntity>,
+  agentDefinitionService: IAgentDefinitionService,
   agentId: string,
   data: Partial<AgentInstance>,
 ): Promise<AgentInstance> {
-  const instanceEntity = await agentInstanceRepo.findOne({
-    where: { id: agentId },
-    relations: ['messages'],
-    order: { messages: { modified: 'ASC' } },
-  });
+  const instanceEntity = await agentInstanceRepo.findOne({ where: { id: agentId } });
+  if (!instanceEntity) throw new Error(`Agent instance not found: ${agentId}`);
 
-  if (!instanceEntity) {
-    throw new Error(`Agent instance not found: ${agentId}`);
-  }
-
-  const pickedProperties = pick(data, ['name', 'status', 'avatarUrl', 'aiApiConfig', 'closed', 'agentFrameworkConfig']);
-  Object.assign(instanceEntity, pickedProperties);
+  Object.assign(instanceEntity, toMetadataUpdate(data));
   await agentInstanceRepo.save(instanceEntity);
 
-  // Handle message updates if provided
-  if (data.messages && data.messages.length > 0) {
+  const changedMessages: AgentInstanceMessage[] = [];
+  if (data.messages) {
     for (const message of data.messages) {
-      const existingMessage = instanceEntity.messages?.find(m => m.id === message.id);
+      if (message.conversationId !== agentId) throw new Error('agent_message_conversation_mismatch');
+      const existingMessage = await agentMessageRepo.findOne({ where: { id: message.messageId, agentId } });
       if (existingMessage) {
-        existingMessage.content = message.content;
-        existingMessage.modified = message.modified || new Date();
-        if (message.metadata) existingMessage.metadata = message.metadata;
-        if (message.contentType) existingMessage.contentType = message.contentType;
-        await agentMessageRepo.save(existingMessage);
+        Object.assign(existingMessage, toDatabaseCompatibleMessage(message));
+        changedMessages.push(projectAgentMessage(await agentMessageRepo.save(existingMessage)));
       } else {
-        const messageData = pick(message, MESSAGE_FIELDS) as AgentInstanceMessage;
-        const messageEntity = agentMessageRepo.create(toDatabaseCompatibleMessage(messageData));
-        await agentMessageRepo.save(messageEntity);
-        if (!instanceEntity.messages) instanceEntity.messages = [];
-        instanceEntity.messages.push(messageEntity);
+        const messageEntity = agentMessageRepo.create(toDatabaseCompatibleMessage(message));
+        changedMessages.push(projectAgentMessage(await agentMessageRepo.save(messageEntity)));
       }
     }
   }
 
-  return { ...pick(instanceEntity, AGENT_INSTANCE_FIELDS), messages: instanceEntity.messages || [] };
+  const metadata = projectAgentInstanceMetadata(instanceEntity);
+  const definition = await agentDefinitionService.getAgentDef(metadata.agentDefId);
+  if (!definition) throw new Error(`Agent definition not found: ${metadata.agentDefId}`);
+  return materializeAgentInstanceModel(metadata, definition, changedMessages);
 }
 
 export async function deleteAgent(
@@ -145,26 +114,15 @@ export async function getAgents(
   page: number,
   pageSize: number,
   options?: { closed?: boolean; searchName?: string },
-): Promise<Omit<AgentInstance, 'messages'>[]> {
-  const skip = (page - 1) * pageSize;
-  const take = pageSize;
-
-  const whereCondition: Record<string, unknown> = {};
-  whereCondition.volatile = false;
-
-  if (options?.closed !== undefined) {
-    whereCondition.closed = options.closed;
-  }
-  if (options?.searchName) {
-    whereCondition.name = { like: `%${options.searchName}%` };
-  }
-
-  const [instances, _] = await agentInstanceRepo.findAndCount({
+): Promise<AgentInstanceMetadata[]> {
+  const whereCondition: Record<string, unknown> = { volatile: false };
+  if (options?.closed !== undefined) whereCondition.closed = options.closed;
+  if (options?.searchName) whereCondition.name = { like: `%${options.searchName}%` };
+  const [instances] = await agentInstanceRepo.findAndCount({
     where: Object.keys(whereCondition).length > 0 ? whereCondition : undefined,
-    skip,
-    take,
+    skip: (page - 1) * pageSize,
+    take: pageSize,
     order: { created: 'DESC' },
   });
-
-  return instances.map(entity => pick(entity, AGENT_INSTANCE_FIELDS));
+  return instances.map(projectAgentInstanceMetadata);
 }
