@@ -12,6 +12,7 @@ const state = vi.hoisted(() => {
     dispose: vi.fn(),
     network: { status: 'online', devices: [{ peerId: 'desktop', trusted: true }] },
     title: '',
+    chatLabels: {} as Record<string, unknown>,
   };
 });
 
@@ -33,7 +34,8 @@ vi.mock('@memeloop/react-ui/chat/core', () => ({ resolveAgentRunErrorPresentatio
 vi.mock('@memeloop/react-ui/native', () => ({
   AgentSessionProvider: ({ children }: { children: ReactNode }) => children,
   useAgentSessionCoreAdapter: () => ({ messages: state.messages }),
-  NativeAgentChatView: ({ headerActions }: { headerActions: ReactNode }) => {
+  NativeAgentChatView: ({ headerActions, labels }: { headerActions: ReactNode; labels: Record<string, unknown> }) => {
+    state.chatLabels = labels;
     const [draft, setDraft] = useState('');
     return <section aria-label="Conversation">{headerActions}<textarea aria-label="Draft" value={draft} onChange={event => setDraft(event.target.value)} /></section>;
   },
@@ -100,6 +102,21 @@ describe('conversation history preserves the mounted chat', () => {
     state.dispose.mockReset();
   });
   afterEach(cleanup);
+
+  it('passes localized work and tool disclosure labels to the shared native view', async () => {
+    render(<ChatScreen />);
+    await screen.findByRole('textbox', { name: 'Draft' });
+    const { chat } = getMobileLabels();
+    expect(state.chatLabels).toMatchObject({
+      working: chat.waiting,
+      completedWork: chat.completedWork,
+      toolGroup: chat.toolGroup,
+      toolInput: chat.toolInput,
+      toolResult: chat.toolResult,
+      toolInputTruncated: chat.toolInputTruncated,
+      loadMoreDetails: chat.loadMoreDetails,
+    });
+  });
 
   it.each(['success', 'failure'] as const)('retains a draft after closing history before a delayed %s', async outcome => {
     const labels = getMobileLabels();

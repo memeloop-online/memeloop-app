@@ -60,8 +60,14 @@ export interface MobileLabels {
     user: string;
     agent: string;
     waiting: string;
+    completedWork: (steps: number) => string;
+    toolGroup: (steps: number) => string;
+    toolInput: string;
+    toolResult: string;
+    toolInputTruncated: string;
     loadDetails: string;
     reloadDetails: string;
+    loadMoreDetails: string;
     noDetails: string;
     attachment: (filename: string) => string;
     detailTruncated: string;
@@ -177,8 +183,14 @@ const ENGLISH_LABELS: MobileLabels = {
     user: "You",
     agent: "Agent",
     waiting: "Working…",
+    completedWork: steps => `Completed work · ${steps} steps`,
+    toolGroup: steps => `${steps} tool calls`,
+    toolInput: "Command / arguments",
+    toolResult: "Result",
+    toolInputTruncated: "Arguments exceed the preview limit. Open details for more.",
     loadDetails: "Load details",
     reloadDetails: "Reload details",
+    loadMoreDetails: "Load more details",
     noDetails: "No details available.",
     attachment: filename => `Attachment: ${filename}`,
     detailTruncated: "Load more to see the rest.",
@@ -292,8 +304,14 @@ const CHINESE_LABELS: MobileLabels = {
     user: "你",
     agent: "智能体",
     waiting: "处理中…",
+    completedWork: steps => `已完成 · ${steps} 步`,
+    toolGroup: steps => `${steps} 次工具调用`,
+    toolInput: "命令 / 参数",
+    toolResult: "结果",
+    toolInputTruncated: "参数超出预览范围，请打开详情查看。",
     loadDetails: "加载详情",
     reloadDetails: "重新加载详情",
+    loadMoreDetails: "加载更多详情",
     noDetails: "没有可用详情。",
     attachment: filename => `附件：${filename}`,
     detailTruncated: "加载更多以查看剩余内容。",
@@ -407,8 +425,14 @@ const JAPANESE_LABELS: MobileLabels = {
     user: "あなた",
     agent: "エージェント",
     waiting: "処理中…",
+    completedWork: steps => `完了 · ${steps} ステップ`,
+    toolGroup: steps => `${steps} 回のツール呼び出し`,
+    toolInput: "コマンド / 引数",
+    toolResult: "結果",
+    toolInputTruncated: "引数がプレビューの上限を超えています。詳細を開いて確認してください。",
     loadDetails: "詳細を読み込む",
     reloadDetails: "詳細を再読み込み",
+    loadMoreDetails: "詳細をさらに読み込む",
     noDetails: "詳細はありません。",
     attachment: filename => `添付：${filename}`,
     detailTruncated: "続きを読み込んで残りを表示できます。",

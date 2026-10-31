@@ -40,6 +40,23 @@ test('screen labels remain bounded for narrow mobile layouts', () => {
   }
 });
 
+test('work disclosures and tool details are localized in every shipped language', () => {
+  const expected = {
+    en: ['Completed work · 3 steps', '2 tool calls'],
+    'zh-Hans': ['已完成 · 3 步', '2 次工具调用'],
+    ja: ['完了 · 3 ステップ', '2 回のツール呼び出し'],
+  };
+  for (const [locale, [completed, tools]] of Object.entries(expected)) {
+    const { chat } = getMobileLabels(locale);
+    assert.equal(chat.completedWork(3), completed);
+    assert.equal(chat.toolGroup(2), tools);
+    for (const key of ['waiting', 'toolInput', 'toolResult', 'toolInputTruncated', 'loadMoreDetails']) {
+      assert.ok(chat[key].length > 0, `${locale}:${key}`);
+      if (locale !== 'en') assert.notEqual(chat[key], MOBILE_LABELS.en.chat[key], `${locale}:${key}`);
+    }
+  }
+});
+
 test('mobile screens contain no raw JSX user-facing English literals', () => {
   const root = path.resolve(import.meta.dirname, '../../app');
   for (const file of ['index.tsx', 'nodes.tsx', 'chat.tsx', 'settings.tsx']) {
