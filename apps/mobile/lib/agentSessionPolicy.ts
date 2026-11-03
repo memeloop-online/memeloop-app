@@ -38,7 +38,7 @@ function isReconnectableAgentDevice(device: Device): boolean {
 export function selectMobileAgentDevice(devices: readonly Device[]): Device | undefined {
   return devices
     .filter(isReconnectableAgentDevice)
-    .toSorted((left, right) => {
+    .sort((left, right) => {
       const agent = Number(right.capabilities.agentLoop === true) - Number(left.capabilities.agentLoop === true);
       if (agent !== 0) return agent;
       const online = Number(right.reachability.state === 'online') - Number(left.reachability.state === 'online');

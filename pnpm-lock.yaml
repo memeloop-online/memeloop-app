@@ -15,6 +15,9 @@ overrides:
   prebuild-install: 7.1.3
   node-addon-api: ^7.1.1
 
+patchedDependencies:
+  react-native-gifted-chat@2.8.1: a6780b5deb1b8cef00ea85743bbf293f1a31552b0fe1cbbe83613046c7de07ec
+
 importers:
 
   .:
@@ -39,7 +42,7 @@ importers:
         version: 0.3.5(bufferutil@4.1.0)(memeloop@0.3.9(@ai-sdk/anthropic@4.0.21(zod@4.4.3))(@ai-sdk/deepseek@3.0.13(zod@4.4.3))(@ai-sdk/openai-compatible@3.0.14(zod@4.4.3))(@ai-sdk/openai@4.0.20(zod@4.4.3))(ollama-ai-provider-v2@4.0.1(ai@7.0.37(zod@4.4.3))(zod@4.4.3)))
       '@memeloop/react-ui':
         specifier: 0.2.11
-        version: 0.2.11(22e89601f507571320307192b9aac8df)
+        version: 0.2.11(07dfa2aeea4be6ba93794d399b1aee62)
       '@react-navigation/native':
         specifier: ^7.0.0
         version: 7.2.5(react-native@0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(bufferutil@4.1.0)(supports-color@10.2.2))(@types/react@19.2.18)(bufferutil@4.1.0)(react@19.2.3)(supports-color@10.2.2))(react@19.2.3)
@@ -93,7 +96,7 @@ importers:
         version: 1.11.0(react-native@0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(bufferutil@4.1.0)(supports-color@10.2.2))(@types/react@19.2.18)(bufferutil@4.1.0)(react@19.2.3)(supports-color@10.2.2))
       react-native-gifted-chat:
         specifier: ^2.8.1
-        version: 2.8.1(9bcfc3244501bda97bbbcb822970be2b)
+        version: 2.8.1(patch_hash=a6780b5deb1b8cef00ea85743bbf293f1a31552b0fe1cbbe83613046c7de07ec)(9bcfc3244501bda97bbbcb822970be2b)
       react-native-keyboard-controller:
         specifier: 1.21.9
         version: 1.21.9(8ee9ec8b5baf0682a3885ebc31247cb1)
@@ -6685,7 +6688,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@memeloop/react-ui@0.2.11(22e89601f507571320307192b9aac8df)':
+  '@memeloop/react-ui@0.2.11(07dfa2aeea4be6ba93794d399b1aee62)':
     dependencies:
       '@assistant-ui/react': 0.15.17(@types/react@19.2.18)(immer@11.1.15)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3))
       '@emotion/react': 11.14.0(@types/react@19.2.18)(react@19.2.3)(supports-color@10.2.2)
@@ -6697,7 +6700,7 @@ snapshots:
     optionalDependencies:
       react-dom: 19.2.3(react@19.2.3)
       react-native: 0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(bufferutil@4.1.0)(supports-color@10.2.2))(@types/react@19.2.18)(bufferutil@4.1.0)(react@19.2.3)(supports-color@10.2.2)
-      react-native-gifted-chat: 2.8.1(9bcfc3244501bda97bbbcb822970be2b)
+      react-native-gifted-chat: 2.8.1(patch_hash=a6780b5deb1b8cef00ea85743bbf293f1a31552b0fe1cbbe83613046c7de07ec)(9bcfc3244501bda97bbbcb822970be2b)
       react-native-paper: 5.15.3(react-native-safe-area-context@5.7.0(react-native@0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(bufferutil@4.1.0)(supports-color@10.2.2))(@types/react@19.2.18)(bufferutil@4.1.0)(react@19.2.3)(supports-color@10.2.2))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(bufferutil@4.1.0)(supports-color@10.2.2))(@types/react@19.2.18)(bufferutil@4.1.0)(react@19.2.3)(supports-color@10.2.2))(react@19.2.3)
 
   '@mui/core-downloads-tracker@9.4.0': {}
@@ -10019,7 +10022,7 @@ snapshots:
       fast-base64-decode: 1.0.0
       react-native: 0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(bufferutil@4.1.0)(supports-color@10.2.2))(@types/react@19.2.18)(bufferutil@4.1.0)(react@19.2.3)(supports-color@10.2.2)
 
-  react-native-gifted-chat@2.8.1(9bcfc3244501bda97bbbcb822970be2b):
+  react-native-gifted-chat@2.8.1(patch_hash=a6780b5deb1b8cef00ea85743bbf293f1a31552b0fe1cbbe83613046c7de07ec)(9bcfc3244501bda97bbbcb822970be2b):
     dependencies:
       '@expo/react-native-action-sheet': 4.1.1(@types/react@19.2.18)(react@19.2.3)
       '@types/lodash.isequal': 4.5.8

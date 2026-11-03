@@ -1,28 +1,17 @@
 import { useEffect, useState } from 'react';
-import { FlatList, StyleSheet, View } from 'react-native';
-import {
-  Button,
-  Card,
-  Chip,
-  Dialog,
-  Portal,
-  Text,
-  TextInput,
-} from 'react-native-paper';
+import { FlatList, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Button, Card, Chip, Dialog, Portal, Text, TextInput, useTheme } from 'react-native-paper';
 
-import {
-  mobileDeviceNetwork,
-  type MobileDeviceNetworkState,
-} from '../lib/deviceNetwork';
+import { mobileDeviceNetwork, type MobileDeviceNetworkState } from '../lib/deviceNetwork';
 import { MOBILE_ORCHESTRATION_CAPABILITIES } from '../lib/orchestration';
 import { createPairedDeviceOrchestrationClient } from '../lib/orchestration';
 import { getMobileLabels } from '../lib/i18n';
 
 export default function NodesScreen() {
   const labels = getMobileLabels();
-  const [network, setNetwork] = useState<MobileDeviceNetworkState>(
-    mobileDeviceNetwork.getState(),
-  );
+  const theme = useTheme();
+  const [network, setNetwork] = useState<MobileDeviceNetworkState>(mobileDeviceNetwork.getState());
   const [inviteOpen, setInviteOpen] = useState(false);
   const [invite, setInvite] = useState('');
   const [busy, setBusy] = useState(false);
@@ -51,18 +40,13 @@ export default function NodesScreen() {
     }
   };
 
-  const pending = network.pairingSessions.filter(
-    (session) => session.status === 'pending',
-  );
+  const pending = network.pairingSessions.filter((session) => session.status === 'pending');
 
   const verifyOrchestration = async (peerId: string): Promise<void> => {
     setCheckingPeerId(peerId);
     setActionError(undefined);
     try {
-      const client = createPairedDeviceOrchestrationClient(
-        mobileDeviceNetwork.getService(),
-        peerId,
-      );
+      const client = createPairedDeviceOrchestrationClient(mobileDeviceNetwork.getService(), peerId);
       const capabilities = await client.getCapabilities();
       setVerifiedPeers((current) => ({
         ...current,
@@ -75,9 +59,7 @@ export default function NodesScreen() {
     }
   };
 
-  const runDeviceAction = async (
-    action: () => Promise<void>,
-  ): Promise<void> => {
+  const runDeviceAction = async (action: () => Promise<void>): Promise<void> => {
     setActionError(undefined);
     try {
       await action();
@@ -87,66 +69,60 @@ export default function NodesScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text variant="titleLarge" style={styles.title}>{labels.nodes.title}</Text>
-      <Text variant="bodySmall" style={styles.capabilities}>
-        {labels.nodes.capabilities(MOBILE_ORCHESTRATION_CAPABILITIES.operations.join(', '))}
-      </Text>
-
-      {network.status !== 'online' && (
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text>
-              {network.status === 'error'
-                ? labels.nodes.statusError
-                : labels.nodes.statusStarting}
-            </Text>
-          </Card.Content>
-        </Card>
-      )}
-
-      {pending.map((session) => (
-        <Card key={session.sessionId} style={styles.card}>
-          <Card.Title
-            title={labels.nodes.verifyDevice(session.remoteDeviceName)}
-            subtitle={labels.nodes.compareCode}
-            titleNumberOfLines={2}
-            subtitleNumberOfLines={2}
-          />
-          <Card.Content>
-            <Text variant="displaySmall" style={styles.confirmCode}>
-              {session.confirmCode}
-            </Text>
-          </Card.Content>
-          <Card.Actions>
-            <Button
-              onPress={() =>
-                void runDeviceAction(() =>
-                  mobileDeviceNetwork.reject(session.sessionId)
-                )}
-            >
-              {labels.nodes.reject}
-            </Button>
-            <Button
-              mode="contained"
-              onPress={() =>
-                void runDeviceAction(() =>
-                  mobileDeviceNetwork.accept(session.sessionId)
-                )}
-            >
-              {labels.nodes.codesMatch}
-            </Button>
-          </Card.Actions>
-        </Card>
-      ))}
-
+    <SafeAreaView
+      edges={['left', 'right', 'bottom']}
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+    >
       <FlatList
         data={network.devices.filter((device) => device.peerId !== network.localDevice?.peerId)}
         keyExtractor={(item) => item.peerId}
+        ListHeaderComponent={
+          <>
+            <Text variant="titleLarge" style={styles.title}>
+              {labels.nodes.title}
+            </Text>
+            <Text variant="bodySmall" style={styles.capabilities}>
+              {labels.nodes.capabilities(MOBILE_ORCHESTRATION_CAPABILITIES.operations.join(', '))}
+            </Text>
+
+            {network.status !== 'online' && (
+              <Card style={styles.card}>
+                <Card.Content>
+                  <Text>{network.status === 'error' ? labels.nodes.statusError : labels.nodes.statusStarting}</Text>
+                </Card.Content>
+              </Card>
+            )}
+
+            {pending.map((session) => (
+              <Card key={session.sessionId} style={styles.card}>
+                <Card.Title
+                  title={labels.nodes.verifyDevice(session.remoteDeviceName)}
+                  subtitle={labels.nodes.compareCode}
+                  titleNumberOfLines={2}
+                  subtitleNumberOfLines={2}
+                />
+                <Card.Content>
+                  <Text variant="displaySmall" style={styles.confirmCode}>
+                    {session.confirmCode}
+                  </Text>
+                </Card.Content>
+                <Card.Actions>
+                  <Button onPress={() => void runDeviceAction(() => mobileDeviceNetwork.reject(session.sessionId))}>
+                    {labels.nodes.reject}
+                  </Button>
+                  <Button
+                    mode="contained"
+                    onPress={() => void runDeviceAction(() => mobileDeviceNetwork.accept(session.sessionId))}
+                  >
+                    {labels.nodes.codesMatch}
+                  </Button>
+                </Card.Actions>
+              </Card>
+            ))}
+          </>
+        }
         ListEmptyComponent={
-          network.status === 'online'
-            ? <Text style={styles.empty}>{labels.nodes.noPairedDesktop}</Text>
-            : null
+          network.status === 'online' ? <Text style={styles.empty}>{labels.nodes.noPairedDesktop}</Text> : null
         }
         renderItem={({ item }) => (
           <Card style={styles.card}>
@@ -159,26 +135,20 @@ export default function NodesScreen() {
                 {item.reachability.state === 'online'
                   ? labels.nodes.online
                   : item.reachability.state === 'nearby'
-                  ? labels.nodes.nearby
-                  : item.reachability.state === 'offline'
-                  ? labels.nodes.offline
-                  : labels.nodes.unknownReachability}
+                    ? labels.nodes.nearby
+                    : item.reachability.state === 'offline'
+                      ? labels.nodes.offline
+                      : labels.nodes.unknownReachability}
               </Chip>
             </Card.Content>
             {item.trusted && (
               <Card.Actions>
-                <Button
-                  loading={checkingPeerId === item.peerId}
-                  onPress={() => void verifyOrchestration(item.peerId)}
-                >
+                <Button loading={checkingPeerId === item.peerId} onPress={() => void verifyOrchestration(item.peerId)}>
                   {verifiedPeers[item.peerId] ?? labels.nodes.verifyAccess}
                 </Button>
                 <Button
-                  textColor="#b00020"
-                  onPress={() =>
-                    void runDeviceAction(() =>
-                      mobileDeviceNetwork.remove(item.peerId)
-                    )}
+                  textColor={theme.colors.error}
+                  onPress={() => void runDeviceAction(() => mobileDeviceNetwork.remove(item.peerId))}
                 >
                   {labels.nodes.forget}
                 </Button>
@@ -213,9 +183,7 @@ export default function NodesScreen() {
               value={invite}
               onChangeText={setInvite}
             />
-            {actionError && (
-              <Text style={styles.error}>{actionError}</Text>
-            )}
+            {actionError && <Text style={[styles.error, { color: theme.colors.error }]}>{actionError}</Text>}
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setInviteOpen(false)}>{labels.nodes.cancel}</Button>
@@ -230,12 +198,12 @@ export default function NodesScreen() {
           </Dialog.Actions>
         </Dialog>
       </Portal>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, padding: 16 },
   title: { marginBottom: 8 },
   capabilities: { marginBottom: 16, opacity: 0.7 },
   card: { marginBottom: 12 },
@@ -248,5 +216,5 @@ const styles = StyleSheet.create({
   empty: { textAlign: 'center', opacity: 0.6, marginTop: 32 },
   addButton: { marginTop: 16 },
   instructions: { marginBottom: 12 },
-  error: { color: '#b00020', marginTop: 8 },
+  error: { marginTop: 8 },
 });

@@ -49,6 +49,19 @@ test('selectMobileAgentDevice is deterministic and prefers online over nearby', 
   ])?.peerId, 'a');
 });
 
+test('selects on Hermes without toSorted and preserves the source device order', () => {
+  const original = Object.getOwnPropertyDescriptor(Array.prototype, 'toSorted');
+  Object.defineProperty(Array.prototype, 'toSorted', { configurable: true, value: undefined });
+  try {
+    const devices = Object.freeze([device({ peerId: 'b' }), device({ peerId: 'a' })]);
+    assert.equal(selectMobileAgentDevice(devices)?.peerId, 'a');
+    assert.deepEqual(devices.map(item => item.peerId), ['b', 'a']);
+  } finally {
+    if (original) Object.defineProperty(Array.prototype, 'toSorted', original);
+    else delete Array.prototype.toSorted;
+  }
+});
+
 test('attachment capability is hidden and rejects metadata fail closed', () => {
   assert.equal(MOBILE_ATTACHMENT_HOST.supported, false);
   assert.equal(MOBILE_ATTACHMENT_HOST.attachmentActionsVisible, false);

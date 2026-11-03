@@ -26,6 +26,11 @@ vi.mock('expo-router', () => ({
   },
 }));
 vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn() }));
+vi.mock('react-native-safe-area-context', () => ({
+  SafeAreaView: ({ children, edges }: { children: ReactNode; edges: string[] }) => (
+    <div data-testid="chat-safe-area" data-edges={edges.join(',')}>{children}</div>
+  ),
+}));
 vi.mock('memeloop/mobile', () => ({
   createAgentDeviceRpcRequestId: () => 'request',
   createConversationEditingAdapter: () => ({}),
@@ -106,6 +111,7 @@ describe('conversation history preserves the mounted chat', () => {
   it('passes localized work and tool disclosure labels to the shared native view', async () => {
     render(<ChatScreen />);
     await screen.findByRole('textbox', { name: 'Draft' });
+    expect(screen.getByTestId('chat-safe-area').getAttribute('data-edges')).toBe('left,right,bottom');
     const { chat } = getMobileLabels();
     expect(state.chatLabels).toMatchObject({
       working: chat.waiting,

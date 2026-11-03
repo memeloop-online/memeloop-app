@@ -8,7 +8,8 @@ import { Stack, useRouter } from 'expo-router';
 import { setStringAsync } from 'expo-clipboard';
 import { createAgentDeviceRpcRequestId, createConversationEditingAdapter, type ConversationBranchState } from 'memeloop/mobile';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
-import { AppState, ScrollView, StyleSheet, View } from 'react-native';
+import { AppState, ScrollView, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Card, Dialog, IconButton, List, Menu, Portal, Text, useTheme } from 'react-native-paper';
 
 import {
@@ -258,7 +259,7 @@ export default function ChatScreen() {
 
   if (session) {
     return (
-      <View style={[styles.chat, { backgroundColor: theme.colors.background }]}>
+      <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.chat, { backgroundColor: theme.colors.background }]}>
         <Stack.Screen options={{ title: session.title || labels.chat.agent }} />
         {conversationPicker}
         {settingsMode && <RemoteConversationSettings key={`${session.conversationId}:${settingsMode}`} client={session.client} conversationId={session.conversationId}
@@ -278,13 +279,13 @@ export default function ChatScreen() {
             setChosen({ peerId: session.peerId, conversation: meta, runId });
           }} />
         </AgentSessionProvider>
-      </View>
+      </SafeAreaView>
     );
   }
 
   const noTarget = network.status === 'online' && !target;
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Stack.Screen options={{ title: labels.chat.agent }} />
       {conversationPicker}
       <Card>
@@ -314,7 +315,7 @@ export default function ChatScreen() {
           )}
         </Card.Actions>
       </Card>
-    </View>
+    </SafeAreaView>
   );
 }
 
