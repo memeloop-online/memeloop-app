@@ -1,52 +1,39 @@
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, TextField, Typography } from '@mui/material';
-import { AIProviderConfig } from '@services/providerRegistry/interface';
+import type { ProviderAccountConfig } from 'memeloop';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 
-// New provider form state
 interface NewProviderFormState {
-  provider: string;
-  providerClass: string;
-  baseURL: string;
+  providerId: string;
+  providerType: string;
+  baseUrl: string;
 }
 
 interface NewProviderFormProps {
   formState: NewProviderFormState;
-  providerClasses: string[];
-  availableDefaultProviders: AIProviderConfig[];
+  providerTypes: readonly string[];
+  availableDefaultProviders: readonly ProviderAccountConfig[];
   selectedDefaultProvider: string;
-  onDefaultProviderSelect: (providerName: string) => void;
+  onDefaultProviderSelect: (providerId: string) => void;
   onChange: (updates: Partial<NewProviderFormState>) => void;
   onSubmit: () => void;
 }
 
-export function NewProviderForm({
-  formState,
-  providerClasses,
-  availableDefaultProviders,
-  selectedDefaultProvider,
-  onDefaultProviderSelect,
-  onChange,
-  onSubmit,
-}: NewProviderFormProps) {
+export function NewProviderForm(
+  { formState, providerTypes, availableDefaultProviders, selectedDefaultProvider, onDefaultProviderSelect, onChange, onSubmit }: NewProviderFormProps,
+) {
   const { t } = useTranslation('agent');
-
-  const showBaseURLField = formState.providerClass === 'openAICompatible' ||
-    formState.providerClass === 'ollama';
-
+  const showBaseUrl = formState.providerType === 'openAICompatible' || formState.providerType === 'openai' || formState.providerType === 'ollama' ||
+    formState.providerType === 'comfyui';
   return (
     <Box sx={{ mt: 2, mb: 3, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-      <Typography variant='h6' sx={{ mb: 2 }}>
-        {t('Preference.AddNewProvider')}
-      </Typography>
-
-      {/* Default provider selector */}
+      <Typography variant='h6' sx={{ mb: 2 }}>{t('Preference.AddNewProvider')}</Typography>
       <FormControl fullWidth margin='normal'>
         <InputLabel id='default-provider-label'>{t('Preference.SelectDefaultProvider')}</InputLabel>
         <Select
           labelId='default-provider-label'
           value={selectedDefaultProvider}
-          onChange={(event) => {
+          onChange={event => {
             onDefaultProviderSelect(event.target.value);
           }}
           label={t('Preference.SelectDefaultProvider')}
@@ -54,70 +41,49 @@ export function NewProviderForm({
           <MenuItem value=''>
             <em>{t('Preference.CustomProvider')}</em>
           </MenuItem>
-          {availableDefaultProviders.map((provider) => (
-            <MenuItem key={provider.provider} value={provider.provider}>
-              {provider.provider}
-            </MenuItem>
+          {availableDefaultProviders.map(provider => (
+            <MenuItem key={provider.providerId} value={provider.providerId}>{provider.catalogProvider?.name ?? provider.providerId}</MenuItem>
           ))}
         </Select>
       </FormControl>
-
       <TextField
         label={t('Preference.ProviderName')}
-        value={formState.provider}
-        onChange={(event) => {
-          onChange({ provider: event.target.value });
+        value={formState.providerId}
+        onChange={event => {
+          onChange({ providerId: event.target.value });
         }}
         fullWidth
         margin='normal'
         placeholder='my-ai-provider'
         slotProps={{ htmlInput: { 'data-testid': 'new-provider-name-input' } }}
       />
-
       <FormControl fullWidth margin='normal'>
         <InputLabel id='provider-class-label'>{t('Preference.ProviderClass')}</InputLabel>
         <Select
           labelId='provider-class-label'
-          value={formState.providerClass}
-          onChange={(event) => {
-            onChange({ providerClass: event.target.value });
+          value={formState.providerType}
+          onChange={event => {
+            onChange({ providerType: event.target.value });
           }}
           label={t('Preference.ProviderClass')}
         >
-          {providerClasses.map((cls) => (
-            <MenuItem key={cls} value={cls}>
-              {cls}
-            </MenuItem>
-          ))}
+          {providerTypes.map(providerType => <MenuItem key={providerType} value={providerType}>{providerType}</MenuItem>)}
         </Select>
       </FormControl>
-
-      {showBaseURLField && (
+      {showBaseUrl && (
         <TextField
           label={t('Preference.BaseURL')}
-          value={formState.baseURL}
-          onChange={(event) => {
-            onChange({ baseURL: event.target.value });
+          value={formState.baseUrl}
+          onChange={event => {
+            onChange({ baseUrl: event.target.value });
           }}
           fullWidth
           margin='normal'
-          placeholder={formState.providerClass === 'ollama'
-            ? 'http://localhost:11434'
-            : 'https://api.example.com/v1'}
+          helperText='Include the API version path explicitly (for example, /v1).'
           slotProps={{ htmlInput: { 'data-testid': 'new-provider-base-url-input' } }}
         />
       )}
-
-      <Button
-        variant='contained'
-        color='primary'
-        onClick={onSubmit}
-        fullWidth
-        sx={{ mt: 2 }}
-        data-testid='add-provider-submit-button'
-      >
-        {t('Preference.AddProvider')}
-      </Button>
+      <Button variant='contained' color='primary' onClick={onSubmit} fullWidth sx={{ mt: 2 }} data-testid='add-provider-submit-button'>{t('Preference.AddProvider')}</Button>
     </Box>
   );
 }

@@ -1,28 +1,15 @@
-# How to translate
+# Translation
 
-## Add your language to supportedLanguages.json
+Supported locales are listed in `localization/supportedLanguages.json`. Each locale has:
 
-It is located in `localization/supportedLanguages.json`.
+- `translation.json` for application and preference strings;
+- `agent.json` for reusable agent/chat UI strings.
 
-Add your language, make it looks like:
+Add the same key to every supported locale, then run:
 
-```json
-{
-  "en": "English",
-  "fr": "Français",
-  "ja": "日本語",
-  "ru": "русский",
-  "vi": "Tiếng Việt",
-  "zh-Hans": "汉语"
-}
+```sh
+pnpm run lint --max-warnings 0
+pnpm run test:unit src/services/preferences/definitions/__tests__/schemaValidation.test.ts
 ```
 
-And update `localization/tiddlywikiLanguages.json` too!
-
-## Add translate
-
-Create a folder like `localization/locales/en`, with `localization/locales/yourlanguagename/translation.json` inside.
-
-Fill in the JSON like how other `translation.json` fills.
-
-You can use [i18n ally vscode plugin](https://marketplace.visualstudio.com/items?itemName=Lokalise.i18n-ally) to speed it up! It can auto translate, and count the missing translate keys in each languages.
+Do not introduce user-visible fallback literals for new flows. Narrow-screen and error/action states must use the same translated keys as the full-width UI.

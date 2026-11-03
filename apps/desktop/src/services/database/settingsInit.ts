@@ -55,7 +55,7 @@ function fixEmptyAndErrorSettingFileOnStartUp() {
       try {
         logger.info('Checking Setting file format.');
         const content = fs.readJsonSync(settings.file()) as unknown;
-        // A valid JSON string at the root (e.g. `"wiki"`) passes JSON.parse but breaks property assignment.
+        // A valid JSON primitive at the root passes JSON.parse but breaks property assignment.
         if (content === null || typeof content !== 'object' || Array.isArray(content)) {
           logger.warn('Settings file has non-object root value, resetting to {}');
           fs.writeJSONSync(settings.file(), {});
@@ -66,7 +66,7 @@ function fixEmptyAndErrorSettingFileOnStartUp() {
         fixSettingFileWhenError(jsonError as Error);
       }
     } else {
-      // create an empty JSON file if not exist, to prevent error when reading it. fixes https://github.com/tiddly-gittly/TidGi-Desktop/issues/507
+      // Create an empty JSON file when missing so first-run reads are deterministic.
       fs.ensureFileSync(settings.file());
       fs.writeJSONSync(settings.file(), {});
     }

@@ -4,8 +4,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { type IEditAgentDefinitionTab, TabState, TabType } from '@/pages/Agent/types/tab';
 import { ThemeProvider } from '@mui/material/styles';
+import type { AgentDefinition } from '@services/agentDefinition/interface';
 import { lightTheme } from '@services/theme/defaultTheme';
 import { EditAgentDefinitionContent } from '../EditAgentDefinitionContent';
+
+// This suite owns the editor contract, not the shared chat runtime. Keeping the
+// preview boundary explicit also prevents background chat subscriptions from
+// surviving a completed editor test.
+vi.mock('../../../../ChatTabContent', () => ({
+  ChatTabContent: () => <div data-testid='agent-preview-chat' />,
+}));
 
 // Mock backend services
 const mockUpdateTab = vi.fn();
@@ -34,6 +42,8 @@ Object.defineProperty(window, 'service', {
       createAgent: mockCreateAgent,
       deleteAgent: mockDeleteAgent,
       getFrameworkConfigSchema: mockGetFrameworkConfigSchema,
+      getAgentMetadata: vi.fn().mockResolvedValue(undefined),
+      getAgentConversationTimeline: vi.fn().mockResolvedValue({ anchors: [], totalMessages: 0, totalTurns: 0 }),
     },
     agentDefinition: {
       getAgentDef: mockGetAgentDef,
@@ -45,12 +55,15 @@ Object.defineProperty(window, 'service', {
   },
 });
 
-const mockAgentDefinition = {
+const mockAgentDefinition: AgentDefinition = {
   id: 'test-agent-def-id',
   name: 'Test Agent',
   description: 'A test agent for editing',
+  systemPrompt: 'You are a test assistant.',
+  tools: [],
+  version: '1.0.0',
   agentFrameworkID: 'testHandler',
-  config: {},
+  agentFrameworkConfig: { prompts: [], plugins: [] },
 };
 
 const mockSchema = {
@@ -123,6 +136,7 @@ describe('EditAgentDefinitionContent', () => {
     expect(screen.getByText('EditAgent.EditBasic')).toBeInTheDocument();
     expect(screen.getByText('EditAgent.EditPrompt')).toBeInTheDocument();
     expect(screen.getByText('EditAgent.ImmediateUse')).toBeInTheDocument();
+    expect(screen.getByTestId('edit-agent-schedule-persistent-notice')).toBeInTheDocument();
   });
 
   it('should load agent definition on mount', async () => {

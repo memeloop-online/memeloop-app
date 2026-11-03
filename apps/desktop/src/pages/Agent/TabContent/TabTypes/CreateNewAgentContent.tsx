@@ -5,8 +5,8 @@ import { styled } from '@mui/material/styles';
 import type { RJSFSchema } from '@rjsf/utils';
 import type { AgentDefinition } from '@services/agentDefinition/interface';
 import { DEFAULT_AGENT_FRAMEWORK_ID } from '@services/agentInstance/defaultAgentFrameworkId';
-import { AgentFrameworkConfig } from '@services/agentInstance/promptConcat/promptConcatSchema';
 import useDebouncedCallback from 'beautiful-react-hooks/useDebouncedCallback';
+import type { AgentFrameworkConfig } from 'memeloop';
 import { nanoid } from 'nanoid';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -52,6 +52,7 @@ const ActionBar = styled(Box)`
 `;
 
 const STEPS = ['setupAgent', 'editPrompt', 'immediateUse'] as const;
+const EMPTY_AGENT_FRAMEWORK_CONFIG: AgentFrameworkConfig = { prompts: [], response: [], plugins: [] };
 
 export const CreateNewAgentContent: React.FC<CreateNewAgentContentProps> = ({ tab }) => {
   const { t } = useTranslation('agent');
@@ -107,7 +108,7 @@ export const CreateNewAgentContent: React.FC<CreateNewAgentContentProps> = ({ ta
       const frameworkId = temporaryAgentDefinition.agentFrameworkID ?? DEFAULT_AGENT_FRAMEWORK_ID;
       try {
         const schema = await window.service.agentInstance.getFrameworkConfigSchema(frameworkId);
-        setPromptSchema(schema as RJSFSchema);
+        setPromptSchema(schema);
       } catch (error) {
         console.error('Failed to load framework config schema:', error);
         setPromptSchema(null);
@@ -378,11 +379,11 @@ export const CreateNewAgentContent: React.FC<CreateNewAgentContentProps> = ({ ta
                 <Box sx={{ mt: 2, height: 400, overflow: 'auto' }}>
                   <PromptConfigForm
                     schema={promptSchema}
-                    formData={(temporaryAgentDefinition.agentFrameworkConfig || {}) as AgentFrameworkConfig}
+                    formData={temporaryAgentDefinition.agentFrameworkConfig ?? EMPTY_AGENT_FRAMEWORK_CONFIG}
                     onChange={(updatedConfig) => {
                       void handleAgentDefinitionChange({
                         ...temporaryAgentDefinition,
-                        agentFrameworkConfig: updatedConfig as Record<string, unknown>,
+                        agentFrameworkConfig: updatedConfig,
                       });
                     }}
                     loading={false}

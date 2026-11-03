@@ -5,13 +5,8 @@ import path from 'path';
 import { _electron as electron } from 'playwright';
 import type { ElectronApplication, Page } from 'playwright';
 import { windowDimension, WindowNames } from '../../src/services/windows/WindowProperties';
-import type { MemeloopCloudFixtureHandle } from '../supports/memeloopCloudFixture';
-import type { RemoteMemeloopTestNodeHandle } from '../supports/memeloopRemoteTestNode';
-import { MockOAuthServer } from '../supports/mockOAuthServer';
-import { MockOpenAIServer } from '../supports/mockOpenAI';
 import { getPackedAppPath, makeSlugPath } from '../supports/paths';
 import { PLAYWRIGHT_TIMEOUT } from '../supports/timeouts';
-import { captureScreenshot, captureWindowScreenshot } from '../supports/webContentsViewHelper';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -79,16 +74,8 @@ export class ApplicationWorld {
   appLaunchPromise: Promise<void> | undefined;
   mainWindow: Page | undefined; // Keep for compatibility during transition
   currentWindow: Page | undefined; // New state-managed current window
-  mockOpenAIServer: MockOpenAIServer | undefined;
-  mockOAuthServer: MockOAuthServer | undefined;
-  memeloopCloudFixture: MemeloopCloudFixtureHandle | undefined;
-  remoteMemeloopNode: RemoteMemeloopTestNodeHandle | undefined;
-  savedWorkspaceId: string | undefined; // For storing workspace ID between steps
   scenarioName: string = 'default'; // Scenario name from Cucumber pickle
   scenarioSlug: string = 'default'; // Sanitized scenario name for file paths
-  providerConfig:
-    | import('@services/providerRegistry/interface').AIProviderConfig
-    | undefined; // Scenario-specific AI provider config
 
   // Helper method to check if window is visible
   async isWindowVisible(page: Page): Promise<boolean> {
@@ -135,80 +122,15 @@ export class ApplicationWorld {
     const pages = this.app.windows();
 
     if (windowName === WindowNames.main) {
-      // Main window is the first/primary window, typically showing guide, agent, help, or wiki pages
-      // It's the window that opens on app launch
+      // Main window is the first application window.
       const allWindows = pages.filter((page) => !page.isClosed());
       if (allWindows.length > 0) {
         // Return the first window (main window is always the first one created)
         return allWindows[0];
       }
       return undefined;
-    } else if (windowName === WindowNames.tidgiMiniWindow) {
-      // Special handling for tidgi mini window
-      // First try to find by Electron window dimensions (more reliable than title)
-      const windowDimensions = checkWindowDimension(windowName);
-      try {
-        const electronWindowInfo = await this.app.evaluate(
-          async (
-            { BrowserWindow },
-            size: { width: number; height: number },
-          ) => {
-            const allWindows = BrowserWindow.getAllWindows();
-            const tidgiMiniWindow = allWindows.find((win) => {
-              const bounds = win.getBounds();
-              return (
-                bounds.width === size.width && bounds.height === size.height
-              );
-            });
-            return tidgiMiniWindow ? { id: tidgiMiniWindow.id } : null;
-          },
-          windowDimensions,
-        );
-
-        if (electronWindowInfo) {
-          // Found by dimensions, now match with Playwright page
-          const allWindows = pages.filter((page) => !page.isClosed());
-          for (const page of allWindows) {
-            try {
-              // Try to match by checking if this page belongs to the found electron window
-              // For now, use title as fallback verification
-              const title = await page.title();
-              if (
-                title.includes('太记小窗') ||
-                title.includes('TidGi Mini Window') ||
-                title.includes('TidGiMiniWindow')
-              ) {
-                return page;
-              }
-            } catch {
-              continue;
-            }
-          }
-        }
-      } catch {
-        // If Electron API fails, fallback to title matching
-      }
-
-      // Fallback: Match by window title
-      const allWindows = pages.filter((page) => !page.isClosed());
-      for (const page of allWindows) {
-        try {
-          const title = await page.title();
-          if (
-            title.includes('太记小窗') ||
-            title.includes('TidGi Mini Window') ||
-            title.includes('TidGiMiniWindow')
-          ) {
-            return page;
-          }
-        } catch {
-          // Page might be closed or not ready, continue to next
-          continue;
-        }
-      }
-      return undefined;
     } else {
-      // For regular windows (preferences, about, addWorkspace, etc.)
+      // Match the standalone application's secondary windows by route.
       return pages.find((page) => {
         if (page.isClosed()) return false;
         const url = page.url() || '';
@@ -252,12 +174,23 @@ export class ApplicationWorld {
 
 setWorldConstructor(ApplicationWorld);
 
-async function launchTidGiApplication(world: ApplicationWorld): Promise<void> {
+async function launchMemeLoopApplication(world: ApplicationWorld): Promise<void> {
   const packedAppPath = getPackedAppPath();
+  const testUserDataPath = path.resolve(
+    process.cwd(),
+    'test-artifacts',
+    world.scenarioSlug,
+    'userData-test',
+  );
+  await fs.ensureDir(testUserDataPath);
 
   world.app = await electron.launch({
     executablePath: packedAppPath,
     args: [
+      // Chromium 136+ disables remote debugging for its default profile.
+      // Playwright's Electron driver uses CDP, so select the same isolated
+      // scenario profile that the application uses before Chromium starts.
+      `--user-data-dir=${testUserDataPath}`,
       `--test-scenario=${world.scenarioSlug}`,
       '--no-sandbox',
       '--disable-dev-shm-usage',
@@ -266,7 +199,7 @@ async function launchTidGiApplication(world: ApplicationWorld): Promise<void> {
       '--disable-background-timer-throttling',
       '--disable-backgrounding-occluded-windows',
       '--disable-renderer-backgrounding',
-      '--disable-features=TranslateUI',
+      '--disable-features=TranslateUI,DevToolsDebuggingRestrictions',
       '--disable-ipc-flooding-protection',
       '--force-device-scale-factor=1',
       '--high-dpi-support=1',
@@ -306,6 +239,16 @@ async function launchTidGiApplication(world: ApplicationWorld): Promise<void> {
     timeout: PLAYWRIGHT_TIMEOUT,
   });
 
+  const applicationProcess = world.app.process();
+  applicationProcess.stderr?.on('data', (chunk: Buffer) => {
+    console.error(`[MemeLoop E2E stderr] ${chunk.toString().trimEnd()}`);
+  });
+  applicationProcess.on('exit', (code, signal) => {
+    if (code !== 0 || signal) {
+      console.error(`[MemeLoop E2E exit] code=${String(code)} signal=${String(signal)}`);
+    }
+  });
+
   // Do not block launch step on firstWindow; this can exceed Cucumber's 5s step timeout.
   // Window acquisition is handled in "I wait for the page to load completely".
   const openedWindows = world.app.windows().filter((page) => !page.isClosed());
@@ -313,13 +256,15 @@ async function launchTidGiApplication(world: ApplicationWorld): Promise<void> {
   world.currentWindow = world.mainWindow;
 }
 
-async function closeTidGiApplication(world: ApplicationWorld): Promise<void> {
+async function closeMemeLoopApplication(world: ApplicationWorld): Promise<void> {
   // If launch is still in progress, wait it settle before closing.
   if (world.appLaunchPromise) {
     try {
       await world.appLaunchPromise;
-    } catch {
-      // Ignore launch failure here; close path will clear world state.
+    } catch (error) {
+      // Close still runs after a failed launch, but retain the failure for
+      // scenario diagnostics instead of silently discarding it.
+      console.debug('Application launch failed before cleanup', error);
     }
   }
 
@@ -342,8 +287,8 @@ async function closeTidGiApplication(world: ApplicationWorld): Promise<void> {
           .close({ reason: 'Relaunch application in scenario' }),
         new Promise((resolve) => setTimeout(resolve, 500)),
       ]);
-    } catch {
-      // ignore
+    } catch (error) {
+      console.debug('Application context close failed during cleanup', error);
     }
   } finally {
     world.appLaunchPromise = undefined;
@@ -384,17 +329,8 @@ AfterStep(
         `${timestamp}-${cleanStepText}-FAILED.png`,
       );
 
-      // Steps operating on BrowserView (WebContentsView) → capture the embedded wiki view
-      // Other steps (main window UI, editWorkspace, preferences, etc.) → capture the current window page
-      const isBrowserViewStep = /browser view|TiddlyWiki code/i.test(stepText);
-      if (isBrowserViewStep) {
-        await captureScreenshot(this.app, screenshotPath);
-      } else if (this.currentWindow && !this.currentWindow.isClosed()) {
-        await captureWindowScreenshot(
-          this.app,
-          this.currentWindow,
-          screenshotPath,
-        );
+      if (this.currentWindow && !this.currentWindow.isClosed()) {
+        await this.currentWindow.screenshot({ path: screenshotPath });
       }
     } catch (error) {
       // Screenshot is best-effort diagnostics, never fail a step for it
@@ -412,19 +348,19 @@ AfterStep(
 // Timeout is a symptom, not the disease. Fix the root cause.
 // Read docs/Testing.md section "Key E2E Testing Patterns" point 6 before attempting any changes.
 // Maximum allowed timeouts: Local 5s, CI 10s (exactly 2x local, no more)
-When('I launch the TidGi application', async function(this: ApplicationWorld) {
-  this.appLaunchPromise = launchTidGiApplication(this).catch(
+When('I launch the MemeLoop application', async function(this: ApplicationWorld) {
+  this.appLaunchPromise = launchMemeLoopApplication(this).catch(
     (error: unknown) => {
       throw error;
     },
   );
 });
 
-When('I close the TidGi application', async function(this: ApplicationWorld) {
+When('I close the MemeLoop application', async function(this: ApplicationWorld) {
   try {
-    await closeTidGiApplication(this);
+    await closeMemeLoopApplication(this);
   } catch (error) {
-    throw new Error(`Failed to close TidGi application: ${error as Error}`);
+    throw new Error(`Failed to close MemeLoop application: ${error as Error}`, { cause: error });
   }
 });
 
@@ -441,7 +377,7 @@ When(
       this.scenarioSlug,
       directoryName,
     );
-    // Ensure parent directory exists (but do NOT remove target directory - it may be an existing wiki we want to import)
+    // Ensure the scenario-owned parent directory exists.
     await fs.ensureDir(path.dirname(targetPath));
     // Setup one-time dialog handler that restores after use
     await this.app.evaluate(({ dialog }, targetDirectory: string) => {
@@ -531,9 +467,6 @@ When(
 
 /**
  * Reopen the main window the same way a second-instance launch triggers it.
- * Emits the Electron `second-instance` app event directly in the main process, which
- * calls `windowService.open(WindowNames.main)` → `existedWindow.show()` → 'show' event
- * → `refreshActiveWorkspaceView()`.
  */
 When(
   'I reopen the main window as second instance would',
@@ -553,14 +486,14 @@ When(
       );
       // In test mode, window.open() intentionally skips existedWindow.show() to avoid UI popups.
       // Show all surviving windows explicitly so the recreated main window is guaranteed visible.
-      // This avoids brittle heuristics that try to distinguish main vs tidgi mini window by size.
+      // Show surviving windows explicitly because test mode suppresses focus changes.
       for (const win of BrowserWindow.getAllWindows()) {
         if (!win.isDestroyed()) {
           win.show();
         }
       }
     });
-    // Wait for show → refreshActiveWorkspaceView → buildMenu to complete.
+    // Let the show event settle.
     await this.app.evaluate(
       async () => new Promise<void>((resolve) => setTimeout(resolve, 500)),
     );

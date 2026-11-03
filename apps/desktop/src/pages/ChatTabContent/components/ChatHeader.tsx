@@ -1,103 +1,68 @@
 import ArticleIcon from '@mui/icons-material/Article';
 import BugReportIcon from '@mui/icons-material/BugReport';
 import EditIcon from '@mui/icons-material/Edit';
+import HomeIcon from '@mui/icons-material/Home';
 import TuneIcon from '@mui/icons-material/Tune';
-import { Box, CircularProgress, IconButton } from '@mui/material';
-import { styled } from '@mui/material/styles';
+import { Alert, Box, CircularProgress, IconButton } from '@mui/material';
 import { usePreferenceObservable } from '@services/preferences/hooks';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useShallow } from 'zustand/react/shallow';
-import { TabListDropdown } from '../../Agent/components/TabBar/TabListDropdown';
-import { useAgentChatStore } from '../../Agent/store/agentChatStore/index';
+
 import { AgentSwitcher } from './AgentSwitcher';
 import { APILogsDialog } from './APILogsDialog';
-import ChatTitle from './ChatTitle';
 import { CompactModelSelector } from './CompactModelSelector';
-import { PromptPreviewDialog } from './PromptPreviewDialog';
-
-const Header = styled(Box)`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid ${props => props.theme.palette.divider};
-`;
-
-const ControlsContainer = styled(Box)`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-`;
 
 interface ChatHeaderProps {
-  title?: string;
+  agentId: string;
+  agentDefId?: string;
   loading: boolean;
   onOpenParameters: () => void;
-  inputText?: string;
-  currentAgentDefId?: string;
+  onOpenPreview: (mode: 'preview' | 'edit') => void;
   onSwitchAgent?: (agentDefinitionId: string) => void;
-  isStreaming?: boolean;
-  isSplitView?: boolean;
 }
 
-/**
- * Chat header component with title and AI model controls
- */
+/** Desktop-only actions slotted into the shared AgentChatShell header. */
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
-  title,
+  agentId,
+  agentDefId,
   loading,
   onOpenParameters,
-  inputText,
-  currentAgentDefId,
+  onOpenPreview,
   onSwitchAgent,
-  isStreaming,
-  isSplitView,
 }) => {
   const { t } = useTranslation('agent');
   const preference = usePreferenceObservable();
   const [apiLogsDialogOpen, setApiLogsDialogOpen] = useState(false);
-
-  const { agent, previewDialogOpen, previewDialogBaseMode, openPreviewDialog, closePreviewDialog, updateAgent } = useAgentChatStore(
-    useShallow((state) => ({
-      agent: state.agent,
-      previewDialogOpen: state.previewDialogOpen,
-      previewDialogBaseMode: state.previewDialogBaseMode,
-      updateAgent: state.updateAgent,
-      openPreviewDialog: state.openPreviewDialog,
-      closePreviewDialog: state.closePreviewDialog,
-    })),
-  );
-
-  const handleOpenAPILogs = () => {
-    setApiLogsDialogOpen(true);
-  };
-
-  const handleCloseAPILogs = () => {
-    setApiLogsDialogOpen(false);
-  };
-
-  // Show debug button only when debug is enabled and agent exists
-  const showDebugButton = preference?.externalAPIDebug && agent?.id;
+  const [mainSelection, setMainSelection] = useState<'saved' | 'failed'>();
 
   return (
-    <Header>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
-        {!isSplitView && <TabListDropdown />}
-        <ChatTitle title={title} agent={agent} updateAgent={updateAgent} />
+    <>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          flexWrap: 'wrap',
+          flexShrink: 1,
+          gap: 0.5,
+          maxWidth: '100%',
+          minWidth: 0,
+          '@container memeloop-chat (max-width: 480px)': {
+            '& .MuiIconButton-root': { minHeight: 44, minWidth: 44 },
+          },
+        }}
+      >
         {onSwitchAgent && (
           <AgentSwitcher
-            currentAgentDefId={currentAgentDefId}
+            currentAgentDefId={agentDefId}
             onSwitch={onSwitchAgent}
-            disabled={loading || isStreaming}
+            disabled={loading}
           />
         )}
-      </Box>
-      <ControlsContainer>
         <IconButton
           size='small'
           onClick={() => {
-            openPreviewDialog();
+            onOpenPreview('preview');
           }}
           title={t('Prompt.Preview')}
         >
@@ -106,42 +71,60 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
         <IconButton
           size='small'
           onClick={() => {
-            openPreviewDialog({ baseMode: 'edit' });
+            onOpenPreview('edit');
           }}
           title={t('Prompt.Edit')}
         >
           <EditIcon />
         </IconButton>
-        {showDebugButton && (
+        {preference?.externalAPIDebug && (
           <IconButton
             size='small'
-            onClick={handleOpenAPILogs}
+            onClick={() => {
+              setApiLogsDialogOpen(true);
+            }}
             title={t('APILogs.Title')}
           >
             <BugReportIcon />
           </IconButton>
         )}
-        {loading && <CircularProgress size={20} sx={{ mr: 1 }} color='primary' />}
-        <CompactModelSelector agentDefId={agent?.agentDefId} />
+        {loading && <CircularProgress size={20} color='primary' />}
+        <CompactModelSelector agentId={agentId} agentDefId={agentDefId} />
         <IconButton
           size='small'
-          onClick={onOpenParameters}
-          title={t('Preference.ModelParameters')}
+          aria-label={t('Chat.Experience.UseAsMain')}
+          title={t('Chat.Experience.UseAsMain')}
+          onClick={() => {
+            void window.service.agentInstance.setMainConversation(agentId).then(() => {
+              setMainSelection('saved');
+            }).catch(() => {
+              setMainSelection('failed');
+            });
+          }}
         >
+          <HomeIcon />
+        </IconButton>
+        <IconButton size='small' onClick={onOpenParameters} title={t('Preference.ModelParameters')}>
           <TuneIcon />
         </IconButton>
-      </ControlsContainer>
-      <PromptPreviewDialog
-        open={previewDialogOpen}
-        onClose={closePreviewDialog}
-        inputText={inputText}
-        initialBaseMode={previewDialogBaseMode}
-      />
+      </Box>
+      {mainSelection && (
+        <Alert
+          severity={mainSelection === 'saved' ? 'success' : 'error'}
+          onClose={() => {
+            setMainSelection(undefined);
+          }}
+        >
+          {t(mainSelection === 'saved' ? 'Chat.Experience.MainUpdated' : 'Chat.Experience.MainFailed')}
+        </Alert>
+      )}
       <APILogsDialog
         open={apiLogsDialogOpen}
-        onClose={handleCloseAPILogs}
-        agentInstanceId={agent?.id}
+        onClose={() => {
+          setApiLogsDialogOpen(false);
+        }}
+        agentInstanceId={agentId}
       />
-    </Header>
+    </>
   );
 };

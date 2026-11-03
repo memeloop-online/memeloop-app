@@ -5,7 +5,7 @@
  */
 import { allSections, getAllPreferenceItems, zodPreferencesSchema } from '@services/preferences/definitions/registry';
 import { preferenceItemDefinitionSchema, sectionDefinitionDataSchema } from '@services/preferences/definitions/types';
-import { type IPreferences, PreferenceSections } from '@services/preferences/interface';
+import type { IPreferences } from '@services/preferences/interface';
 import { describe, expect, it } from 'vitest';
 
 describe('Section Definition Schema Validation', () => {
@@ -29,13 +29,19 @@ describe('Section Definition Schema Validation', () => {
     }
   });
 
-  it('all section ids match PreferenceSections enum values', () => {
-    const sectionIds = new Set(allSections.map((s) => s.id));
-    // import the enum values at type-level to ensure consistency
-    const enumValues = Object.values(PreferenceSections);
-    for (const v of enumValues) {
-      expect(sectionIds.has(v), `Section "${v}" declared in PreferenceSections but not in allSections`).toBe(true);
-    }
+  it('only exposes the MemeLoop App preference sections, in display order', () => {
+    expect(allSections.map((section) => section.id)).toEqual([
+      'general',
+      'externalAPI',
+      'aiModels',
+      'aiAgent',
+      'notifications',
+      'system',
+      'languages',
+      'downloads',
+      'performance',
+      'updates',
+    ]);
   });
 
   it('no duplicate preference keys across sections', () => {
@@ -43,11 +49,11 @@ describe('Section Definition Schema Validation', () => {
     for (const section of allSections) {
       for (const item of section.items) {
         if ('key' in item && item.type.startsWith('preference-')) {
-          const existing = seen.get(item.key as string);
+          const existing = seen.get(item.key);
           if (existing) {
             throw new Error(`Duplicate preference key "${item.key}" in sections "${existing}" and "${section.id}"`);
           }
-          seen.set(item.key as string, section.id);
+          seen.set(item.key, section.id);
         }
       }
     }
@@ -67,15 +73,10 @@ describe('Section Definition Schema Validation', () => {
     const schemaKeys = new Set(Object.keys(zodPreferencesSchema.shape));
     const requiredKeys: Array<keyof IPreferences> = [
       'themeSource',
-      'sidebar',
-      'spellcheck',
       'language',
-      'syncBeforeShutdown',
-      'syncDebounceInterval',
-      'tidgiMiniWindow',
       'useHardwareAcceleration',
-      'keyboardShortcuts',
-      'spellcheckLanguages',
+      'externalAPIDebug',
+      'analyticsEnabled',
     ];
     for (const key of requiredKeys) {
       expect(schemaKeys.has(key), `Missing key "${key}" in zodPreferencesSchema`).toBe(true);

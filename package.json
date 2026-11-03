@@ -3,26 +3,18 @@
   "private": true,
   "description": "MemeLoop App monorepo — desktop (Electron) + mobile (Expo)",
   "license": "MIT",
-  "packageManager": "pnpm@10.33.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@swc/core",
-      "better-sqlite3",
-      "bufferutil",
-      "dprint",
-      "dugite",
-      "electron",
-      "electron-winstaller",
-      "esbuild",
-      "nsfw",
-      "registry-js",
-      "unrs-resolver",
-      "utf-8-validate"
-    ]
+  "packageManager": "pnpm@11.17.0",
+  "engines": {
+    "node": ">=24.0.0"
   },
   "scripts": {
-    "check": "pnpm -r run check",
-    "lint": "pnpm -r run lint",
-    "test:unit": "pnpm -r run test:unit"
+    "check:repository-contracts": "node scripts/verifyPackageManagerContract.mjs && node scripts/verifyViteQueryImports.mjs && node scripts/verifyNoLegacyProviderCompat.mjs && node scripts/verifyCanonicalAgentContracts.mjs",
+    "check": "pnpm --dir apps/desktop run check && pnpm --filter @memeloop/mobile run typecheck",
+    "lint": "pnpm --dir apps/desktop run lint --max-warnings 0 && pnpm --filter @memeloop/mobile run lint",
+    "test:unit": "pnpm --dir apps/desktop run test:unit && pnpm --filter @memeloop/mobile run test"
+  },
+  "devDependencies": {
+    "@babel/helper-module-imports": "^7.29.7",
+    "@babel/traverse": "^7.29.7"
   }
 }

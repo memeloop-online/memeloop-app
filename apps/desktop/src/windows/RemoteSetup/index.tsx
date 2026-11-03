@@ -1,239 +1,136 @@
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import { Alert, Box, Button, Card, CardContent, Checkbox, CircularProgress, FormControlLabel, List, ListItemButton, ListItemText, Stack, Typography } from '@mui/material';
+import type { SSHHost } from '@services/sshRemote';
+import type { RemoteBootstrapEvidence } from 'memeloop-cli';
 import { useEffect, useState } from 'react';
-import { styled } from '@mui/material/styles';
-import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Chip,
-  CircularProgress,
-  List,
-  ListItemButton,
-  ListItemText,
-  Step,
-  StepLabel,
-  Stepper,
-  Typography,
-} from '@mui/material';
+import { useTranslation } from 'react-i18next';
 
-interface SSHHost {
-  host: string;
-  hostname?: string;
-  user?: string;
-  port?: number;
-}
+const text = {
+  title: 'RemoteSetup.title',
+  description: 'RemoteSetup.description',
+  hosts: 'RemoteSetup.hosts',
+  noHosts: 'RemoteSetup.noHosts',
+  acceptNewHostKey: 'RemoteSetup.acceptNewHostKey',
+  probe: 'RemoteSetup.probe',
+  install: 'RemoteSetup.install',
+  nodeReady: 'RemoteSetup.nodeReady',
+  installReady: 'RemoteSetup.installReady',
+};
 
-type StepStatus = 'idle' | 'loading' | 'done' | 'error';
-
-export default function RemoteSetupWindow(): React.JSX.Element {
+export default function RemoteSetup(): React.JSX.Element {
+  const { t } = useTranslation('agent');
   const [hosts, setHosts] = useState<SSHHost[]>([]);
-  const [selected, setSelected] = useState<SSHHost | null>(null);
-  const [activeStep, setActiveStep] = useState(0);
-  const [checkResult, setCheckResult] = useState<{ installed: boolean; version?: string } | null>(null);
-  const [installStatus, setInstallStatus] = useState<StepStatus>('idle');
-  const [startStatus, setStartStatus] = useState<StepStatus>('idle');
-  const [wsUrl, setWsUrl] = useState<string | null>(null);
-  const [log, setLog] = useState<string[]>([]);
-
-  const addLog = (msg: string) => setLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+  const [selected, setSelected] = useState<SSHHost>();
+  const [acceptNewHostKey, setAcceptNewHostKey] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [probe, setProbe] = useState<RemoteBootstrapEvidence>();
+  const [result, setResult] = useState<RemoteBootstrapEvidence>();
+  const [error, setError] = useState<string>();
 
   useEffect(() => {
-    void window.service.sshRemote.getSSHHosts().then(h => {
-      setHosts(h);
-      if (h.length > 0) addLog(`Found ${h.length} SSH hosts`);
+    void window.service.sshRemote.getSSHHosts().then(setHosts).catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : String(cause));
     });
   }, []);
 
-  const steps = ['Select Server', 'Check memeloop', 'Install (if needed)', 'Start Server', 'Connect'];
-
-  const handleSelect = (host: SSHHost) => {
-    setSelected(host);
-    setActiveStep(1);
-    addLog(`Selected: ${host.host} (${host.hostname ?? host.host})`);
-  };
-
-  const handleCheck = async () => {
+  const execute = async (install: boolean): Promise<void> => {
     if (!selected) return;
-    setActiveStep(1);
-    addLog(`Checking ${selected.host} for memeloop...`);
-    const result = await window.service.sshRemote.checkRemote(selected);
-    setCheckResult(result);
-    if (result.installed) {
-      addLog(`memeloop v${result.version ?? '?'} found`);
-      setActiveStep(3);
-    } else {
-      addLog('memeloop not installed');
-      setActiveStep(2);
-    }
-  };
-
-  const handleInstall = async () => {
-    if (!selected) return;
-    setInstallStatus('loading');
-    addLog('Installing memeloop...');
-    const result = await window.service.sshRemote.installRemote(selected);
-    setInstallStatus(result.success ? 'done' : 'error');
-    if (result.success) {
-      addLog('Install complete');
-      setActiveStep(3);
-    } else {
-      addLog(`Install failed: ${result.error ?? 'unknown'}`);
-    }
-  };
-
-  const handleStart = async () => {
-    if (!selected) return;
-    setStartStatus('loading');
-    addLog('Starting memeloop server...');
-    const result = await window.service.sshRemote.startRemote(selected);
-    setStartStatus(result.success ? 'done' : 'error');
-    if (result.success && result.url) {
-      setWsUrl(result.url);
-      addLog(`Server started at ${result.url}`);
-      setActiveStep(4);
-    } else {
-      addLog(`Start failed: ${result.error ?? 'unknown'}`);
-    }
-  };
-
-  const handleConnect = async () => {
-    if (!wsUrl) return;
-    addLog(`Connecting to ${wsUrl}...`);
+    setWorking(true);
+    setError(undefined);
+    if (!install) setProbe(undefined);
+    else setResult(undefined);
     try {
-      await window.service.memeloopNode.addPeer(wsUrl);
-      addLog('Connected! Agent chat is now linked to remote server.');
-    } catch (error) {
-      addLog(`Connection failed: ${String(error)}`);
+      const evidence = install
+        ? await window.service.sshRemote.bootstrapRemote(selected, acceptNewHostKey)
+        : await window.service.sshRemote.probeRemote(selected, acceptNewHostKey);
+      if (install) setResult(evidence);
+      else setProbe(evidence);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setWorking(false);
     }
   };
 
   return (
-    <Root>
-      <Typography variant="h4" sx={{ mb: 3 }}>
-        Remote Server Setup
-      </Typography>
-
-      <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
-        {steps.map(label => (
-          <Step key={label}>
-            <StepLabel>{label}</StepLabel>
-          </Step>
-        ))}
-      </Stepper>
-
-      <Box sx={{ display: 'flex', gap: 3, flex: 1 }}>
-        {/* Left: host list / steps */}
-        <Box sx={{ flex: 1, minWidth: 300 }}>
-          {activeStep === 0 && (
-            <Card>
-              <CardContent>
-                <Typography variant="h6" sx={{ mb: 2 }}>
-                  SSH Hosts from ~/.ssh/config
-                </Typography>
-                {hosts.length === 0 ? (
-                  <Typography color="text.secondary">
-                    No SSH hosts found. Add hosts to ~/.ssh/config first.
-                  </Typography>
-                ) : (
-                  <List>
-                    {hosts.map(h => (
-                      <ListItemButton
-                        key={h.host}
-                        selected={selected?.host === h.host}
-                        onClick={() => handleSelect(h)}
-                      >
-                        <ListItemText
-                          primary={h.host}
-                          secondary={`${h.user ?? 'root'}@${h.hostname ?? h.host}${h.port ? `:${h.port}` : ''}`}
-                        />
-                      </ListItemButton>
-                    ))}
-                  </List>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {activeStep >= 1 && selected && (
-            <Card>
-              <CardContent>
-                <Typography variant="h6" sx={{ mb: 1 }}>
-                  {selected.host}
-                </Typography>
-                <Typography color="text.secondary" sx={{ mb: 2 }}>
-                  {selected.user ?? 'root'}@{selected.hostname ?? selected.host}
-                </Typography>
-
-                {activeStep === 1 && (
-                  <Button variant="contained" onClick={handleCheck}>
-                    Check memeloop
-                  </Button>
-                )}
-
-                {activeStep === 2 && (
-                  <Box>
-                    <Typography sx={{ mb: 1 }}>memeloop not found on server.</Typography>
-                    <Button
-                      variant="contained"
-                      onClick={handleInstall}
-                      disabled={installStatus === 'loading'}
-                      startIcon={installStatus === 'loading' ? <CircularProgress size={16} /> : undefined}
-                    >
-                      Install memeloop
-                    </Button>
-                    {installStatus === 'done' && <Chip label="Installed" color="success" sx={{ ml: 1 }} />}
-                    {installStatus === 'error' && <Chip label="Failed" color="error" sx={{ ml: 1 }} />}
-                  </Box>
-                )}
-
-                {activeStep === 3 && (
-                  <Box>
-                    <Button
-                      variant="contained"
-                      onClick={handleStart}
-                      disabled={startStatus === 'loading'}
-                      startIcon={startStatus === 'loading' ? <CircularProgress size={16} /> : undefined}
-                    >
-                      Start memeloop
-                    </Button>
-                    {startStatus === 'done' && <Chip label="Running" color="success" sx={{ ml: 1 }} />}
-                    {startStatus === 'error' && <Chip label="Failed" color="error" sx={{ ml: 1 }} />}
-                  </Box>
-                )}
-
-                {activeStep === 4 && wsUrl && (
-                  <Box>
-                    <Typography sx={{ mb: 1 }}>
-                      Server running at <code>{wsUrl}</code>
-                    </Typography>
-                    <Button variant="contained" color="success" onClick={handleConnect}>
-                      Connect & Start Agent Chat
-                    </Button>
-                  </Box>
-                )}
-              </CardContent>
-            </Card>
-          )}
+    <Box sx={{ p: 3 }}>
+      <Stack spacing={3}>
+        <Box>
+          <Typography variant='h4'>{t(text.title, { defaultValue: 'Bootstrap remote compute' })}</Typography>
+          <Typography color='text.secondary'>
+            {t(text.description, {
+              defaultValue: 'Uses the installed MemeLoop CLI release over SSH. The host must provide Node.js 24+, npm, key-based SSH, and a verified host key.',
+            })}
+          </Typography>
         </Box>
-
-        {/* Right: log */}
-        <Card sx={{ flex: 1, maxHeight: 400, overflow: 'auto' }}>
+        {error && <Alert severity='error'>{t('RemoteSetup.error', { defaultValue: error, error })}</Alert>}
+        <Card>
           <CardContent>
-            <Typography variant="h6" sx={{ mb: 1 }}>Log</Typography>
-            <Box component="pre" sx={{ fontSize: 12, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
-              {log.join('\n')}
-            </Box>
+            <Typography variant='h6'>{t(text.hosts, { defaultValue: 'SSH hosts' })}</Typography>
+            <List>
+              {hosts.length === 0 && <ListItemText primary={t(text.noHosts, { defaultValue: 'No concrete hosts found in ~/.ssh/config' })} />}
+              {hosts.map((host) => (
+                <ListItemButton
+                  key={`${host.host}:${host.port ?? 22}`}
+                  selected={selected?.host === host.host}
+                  onClick={() => {
+                    setSelected(host);
+                    setProbe(undefined);
+                    setResult(undefined);
+                    setError(undefined);
+                  }}
+                >
+                  <ListItemText
+                    primary={host.host}
+                    secondary={`${host.user ?? t('RemoteSetup.currentUser', { defaultValue: 'current user' })}@${host.hostname ?? host.host}:${host.port ?? 22}`}
+                  />
+                </ListItemButton>
+              ))}
+            </List>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={acceptNewHostKey}
+                  onChange={(event) => {
+                    setAcceptNewHostKey(event.target.checked);
+                  }}
+                />
+              }
+              label={t(text.acceptNewHostKey, { defaultValue: 'Accept a previously unseen host key (first connection only)' })}
+            />
           </CardContent>
         </Card>
-      </Box>
-    </Root>
+        <Stack direction='row' spacing={2}>
+          <Button disabled={!selected || working} variant='outlined' onClick={() => void execute(false)}>
+            {t(text.probe, { defaultValue: 'Verify prerequisites' })}
+          </Button>
+          <Button disabled={!selected || working || !probe} variant='contained' onClick={() => void execute(true)}>
+            {t(text.install, { defaultValue: 'Install exact CLI release' })}
+          </Button>
+          {working && <CircularProgress size={28} />}
+        </Stack>
+        {probe && (
+          <Alert severity='success'>
+            {t(text.nodeReady, {
+              defaultValue: 'Node.js {{nodeVersion}} is supported. MemeLoop CLI {{version}} can be bootstrapped without root access.',
+              nodeVersion: probe.nodeVersion,
+              version: probe.version,
+            })}
+          </Alert>
+        )}
+        {result && (
+          <Alert severity='success' icon={<CheckCircleIcon />}>
+            {t(text.installReady, {
+              defaultValue: 'MemeLoop CLI {{version}} is ready at {{executable}}. {{status}}',
+              version: result.version,
+              executable: result.executable,
+              status: result.changed
+                ? t('RemoteSetup.installedStatus', { defaultValue: 'The exact release was installed.' })
+                : t('RemoteSetup.existingStatus', { defaultValue: 'The exact release was already present.' }),
+            })}
+          </Alert>
+        )}
+      </Stack>
+    </Box>
   );
 }
-
-const Root = styled('div')`
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  padding: 24px;
-  background-color: ${({ theme }) => theme.palette.background.default};
-`;

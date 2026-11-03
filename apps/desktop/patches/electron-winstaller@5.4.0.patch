@@ -1,0 +1,7 @@
+diff --git a/script/select-7z-arch.js b/script/select-7z-arch.js
+index f4671b1..54bcb4d 100644
+--- a/script/select-7z-arch.js
++++ b/script/select-7z-arch.js
+@@ -9 +9 @@ const os = require('os');
+-const arch = os.arch;
++const arch = os.arch();

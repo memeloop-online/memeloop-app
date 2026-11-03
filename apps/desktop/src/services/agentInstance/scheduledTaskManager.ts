@@ -1,357 +1,603 @@
-/**
- * ScheduledTaskManager — Unified scheduling engine replacing the separate heartbeatManager and alarmClock modules.
- *
- * Supports three schedule kinds:
- *   - "interval": run every N seconds (replaces heartbeat)
- *   - "at": run at a specific ISO datetime, optionally repeating every M minutes (replaces alarm)
- *   - "cron": run on a cron expression with optional IANA timezone (new)
- *
- * All tasks are persisted to ScheduledTaskEntity so they survive app restarts.
- * Volatile agent instances (sub-agents / preview) are never scheduled.
- * Active-hours filtering skips runs outside the configured window.
- */
-
 import { Cron } from 'croner';
+import { type ScheduledTask as CoreScheduledTask, ScheduledTaskExecutionCoordinator, type ScheduledTaskExecutionIdentity, type ScheduledTaskExecutionPatch } from 'memeloop';
 import { nanoid } from 'nanoid';
-import { Repository } from 'typeorm';
+import { In, type Repository } from 'typeorm';
 
 import { ScheduledTaskEntity } from '@services/database/schema/agent';
 import { logger } from '@services/libs/log';
 import type { IAgentInstanceService } from './interface';
-import type { CreateScheduledTaskInput, ScheduledTask, UpdateScheduledTaskInput } from './scheduledTaskTypes';
+import type {
+  CreateScheduledTaskInput,
+  ListScheduledTasksOptions,
+  ListScheduledTasksPageForAgentInput,
+  ScheduledTask,
+  ScheduledTaskCallOptions,
+  ScheduledTaskScope,
+  ScheduledTaskStoragePage,
+  UpdateScheduledTaskInput,
+} from './scheduledTaskTypes';
 
 export type { CreateScheduledTaskInput, ScheduleConfig, ScheduledTask, ScheduleKind, UpdateScheduledTaskInput } from './scheduledTaskTypes';
 
-// ─── Internal runtime entry ───────────────────────────────────────────────────
+let scheduledTaskRepository: Repository<ScheduledTaskEntity> | null = null;
+let agentInstanceService: IAgentInstanceService | null = null;
+let localIdentityProvider: (() => Promise<{ peerId: string; deviceName?: string }>) | null = null;
+let executionCoordinator: ScheduledTaskExecutionCoordinator | null = null;
+let volatilePredicate: ((agentInstanceId: string) => Promise<boolean>) | undefined;
 
-interface RuntimeEntry {
-  task: ScheduledTaskEntity;
-  /** croner Cron instance (only for cron-kind tasks) */
-  cronJob?: InstanceType<typeof Cron>;
-  /** setInterval handle (only for interval-kind tasks) */
-  intervalHandle?: ReturnType<typeof setInterval>;
-  /** setTimeout handle (only for at-kind one-shot tasks) */
-  timeoutHandle?: ReturnType<typeof setTimeout>;
+export function initScheduledTaskManager(
+  repository: Repository<ScheduledTaskEntity>,
+  service: IAgentInstanceService,
+  identityProvider: () => Promise<{ peerId: string; deviceName?: string }>,
+): void {
+  executionCoordinator?.stopAll();
+  scheduledTaskRepository = repository;
+  agentInstanceService = service;
+  localIdentityProvider = identityProvider;
+  executionCoordinator = null;
+  volatilePredicate = undefined;
 }
 
-// ─── Utility helpers ──────────────────────────────────────────────────────────
+function requireRepository(): Repository<ScheduledTaskEntity> {
+  if (!scheduledTaskRepository) throw new Error('ScheduledTaskManager not initialized');
+  return scheduledTaskRepository;
+}
 
-function isWithinActiveHours(task: ScheduledTaskEntity): boolean {
-  if (!task.activeHoursStart || !task.activeHoursEnd) return true;
-  const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-  const parseTime = (t: string): number => {
-    const [h, m] = t.split(':').map(Number);
-    return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
-  };
-
-  const start = parseTime(task.activeHoursStart);
-  const end = parseTime(task.activeHoursEnd);
-  if (start <= end) return currentMinutes >= start && currentMinutes <= end;
-  return currentMinutes >= start || currentMinutes <= end;
+async function requireLocalIdentity(): Promise<{ peerId: string; deviceName?: string }> {
+  if (!localIdentityProvider) throw new Error('scheduled_task_identity_unavailable');
+  const identity = await localIdentityProvider().catch((error: unknown) => {
+    throw new Error('scheduled_task_identity_unavailable', { cause: error });
+  });
+  if (!identity.peerId) throw new Error('scheduled_task_identity_unavailable');
+  return identity;
 }
 
 function entityToDto(entity: ScheduledTaskEntity): ScheduledTask {
-  return {
+  const task: ScheduledTask = {
     id: entity.id,
     agentInstanceId: entity.agentInstanceId,
     agentDefinitionId: entity.agentDefinitionId,
+    name: entity.name,
+    schedule: entity.schedule,
+    payload: entity.payload ?? undefined,
+    enabled: entity.enabled,
+    activeHoursStart: entity.activeHoursStart ?? undefined,
+    activeHoursEnd: entity.activeHoursEnd ?? undefined,
+    createdBy: entity.createdBy,
+    state: entity.state,
+    executionNodeId: entity.executionNodeId,
+    executionNodeLabel: entity.executionNodeLabel ?? undefined,
+    originNodeId: entity.originNodeId,
+    updatedAt: entity.updated?.toISOString(),
+  };
+  if (entity.nextRunAt) task.nextRunAt = entity.nextRunAt.toISOString();
+  if (entity.lastRunAt) task.lastRunAt = entity.lastRunAt.toISOString();
+  if (entity.lastRunStatus) task.lastRunStatus = entity.lastRunStatus;
+  if (entity.lastError !== null) task.lastError = entity.lastError;
+  if (entity.lastFailureAt) task.lastFailureAt = entity.lastFailureAt.toISOString();
+  if (entity.consecutiveFailures > 0) task.consecutiveFailures = entity.consecutiveFailures;
+  if (entity.nextRetryAt) task.nextRetryAt = entity.nextRetryAt.toISOString();
+  if (entity.runCount > 0) task.runCount = entity.runCount;
+  if (entity.maxRuns !== undefined) task.maxRuns = entity.maxRuns;
+  if (entity.deleteAfterRun) task.deleteAfterRun = entity.deleteAfterRun;
+  if (entity.executionRevision > 0) task.executionRevision = entity.executionRevision;
+  if (entity.occurrenceId !== null) task.occurrenceId = entity.occurrenceId;
+  if (entity.occurrenceScheduledFor) task.occurrenceScheduledFor = entity.occurrenceScheduledFor.toISOString();
+  if (entity.occurrenceAttempt > 0) task.occurrenceAttempt = entity.occurrenceAttempt;
+  return task;
+}
+
+function toCoreTask(entity: ScheduledTaskEntity): CoreScheduledTask {
+  return entityToDto(entity);
+}
+
+interface RestoreCursor {
+  version: 1;
+  revision: string;
+  after: { updatedAt: string; id: string };
+}
+
+function encodeRestoreCursor(revision: string, after: RestoreCursor['after']): string {
+  return Buffer.from(JSON.stringify({ version: 1, revision, after } satisfies RestoreCursor)).toString('base64url');
+}
+
+function decodeRestoreCursor(value: string | undefined): RestoreCursor | undefined {
+  if (value === undefined) return undefined;
+  if (value.length < 1 || value.length > 2_048 || !/^[A-Za-z0-9_-]+$/u.test(value)) {
+    throw new Error('scheduled_task_invalid_restore_cursor');
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+  } catch (error) {
+    throw new Error('scheduled_task_invalid_restore_cursor', { cause: error });
+  }
+  if (
+    !decoded ||
+    typeof decoded !== 'object' ||
+    Array.isArray(decoded) ||
+    (decoded as RestoreCursor).version !== 1 ||
+    typeof (decoded as RestoreCursor).revision !== 'string' ||
+    !(decoded as RestoreCursor).after ||
+    typeof (decoded as RestoreCursor).after.updatedAt !== 'string' ||
+    !Number.isFinite(new Date((decoded as RestoreCursor).after.updatedAt).getTime()) ||
+    typeof (decoded as RestoreCursor).after.id !== 'string' ||
+    !(decoded as RestoreCursor).after.id
+  ) throw new Error('scheduled_task_invalid_restore_cursor');
+  return decoded as RestoreCursor;
+}
+
+async function ensureExecutionCoordinator(): Promise<ScheduledTaskExecutionCoordinator> {
+  if (executionCoordinator) return executionCoordinator;
+  const identity = await requireLocalIdentity();
+  const service = agentInstanceService;
+  if (!service) throw new Error('ScheduledTaskManager not initialized');
+  executionCoordinator = new ScheduledTaskExecutionCoordinator({
+    localPeerId: identity.peerId,
+    store: {
+      async listRunnablePage(options) {
+        options.signal?.throwIfAborted();
+        const cursor = decodeRestoreCursor(options.cursor);
+        const page = await getScheduledTasksPageForAgent({
+          agentInstanceId: '%',
+          executionNodeId: options.executionNodeId,
+          states: ['active'],
+          limit: options.limit,
+          after: cursor?.after,
+          expectedRevision: cursor?.revision,
+          signal: options.signal,
+        }, { allAgents: true });
+        const entities = await Promise.all(page.items.map(async task => ({
+          task,
+          volatile: await volatilePredicate?.(task.agentInstanceId) ?? false,
+        })));
+        const items = entities.filter(item => !item.volatile).map(item => ({
+          ...item.task,
+        }));
+        return {
+          items,
+          ...(page.next ? { nextCursor: encodeRestoreCursor(page.revision, page.next) } : {}),
+          hasMoreAfter: page.next !== undefined,
+        };
+      },
+      updateExecution: updateExecutionProjection,
+    },
+    async runAgent(input) {
+      input.signal.throwIfAborted();
+      await service.runScheduledTaskAgent(input.conversationId, input.message, {
+        occurrenceId: input.occurrenceId,
+        scheduledFor: input.scheduledFor,
+        attempt: input.attempt,
+        signal: input.signal,
+      });
+    },
+    onError(error) {
+      logger.error('Scheduled task coordinator failure', { error });
+    },
+  });
+  return executionCoordinator;
+}
+
+async function updateExecutionProjection(
+  identity: ScheduledTaskExecutionIdentity,
+  patch: ScheduledTaskExecutionPatch,
+  options: { expectedExecutionRevision: number; signal?: AbortSignal },
+): Promise<CoreScheduledTask | null> {
+  const repository = requireRepository();
+  options.signal?.throwIfAborted();
+  return repository.manager.transaction(async manager => {
+    const transactionRepository = manager.getRepository(ScheduledTaskEntity);
+    const where = scopeWhere({
+      taskId: identity.taskId,
+      agentInstanceId: identity.agentInstanceId,
+      agentDefinitionId: identity.agentDefinitionId,
+      executionNodeId: identity.executionNodeId,
+    });
+    const fields: Record<string, unknown> = {
+      executionRevision: options.expectedExecutionRevision + 1,
+      updated: new Date(patch.updatedAt),
+    };
+    if (patch.state !== undefined) fields.state = patch.state;
+    if (patch.enabled !== undefined) fields.enabled = patch.enabled;
+    if (Object.hasOwn(patch, 'nextRunAt')) fields.nextRunAt = parseNullableDate(patch.nextRunAt);
+    if (patch.lastRunAt !== undefined) fields.lastRunAt = new Date(patch.lastRunAt);
+    if (patch.lastRunStatus !== undefined) fields.lastRunStatus = patch.lastRunStatus;
+    if (Object.hasOwn(patch, 'lastError')) fields.lastError = patch.lastError ?? null;
+    if (Object.hasOwn(patch, 'lastFailureAt')) fields.lastFailureAt = parseNullableDate(patch.lastFailureAt);
+    if (patch.consecutiveFailures !== undefined) fields.consecutiveFailures = patch.consecutiveFailures;
+    if (Object.hasOwn(patch, 'nextRetryAt')) fields.nextRetryAt = parseNullableDate(patch.nextRetryAt);
+    if (patch.runCount !== undefined) fields.runCount = patch.runCount;
+    if (Object.hasOwn(patch, 'occurrenceId')) fields.occurrenceId = patch.occurrenceId ?? null;
+    if (Object.hasOwn(patch, 'occurrenceScheduledFor')) {
+      fields.occurrenceScheduledFor = parseNullableDate(patch.occurrenceScheduledFor);
+    }
+    if (patch.occurrenceAttempt !== undefined) fields.occurrenceAttempt = patch.occurrenceAttempt;
+    const result = await transactionRepository.createQueryBuilder()
+      .update(ScheduledTaskEntity)
+      .set(fields)
+      .where('id = :id', { id: where.id })
+      .andWhere('agentInstanceId = :agentInstanceId', { agentInstanceId: where.agentInstanceId })
+      .andWhere('agentDefinitionId = :agentDefinitionId', { agentDefinitionId: where.agentDefinitionId })
+      .andWhere('executionNodeId = :executionNodeId', { executionNodeId: where.executionNodeId })
+      .andWhere('executionRevision = :executionRevision', { executionRevision: options.expectedExecutionRevision })
+      .execute();
+    options.signal?.throwIfAborted();
+    if (result.affected !== 1) return null;
+    const saved = await transactionRepository.findOne({
+      where: { ...where, executionRevision: options.expectedExecutionRevision + 1 },
+    });
+    if (!saved) return null;
+    options.signal?.throwIfAborted();
+    return toCoreTask(saved);
+  });
+}
+
+function parseNullableDate(value: string | null | undefined): Date | null {
+  if (value === null || value === undefined) return null;
+  const result = new Date(value);
+  if (!Number.isFinite(result.getTime())) throw new Error('scheduled_task_invalid_execution_timestamp');
+  return result;
+}
+
+function validateSchedule(
+  entity: Pick<ScheduledTaskEntity, 'schedule' | 'scheduleKind' | 'activeHoursStart' | 'activeHoursEnd'>,
+): void {
+  if (entity.schedule.kind !== entity.scheduleKind) throw new Error('scheduled_task_schedule_kind_mismatch');
+  if ((entity.activeHoursStart && !entity.activeHoursEnd) || (!entity.activeHoursStart && entity.activeHoursEnd)) {
+    throw new Error('scheduled_task_invalid_active_hours');
+  }
+  for (const value of [entity.activeHoursStart, entity.activeHoursEnd]) {
+    if (!value) continue;
+    const match = /^(\d{2}):(\d{2})$/u.exec(value);
+    if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) {
+      throw new Error('scheduled_task_invalid_active_hours');
+    }
+  }
+  if (entity.schedule.kind === 'at') {
+    const wakeAt = new Date(entity.schedule.wakeAtISO);
+    if (!Number.isFinite(wakeAt.getTime())) throw new Error('scheduled_task_invalid_at');
+    return;
+  }
+  if (entity.schedule.timezone) {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: entity.schedule.timezone }).format(new Date());
+    } catch (error) {
+      throw new Error('scheduled_task_invalid_timezone', { cause: error });
+    }
+  }
+  try {
+    const cron = new Cron(entity.schedule.expression, {
+      paused: true,
+      ...(entity.schedule.timezone ? { timezone: entity.schedule.timezone } : {}),
+    });
+    if (!cron.nextRun()) throw new Error('scheduled_task_has_no_next_occurrence');
+    cron.stop();
+  } catch (error) {
+    throw new Error('scheduled_task_invalid_cron', { cause: error });
+  }
+}
+
+export async function restoreScheduledTasks(
+  repository: Repository<ScheduledTaskEntity>,
+  isVolatile: (agentInstanceId: string) => Promise<boolean>,
+): Promise<void> {
+  if (scheduledTaskRepository !== repository) scheduledTaskRepository = repository;
+  volatilePredicate = isVolatile;
+  const coordinator = await ensureExecutionCoordinator();
+  await coordinator.restore();
+}
+
+export async function addTask(
+  input: CreateScheduledTaskInput,
+  options: ScheduledTaskCallOptions = {},
+): Promise<ScheduledTask> {
+  const repository = requireRepository();
+  options.signal?.throwIfAborted();
+  const identity = await requireLocalIdentity();
+  const metadata = await agentInstanceService?.getAgentMetadata(input.agentInstanceId);
+  options.signal?.throwIfAborted();
+  if (!metadata) throw new Error('scheduled_task_agent_unavailable');
+  if (metadata.volatile) throw new Error('scheduled_task_volatile_agent');
+  if (input.agentDefinitionId !== metadata.agentDefId) {
+    throw new Error('scheduled_task_agent_definition_mismatch');
+  }
+  const agentDefinitionId = metadata.agentDefId;
+  const name = input.name;
+  if (!agentDefinitionId) throw new Error('scheduled_task_definition_unavailable');
+  const executionNodeId = input.executionNodeId ?? identity.peerId;
+  if (executionNodeId !== identity.peerId) {
+    throw new Error(`scheduled_task_wrong_execution_node:${executionNodeId}`);
+  }
+  const entity = repository.create({
+    id: nanoid(),
+    agentInstanceId: input.agentInstanceId,
+    agentDefinitionId,
+    name,
+    scheduleKind: input.scheduleKind,
+    schedule: input.schedule,
+    payload: input.payload ?? null,
+    enabled: input.enabled ?? true,
+    state: input.enabled === false ? 'paused' : 'active',
+    executionNodeId,
+    executionNodeLabel: input.executionNodeLabel ?? identity.deviceName ?? null,
+    originNodeId: input.originNodeId ?? identity.peerId,
+    deleteAfterRun: input.schedule.kind === 'at',
+    activeHoursStart: input.activeHoursStart ?? null,
+    activeHoursEnd: input.activeHoursEnd ?? null,
+    createdBy: input.createdBy ?? 'settings-ui',
+    runCount: 0,
+    consecutiveFailures: 0,
+    executionRevision: 0,
+    occurrenceId: null,
+    occurrenceScheduledFor: null,
+    occurrenceAttempt: 0,
+  });
+  validateSchedule(entity);
+  const saved = await repository.manager.transaction(async manager => {
+    options.signal?.throwIfAborted();
+    const result = await manager.getRepository(ScheduledTaskEntity).save(entity);
+    options.signal?.throwIfAborted();
+    return result;
+  });
+  await (await ensureExecutionCoordinator()).upsert(toCoreTask(saved), options);
+  return entityToDto(saved);
+}
+
+function applyUpdate(entity: ScheduledTaskEntity, input: UpdateScheduledTaskInput): ScheduledTaskEntity {
+  if (input.schedule !== undefined) {
+    entity.schedule = input.schedule;
+    entity.scheduleKind = input.schedule.kind;
+    entity.deleteAfterRun = input.schedule.kind === 'at';
+  }
+  if (input.scheduleKind !== undefined && input.scheduleKind !== entity.schedule.kind) {
+    throw new Error('scheduled_task_schedule_kind_mismatch');
+  }
+  if (input.name !== undefined) entity.name = input.name;
+  if (Object.hasOwn(input, 'payload')) entity.payload = input.payload ?? null;
+  if (input.enabled !== undefined) entity.enabled = input.enabled;
+  if (input.enabled !== undefined) entity.state = input.enabled ? 'active' : 'paused';
+  if (Object.hasOwn(input, 'executionNodeLabel')) entity.executionNodeLabel = input.executionNodeLabel ?? null;
+  if (Object.hasOwn(input, 'activeHoursStart')) entity.activeHoursStart = input.activeHoursStart ?? null;
+  if (Object.hasOwn(input, 'activeHoursEnd')) entity.activeHoursEnd = input.activeHoursEnd ?? null;
+  validateSchedule(entity);
+  return entity;
+}
+
+export async function updateTask(input: UpdateScheduledTaskInput): Promise<ScheduledTask> {
+  const repository = requireRepository();
+  const persisted = await repository.findOne({ where: { id: input.id } });
+  if (!persisted) throw new Error(`ScheduledTask not found: ${input.id}`);
+  if (input.executionNodeId !== undefined && input.executionNodeId !== persisted.executionNodeId) {
+    throw new Error('scheduled_task_execution_node_immutable');
+  }
+  return updateTaskScoped({
+    taskId: persisted.id,
+    agentInstanceId: persisted.agentInstanceId,
+    agentDefinitionId: persisted.agentDefinitionId,
+    executionNodeId: persisted.executionNodeId,
+  }, input);
+}
+
+export async function updateTaskScoped(
+  scope: ScheduledTaskScope,
+  input: UpdateScheduledTaskInput,
+  options: ScheduledTaskCallOptions = {},
+): Promise<ScheduledTask> {
+  const repository = requireRepository();
+  options.signal?.throwIfAborted();
+  const entity = await repository.manager.transaction(async manager => {
+    const transactionRepository = manager.getRepository(ScheduledTaskEntity);
+    const where = scopeWhere(scope);
+    const persisted = await transactionRepository.findOne({ where });
+    options.signal?.throwIfAborted();
+    if (!persisted) throw new Error('scheduled_task_scope_unavailable');
+    // applyUpdate mutates the TypeORM entity. Preserve the revision used by
+    // the compare-and-swap predicate before constructing the next value.
+    const expectedExecutionRevision = persisted.executionRevision;
+    const candidate = applyUpdate(persisted, input);
+    candidate.executionRevision = expectedExecutionRevision + 1;
+    const result = await transactionRepository.createQueryBuilder()
+      .update(ScheduledTaskEntity)
+      .set(mutableTaskFields(candidate))
+      .where('id = :id', { id: where.id })
+      .andWhere('agentInstanceId = :agentInstanceId', { agentInstanceId: where.agentInstanceId })
+      .andWhere('agentDefinitionId = :agentDefinitionId', { agentDefinitionId: where.agentDefinitionId })
+      .andWhere('executionNodeId = :executionNodeId', { executionNodeId: where.executionNodeId })
+      .andWhere('executionRevision = :executionRevision', { executionRevision: expectedExecutionRevision })
+      .execute();
+    options.signal?.throwIfAborted();
+    if (result.affected !== 1) throw new Error('scheduled_task_scope_unavailable');
+    const updated = await transactionRepository.findOne({ where });
+    if (!updated) throw new Error('scheduled_task_scope_unavailable');
+    return updated;
+  });
+  await (await ensureExecutionCoordinator()).reconcile(toCoreTask(entity), options);
+  return entityToDto(entity);
+}
+
+export async function getTaskByScope(
+  scope: ScheduledTaskScope,
+  options: ScheduledTaskCallOptions = {},
+): Promise<ScheduledTask | undefined> {
+  options.signal?.throwIfAborted();
+  const entity = await requireRepository().findOne({ where: scopeWhere(scope) });
+  options.signal?.throwIfAborted();
+  return entity ? entityToDto(entity) : undefined;
+}
+
+export async function removeTaskScoped(
+  scope: ScheduledTaskScope,
+  options: ScheduledTaskCallOptions = {},
+): Promise<void> {
+  options.signal?.throwIfAborted();
+  const repository = requireRepository();
+  const where = scopeWhere(scope);
+  const result = await repository.createQueryBuilder()
+    .update(ScheduledTaskEntity)
+    .set({ enabled: false, state: 'cancelled', executionRevision: () => 'executionRevision + 1' })
+    .where('id = :id', { id: where.id })
+    .andWhere('agentInstanceId = :agentInstanceId', { agentInstanceId: where.agentInstanceId })
+    .andWhere('agentDefinitionId = :agentDefinitionId', { agentDefinitionId: where.agentDefinitionId })
+    .andWhere('executionNodeId = :executionNodeId', { executionNodeId: where.executionNodeId })
+    .execute();
+  options.signal?.throwIfAborted();
+  if (result.affected !== 1) throw new Error('scheduled_task_scope_unavailable');
+  executionCoordinator?.remove(scope.taskId);
+}
+
+export async function removeTask(taskId: string): Promise<void> {
+  await requireRepository().createQueryBuilder()
+    .update(ScheduledTaskEntity)
+    .set({ enabled: false, state: 'cancelled', executionRevision: () => 'executionRevision + 1' })
+    .where('id = :id', { id: taskId })
+    .execute();
+  executionCoordinator?.remove(taskId);
+}
+
+function scopeWhere(scope: ScheduledTaskScope): Pick<
+  ScheduledTaskEntity,
+  'id' | 'agentInstanceId' | 'agentDefinitionId' | 'executionNodeId'
+> {
+  return {
+    id: scope.taskId,
+    agentInstanceId: scope.agentInstanceId,
+    agentDefinitionId: scope.agentDefinitionId,
+    executionNodeId: scope.executionNodeId,
+  };
+}
+
+function mutableTaskFields(entity: ScheduledTaskEntity): Partial<ScheduledTaskEntity> {
+  return {
     name: entity.name,
     scheduleKind: entity.scheduleKind,
     schedule: entity.schedule,
     payload: entity.payload,
     enabled: entity.enabled,
+    state: entity.state,
+    executionNodeLabel: entity.executionNodeLabel,
     deleteAfterRun: entity.deleteAfterRun,
     activeHoursStart: entity.activeHoursStart,
     activeHoursEnd: entity.activeHoursEnd,
-    lastRunAt: entity.lastRunAt?.toISOString(),
-    nextRunAt: entity.nextRunAt?.toISOString(),
-    runCount: entity.runCount,
     maxRuns: entity.maxRuns,
-    createdBy: entity.createdBy,
-    created: entity.created?.toISOString() ?? new Date().toISOString(),
-    updated: entity.updated?.toISOString() ?? new Date().toISOString(),
+    executionRevision: entity.executionRevision,
   };
 }
 
-// ─── Manager ─────────────────────────────────────────────────────────────────
-
-const activeEntries = new Map<string, RuntimeEntry>();
-
-let scheduledTaskRepo: Repository<ScheduledTaskEntity> | null = null;
-let agentInstanceServiceReference: IAgentInstanceService | null = null;
-
-export function initScheduledTaskManager(
-  repo: Repository<ScheduledTaskEntity>,
-  agentInstanceService: IAgentInstanceService,
-): void {
-  scheduledTaskRepo = repo;
-  agentInstanceServiceReference = agentInstanceService;
+export async function getActiveTasks(options: ListScheduledTasksOptions = {}): Promise<ScheduledTask[]> {
+  const states = options.states?.length ? options.states : ['active'];
+  return (await requireRepository().find({
+    where: {
+      state: In(states),
+      ...(options.executionNodeIds?.length ? { executionNodeId: In(options.executionNodeIds) } : {}),
+    },
+    order: { updated: 'DESC', id: 'DESC' },
+  })).map(entityToDto);
 }
 
-// ─── Fire a task ─────────────────────────────────────────────────────────────
+export async function getActiveTasksForAgent(
+  agentInstanceId: string,
+  options: ListScheduledTasksOptions = {},
+): Promise<ScheduledTask[]> {
+  const states = options.states?.length ? options.states : ['active'];
+  return (await requireRepository().find({
+    where: {
+      agentInstanceId,
+      state: In(states),
+      ...(options.executionNodeIds?.length ? { executionNodeId: In(options.executionNodeIds) } : {}),
+    },
+    order: { updated: 'DESC', id: 'DESC' },
+  })).map(entityToDto);
+}
 
-async function fireTask(task: ScheduledTaskEntity): Promise<void> {
-  if (!isWithinActiveHours(task)) {
-    logger.debug('ScheduledTaskManager: skipped outside active hours', { taskId: task.id });
-    return;
+export async function getScheduledTasksPageForAgent(
+  input: ListScheduledTasksPageForAgentInput,
+  internal: { allAgents?: boolean } = {},
+): Promise<ScheduledTaskStoragePage> {
+  const repository = requireRepository();
+  input.signal?.throwIfAborted();
+  if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100) {
+    throw new Error('scheduled_task_invalid_page_limit');
   }
-
-  const service = agentInstanceServiceReference;
-  if (!service) {
-    logger.warn('ScheduledTaskManager: agentInstanceService not ready', { taskId: task.id });
-    return;
+  if (input.states.length < 1 || input.states.length > 5 || new Set(input.states).size !== input.states.length) {
+    throw new Error('scheduled_task_invalid_states');
   }
-
-  const message = task.payload?.message || `[Scheduled] Task "${task.name ?? task.id}" triggered.`;
-
-  try {
-    await service.sendMsgToAgent(task.agentInstanceId, { text: message });
-    logger.info('ScheduledTaskManager: task fired', { taskId: task.id, agentInstanceId: task.agentInstanceId });
-  } catch (error) {
-    logger.error('ScheduledTaskManager: failed to send message', { taskId: task.id, error });
+  if (input.after && (!input.after.id || !Number.isFinite(new Date(input.after.updatedAt).getTime()))) {
+    throw new Error('scheduled_task_invalid_cursor');
   }
-
-  // Update DB counters
-  if (scheduledTaskRepo) {
-    const newRunCount = task.runCount + 1;
-    const now = new Date();
-
-    const update: Partial<ScheduledTaskEntity> = {
-      runCount: newRunCount,
-      lastRunAt: now,
+  await ensureScheduledTaskRevisionSchema(repository);
+  input.signal?.throwIfAborted();
+  return repository.manager.transaction(async manager => {
+    const revisionRows = await manager.query<Array<{ revision?: number | string }>>(
+      'SELECT revision FROM scheduled_task_revision WHERE id = 1',
+    );
+    input.signal?.throwIfAborted();
+    const revision = String(revisionRows[0]?.revision ?? 0);
+    if (input.expectedRevision !== undefined && input.expectedRevision !== revision) {
+      throw new Error('scheduled_task_cursor_stale');
+    }
+    const query = manager.getRepository(ScheduledTaskEntity).createQueryBuilder('task')
+      .where('task.executionNodeId = :executionNodeId', { executionNodeId: input.executionNodeId })
+      .andWhere('task.state IN (:...states)', { states: input.states })
+      .orderBy('task.updated', 'DESC')
+      .addOrderBy('task.id', 'DESC')
+      .take(input.limit + 1);
+    if (!internal.allAgents) {
+      query.andWhere('task.agentInstanceId = :agentInstanceId', { agentInstanceId: input.agentInstanceId });
+    }
+    if (input.after) {
+      query.andWhere(
+        '(task.updated < :afterUpdated OR (task.updated = :afterUpdated AND task.id < :afterId))',
+        { afterUpdated: new Date(input.after.updatedAt), afterId: input.after.id },
+      );
+    }
+    const rows = await query.getMany();
+    input.signal?.throwIfAborted();
+    const hasMore = rows.length > input.limit;
+    const pageRows = hasMore ? rows.slice(0, input.limit) : rows;
+    const last = pageRows.at(-1);
+    return {
+      items: pageRows.map(entityToDto),
+      revision,
+      ...(hasMore && last ? { next: { updatedAt: last.updated.toISOString(), id: last.id } } : {}),
     };
-
-    const maxRunsReached = task.maxRuns != null && newRunCount >= task.maxRuns;
-    if (task.deleteAfterRun || maxRunsReached) {
-      await removeTask(task.id);
-      return;
-    }
-
-    task.runCount = newRunCount;
-    task.lastRunAt = now;
-    await scheduledTaskRepo.update(task.id, update);
-  }
-}
-
-// ─── Schedule a runtime entry ─────────────────────────────────────────────────
-
-function scheduleEntry(task: ScheduledTaskEntity): void {
-  cancelEntry(task.id);
-
-  if (!task.enabled) return;
-
-  const schedule = task.schedule;
-
-  if (schedule.kind === 'interval') {
-    const intervalMs = Math.max(60, (schedule).intervalSeconds) * 1000;
-    const handle = setInterval(() => {
-      void fireTask(task);
-      // Update nextRunAt in task object
-      task.nextRunAt = new Date(Date.now() + intervalMs);
-      if (scheduledTaskRepo) void scheduledTaskRepo.update(task.id, { nextRunAt: task.nextRunAt });
-    }, intervalMs);
-    handle.unref?.();
-    task.nextRunAt = new Date(Date.now() + intervalMs);
-    activeEntries.set(task.id, { task, intervalHandle: handle });
-  } else if (schedule.kind === 'at') {
-    const atSchedule = schedule;
-    const wakeAt = new Date(atSchedule.wakeAtISO);
-    const delayMs = Math.max(0, wakeAt.getTime() - Date.now());
-    task.nextRunAt = wakeAt;
-
-    const handle = setTimeout(() => {
-      void fireTask(task).then(async () => {
-        const entry = activeEntries.get(task.id);
-        if (!entry) return;
-
-        if (atSchedule.repeatIntervalMinutes && atSchedule.repeatIntervalMinutes > 0) {
-          // Convert to interval
-          const repeatMs = atSchedule.repeatIntervalMinutes * 60_000;
-          const repeatHandle = setInterval(() => {
-            void fireTask(task);
-            task.nextRunAt = new Date(Date.now() + repeatMs);
-            if (scheduledTaskRepo) void scheduledTaskRepo.update(task.id, { nextRunAt: task.nextRunAt });
-          }, repeatMs);
-          repeatHandle.unref?.();
-          task.nextRunAt = new Date(Date.now() + repeatMs);
-          activeEntries.set(task.id, { task, intervalHandle: repeatHandle });
-          if (scheduledTaskRepo) await scheduledTaskRepo.update(task.id, { nextRunAt: task.nextRunAt });
-        } else {
-          activeEntries.delete(task.id);
-        }
-      });
-    }, delayMs);
-    handle.unref?.();
-    activeEntries.set(task.id, { task, timeoutHandle: handle });
-  } else if (schedule.kind === 'cron') {
-    const cronSchedule = schedule;
-    try {
-      const cronJob = new Cron(cronSchedule.expression, {
-        timezone: cronSchedule.timezone,
-        protect: true,
-      }, () => {
-        void fireTask(task).then(() => {
-          task.nextRunAt = cronJob.nextRun() ?? undefined;
-          if (scheduledTaskRepo && task.nextRunAt) void scheduledTaskRepo.update(task.id, { nextRunAt: task.nextRunAt });
-        });
-      });
-      task.nextRunAt = cronJob.nextRun() ?? undefined;
-      activeEntries.set(task.id, { task, cronJob });
-    } catch (error) {
-      logger.error('ScheduledTaskManager: invalid cron expression', { expression: cronSchedule.expression, error });
-    }
-  }
-
-  if (scheduledTaskRepo && task.nextRunAt) {
-    void scheduledTaskRepo.update(task.id, { nextRunAt: task.nextRunAt });
-  }
-}
-
-// ─── Cancel an active entry ───────────────────────────────────────────────────
-
-function cancelEntry(taskId: string): void {
-  const entry = activeEntries.get(taskId);
-  if (!entry) return;
-  if (entry.cronJob) entry.cronJob.stop();
-  if (entry.intervalHandle) clearInterval(entry.intervalHandle);
-  if (entry.timeoutHandle) clearTimeout(entry.timeoutHandle);
-  activeEntries.delete(taskId);
-}
-
-// ─── Public API ───────────────────────────────────────────────────────────────
-
-/**
- * Restore all persisted tasks for non-volatile instances on app startup.
- * Called from AgentInstanceService.initialize().
- */
-export async function restoreScheduledTasks(
-  repo: Repository<ScheduledTaskEntity>,
-  isVolatile: (agentInstanceId: string) => Promise<boolean>,
-): Promise<void> {
-  const tasks = await repo.find({ where: { enabled: true } });
-  let restored = 0;
-
-  for (const task of tasks) {
-    if (await isVolatile(task.agentInstanceId)) continue;
-
-    // For 'at' tasks that are in the past and not repeating, fire immediately
-    if (task.schedule.kind === 'at') {
-      const atSchedule = task.schedule;
-      const wakeAt = new Date(atSchedule.wakeAtISO);
-      if (wakeAt.getTime() <= Date.now() && !atSchedule.repeatIntervalMinutes) {
-        scheduleEntry(Object.assign(new ScheduledTaskEntity(), task, { schedule: { ...atSchedule, wakeAtISO: new Date().toISOString() } }));
-      } else {
-        scheduleEntry(task);
-      }
-    } else {
-      scheduleEntry(task);
-    }
-    restored++;
-  }
-
-  if (restored > 0) {
-    logger.info('ScheduledTaskManager: restored tasks', { count: restored });
-  }
-}
-
-/** Add a new task (persists to DB + starts timer). */
-export async function addTask(input: CreateScheduledTaskInput): Promise<ScheduledTask> {
-  if (!scheduledTaskRepo) throw new Error('ScheduledTaskManager not initialized');
-
-  const entity = scheduledTaskRepo.create({
-    id: nanoid(),
-    agentInstanceId: input.agentInstanceId,
-    agentDefinitionId: input.agentDefinitionId,
-    name: input.name,
-    scheduleKind: input.scheduleKind,
-    schedule: input.schedule,
-    payload: input.payload,
-    enabled: input.enabled ?? true,
-    deleteAfterRun: input.deleteAfterRun ?? false,
-    activeHoursStart: input.activeHoursStart,
-    activeHoursEnd: input.activeHoursEnd,
-    maxRuns: input.maxRuns,
-    createdBy: input.createdBy ?? 'settings-ui',
-    runCount: 0,
   });
+}
 
-  await scheduledTaskRepo.save(entity);
+const revisionSchemaManagers = new WeakSet<object>();
 
-  if (entity.enabled) {
-    scheduleEntry(entity);
+async function ensureScheduledTaskRevisionSchema(repository: Repository<ScheduledTaskEntity>): Promise<void> {
+  const manager = repository.manager;
+  if (revisionSchemaManagers.has(manager)) return;
+  await manager.query(
+    'CREATE TABLE IF NOT EXISTS scheduled_task_revision (id INTEGER PRIMARY KEY CHECK (id = 1), revision INTEGER NOT NULL)',
+  );
+  await manager.query('INSERT OR IGNORE INTO scheduled_task_revision (id, revision) VALUES (1, 0)');
+  for (const operation of ['INSERT', 'UPDATE', 'DELETE']) {
+    await manager.query(
+      `CREATE TRIGGER IF NOT EXISTS scheduled_task_revision_${operation.toLowerCase()} AFTER ${operation} ON scheduled_tasks BEGIN UPDATE scheduled_task_revision SET revision = revision + 1 WHERE id = 1; END`,
+    );
   }
-
-  logger.info('ScheduledTaskManager: task added', { taskId: entity.id, kind: entity.scheduleKind });
-  return entityToDto(entity);
+  revisionSchemaManagers.add(manager);
 }
 
-/** Update an existing task (restarts timer). */
-export async function updateTask(input: UpdateScheduledTaskInput): Promise<ScheduledTask> {
-  if (!scheduledTaskRepo) throw new Error('ScheduledTaskManager not initialized');
-
-  const entity = await scheduledTaskRepo.findOne({ where: { id: input.id } });
-  if (!entity) throw new Error(`ScheduledTask not found: ${input.id}`);
-
-  if (input.schedule !== undefined) {
-    entity.schedule = input.schedule;
-    entity.scheduleKind = input.schedule.kind;
-  }
-  if (input.name !== undefined) entity.name = input.name;
-  if (input.payload !== undefined) entity.payload = input.payload;
-  if (input.enabled !== undefined) entity.enabled = input.enabled;
-  if (input.deleteAfterRun !== undefined) entity.deleteAfterRun = input.deleteAfterRun;
-  if (input.activeHoursStart !== undefined) entity.activeHoursStart = input.activeHoursStart;
-  if (input.activeHoursEnd !== undefined) entity.activeHoursEnd = input.activeHoursEnd;
-  if (input.maxRuns !== undefined) entity.maxRuns = input.maxRuns;
-  if (input.agentDefinitionId !== undefined) entity.agentDefinitionId = input.agentDefinitionId;
-
-  await scheduledTaskRepo.save(entity);
-
-  cancelEntry(entity.id);
-  if (entity.enabled) scheduleEntry(entity);
-
-  logger.info('ScheduledTaskManager: task updated', { taskId: entity.id });
-  return entityToDto(entity);
-}
-
-/** Remove a task (stops timer and deletes from DB). */
-export async function removeTask(taskId: string): Promise<void> {
-  cancelEntry(taskId);
-  if (scheduledTaskRepo) {
-    await scheduledTaskRepo.delete(taskId);
-  }
-  logger.info('ScheduledTaskManager: task removed', { taskId });
-}
-
-/** List all active in-memory tasks. */
-export function getActiveTasks(): ScheduledTask[] {
-  return [...activeEntries.values()].map(entry => entityToDto(entry.task));
-}
-
-/** List tasks for a specific agent instance. */
-export function getActiveTasksForAgent(agentInstanceId: string): ScheduledTask[] {
-  return [...activeEntries.values()]
-    .filter(entry => entry.task.agentInstanceId === agentInstanceId)
-    .map(entry => entityToDto(entry.task));
-}
-
-/** Stop all timers (for app shutdown). */
 export function stopAllScheduledTasks(): void {
-  for (const [id] of activeEntries) cancelEntry(id);
-  logger.info('ScheduledTaskManager: all tasks stopped');
+  executionCoordinator?.stopAll();
+  executionCoordinator = null;
 }
 
-/** Get next N run times for a cron expression (for UI preview). */
 export function getCronPreviewDates(expression: string, timezone?: string, count = 3): string[] {
+  if (!Number.isSafeInteger(count) || count < 1 || count > 10) return [];
   try {
     const dates: string[] = [];
-    const cron = new Cron(expression, { timezone, maxRuns: count });
+    const cron = new Cron(expression, {
+      paused: true,
+      maxRuns: count,
+      ...(timezone ? { timezone } : {}),
+    });
     let next = cron.nextRun();
     while (next && dates.length < count) {
       dates.push(next.toISOString());
-      next = cron.nextRun();
+      next = cron.nextRun(next);
     }
     cron.stop();
     return dates;
@@ -360,13 +606,31 @@ export function getCronPreviewDates(expression: string, timezone?: string, count
   }
 }
 
+export async function cancelTasksForAgent(agentInstanceId: string): Promise<void> {
+  const repository = requireRepository();
+  const tasks = await repository.find({
+    select: { id: true },
+    where: { agentInstanceId, state: 'active' },
+  });
+  await repository.createQueryBuilder()
+    .update(ScheduledTaskEntity)
+    .set({ enabled: false, state: 'cancelled', executionRevision: () => 'executionRevision + 1' })
+    .where('agentInstanceId = :agentInstanceId', { agentInstanceId })
+    .andWhere('state = :state', { state: 'active' })
+    .execute();
+  for (const task of tasks) executionCoordinator?.remove(task.id);
+}
+
 /**
- * Cancel all tasks for an agent instance (used on closeAgent / deleteAgent).
+ * Permanently remove schedule rows before deleting their owning Agent. There is
+ * intentionally no FK cascade because projections are independently durable.
  */
-export function cancelTasksForAgent(agentInstanceId: string): void {
-  for (const [id, entry] of activeEntries) {
-    if (entry.task.agentInstanceId === agentInstanceId) {
-      cancelEntry(id);
-    }
-  }
+export async function deleteTasksForAgent(agentInstanceId: string): Promise<void> {
+  const repository = requireRepository();
+  const tasks = await repository.find({
+    select: { id: true },
+    where: { agentInstanceId },
+  });
+  for (const task of tasks) executionCoordinator?.remove(task.id);
+  await repository.delete({ agentInstanceId });
 }

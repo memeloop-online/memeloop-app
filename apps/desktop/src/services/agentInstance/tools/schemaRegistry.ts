@@ -4,75 +4,20 @@
  * This system allows tools to register their parameter schemas dynamically,
  * enabling dynamic tool loading while maintaining type safety and validation.
  */
-import { identity } from 'lodash';
+import { t } from '@services/libs/i18n/placeholder';
 import { z } from 'zod/v4';
 
-const t = identity;
-
-/**
- * Registry for tool parameter schemas
- */
-const toolSchemas = new Map<string, z.ZodType>();
-
-/**
- * Registry for tool metadata
- */
-const toolMetadata = new Map<string, {
-  displayName: string;
-  description: string;
-}>();
-
-/**
- * Register a tool parameter schema
- * @param toolId The tool ID (should match toolId enum values)
- * @param schema The Zod schema for this tool's parameters
- * @param metadata Optional metadata for display purposes
- */
-export function registerToolParameterSchema(
-  toolId: string,
-  schema: z.ZodType,
-  metadata?: {
-    displayName: string;
-    description: string;
-  },
-): void {
-  toolSchemas.set(toolId, schema);
-  if (metadata) {
-    toolMetadata.set(toolId, metadata);
-  }
-}
-
-/**
- * Get a tool parameter schema by ID
- * @param toolId The tool ID
- * @returns The schema or undefined if not found
- */
-export function getToolParameterSchema(toolId: string): z.ZodType | undefined {
-  return toolSchemas.get(toolId);
-}
-
-/**
- * Get all registered tool IDs
- * @returns Array of all registered tool IDs
- */
-export function getAllRegisteredToolIds(): string[] {
-  return Array.from(toolSchemas.keys());
-}
-
-/**
- * Get tool metadata
- * @param toolId The tool ID
- * @returns Tool metadata or undefined if not found
- */
-export function getToolMetadata(toolId: string): { displayName: string; description: string } | undefined {
-  return toolMetadata.get(toolId);
+export interface ToolSchemaCatalog {
+  getAllRegisteredToolIds(): readonly string[];
+  getToolParameterSchema(toolId: string): unknown;
+  getToolMetadata(toolId: string): { displayName: string; description: string } | undefined;
 }
 
 /**
  * Dynamically create the PromptConcatToolSchema based on registered tools
  * This is called whenever the schema is needed, ensuring it includes all registered tools
  */
-export function createDynamicPromptConcatToolSchema(): z.ZodType {
+export function createDynamicPromptConcatToolSchema(catalog: ToolSchemaCatalog): z.ZodType {
   // Base tool configuration without parameter-specific fields
   const baseToolSchema = z.object({
     id: z.string().meta({
@@ -98,7 +43,7 @@ export function createDynamicPromptConcatToolSchema(): z.ZodType {
   });
 
   // Get all registered tool IDs
-  const registeredToolIds = getAllRegisteredToolIds();
+  const registeredToolIds = [...catalog.getAllRegisteredToolIds()];
 
   if (registeredToolIds.length === 0) {
     // Fallback to a basic schema if no tools are registered yet
@@ -115,7 +60,7 @@ export function createDynamicPromptConcatToolSchema(): z.ZodType {
     title: t('Schema.Tool.ToolIdTitle'),
     description: t('Schema.Tool.ToolId'),
     enumOptions: registeredToolIds.map(toolId => {
-      const metadata = getToolMetadata(toolId);
+      const metadata = catalog.getToolMetadata(toolId);
       return {
         value: toolId,
         label: metadata?.displayName || toolId,
@@ -127,9 +72,9 @@ export function createDynamicPromptConcatToolSchema(): z.ZodType {
   const parameterSchema: Record<string, z.ZodType> = {};
 
   for (const toolId of registeredToolIds) {
-    const schema = getToolParameterSchema(toolId);
-    if (schema) {
-      const metadata = getToolMetadata(toolId);
+    const schema = catalog.getToolParameterSchema(toolId);
+    if (schema instanceof z.ZodType) {
+      const metadata = catalog.getToolMetadata(toolId);
       parameterSchema[`${toolId}Param`] = schema.optional().meta({
         title: metadata?.displayName || toolId,
         description: metadata?.description || `Parameters for ${toolId} tool`,
@@ -149,17 +94,11 @@ export function createDynamicPromptConcatToolSchema(): z.ZodType {
  * @param toolId The tool ID
  * @returns The inferred TypeScript type of the tool's parameters
  */
-export type ToolParameterType<T extends string> = T extends keyof ReturnType<typeof createToolParameterTypes> ? ReturnType<typeof createToolParameterTypes>[T] : never;
-
-/**
- * Create type definitions for all registered tool parameters
- * This is used internally for type inference
- */
-export function createToolParameterTypes() {
+export function createToolParameterTypes(catalog: ToolSchemaCatalog) {
   const types: Record<string, unknown> = {};
 
-  for (const toolId of getAllRegisteredToolIds()) {
-    const schema = getToolParameterSchema(toolId);
+  for (const toolId of catalog.getAllRegisteredToolIds()) {
+    const schema = catalog.getToolParameterSchema(toolId);
     if (schema) {
       types[toolId] = schema;
     }

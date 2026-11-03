@@ -2,7 +2,7 @@
 
 ## Implementation Summary
 
-memeloop-desktop uses **optimistic UI updates** for drag-and-drop reordering in both form arrays and sidebar lists. This ensures a smooth user experience without flicker or delay, even when backend or form updates are slow.
+memeloop-desktop uses **optimistic UI updates** for drag-and-drop reordering in form arrays. This ensures a smooth user experience without flicker or delay, even when backend or form updates are slow.
 
 ### Key Points
 
@@ -13,7 +13,6 @@ memeloop-desktop uses **optimistic UI updates** for drag-and-drop reordering in 
 ### Implementation Details
 
 - **Form Arrays**: Uses zustand store (`itemsOrder`) for optimistic rendering. See `ArrayFieldTemplate.tsx` and `arrayFieldStore.ts`.
-- **Sidebar Lists**: Uses local React state (`optimisticOrder`) for item order. See `SortableWorkspaceSelectorList.tsx`.
 
 ### Cautions
 
@@ -25,4 +24,3 @@ memeloop-desktop uses **optimistic UI updates** for drag-and-drop reordering in 
 
 - [ArrayFieldTemplate.tsx](../../src/pages/ChatTabContent/components/PromptPreviewDialog/PromptConfigForm/templates/ArrayFieldTemplate.tsx)
 - [arrayFieldStore.ts](../../src/pages/ChatTabContent/components/PromptPreviewDialog/PromptConfigForm/store/arrayFieldStore.ts)
-- [SortableWorkspaceSelectorList.tsx](../../src/pages/Main/WorkspaceIconAndSelector/SortableWorkspaceSelectorList.tsx)

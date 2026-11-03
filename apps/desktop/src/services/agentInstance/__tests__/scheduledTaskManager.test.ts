@@ -1,281 +1,230 @@
-/**
- * Unit tests for ScheduledTaskManager — cron parsing, restore, active hours, volatile exemption.
- */
-
-import type { ScheduledTaskEntity } from '@services/database/schema/agent';
-import type { Repository } from 'typeorm';
+import { ScheduledTaskEntity } from '@services/database/schema/agent';
+import { DataSource, type Repository } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import type { IAgentInstanceService } from '../interface';
+import {
+  addTask,
+  getScheduledTasksPageForAgent,
+  getTaskByScope,
+  initScheduledTaskManager,
+  removeTaskScoped,
+  stopAllScheduledTasks,
+  updateTaskScoped,
+} from '../scheduledTaskManager';
 
-// ─── We test the module-level exported functions directly ────────────────────
-// Dynamic import to get a fresh module state (the Map is module-level)
-async function importManager() {
-  return await import('../scheduledTaskManager');
-}
+const AGENT_ID = 'agent-page';
+const NODE_ID = 'peer-page';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function makeEntity(overrides: Partial<ScheduledTaskEntity> = {}): ScheduledTaskEntity {
+function row(index: number, state: ScheduledTaskEntity['state'] = 'active'): Partial<ScheduledTaskEntity> {
+  const updated = new Date(Date.UTC(2026, 0, 1, 0, 0, index));
   return {
-    id: 'task-1',
-    agentInstanceId: 'agent-1',
-    agentDefinitionId: undefined,
-    name: 'Test Task',
-    scheduleKind: 'interval',
-    schedule: { kind: 'interval', intervalSeconds: 120 },
-    payload: { message: 'hello' },
-    enabled: true,
+    id: `task-${String(index).padStart(6, '0')}`,
+    agentInstanceId: AGENT_ID,
+    agentDefinitionId: 'definition-page',
+    name: `Task ${index}`,
+    scheduleKind: 'cron',
+    schedule: { kind: 'cron', expression: '0 9 * * *' },
+    enabled: state === 'active',
+    state,
+    executionNodeId: NODE_ID,
+    originNodeId: NODE_ID,
     deleteAfterRun: false,
-    activeHoursStart: undefined,
-    activeHoursEnd: undefined,
-    lastRunAt: undefined,
-    nextRunAt: undefined,
+    consecutiveFailures: 0,
     runCount: 0,
-    maxRuns: undefined,
-    createdBy: 'test',
-    created: new Date(),
-    updated: new Date(),
-    ...overrides,
-  } as ScheduledTaskEntity;
+    createdBy: 'integration-test',
+    created: updated,
+    updated,
+  };
 }
 
-function makeRepo(entities: ScheduledTaskEntity[] = []): Repository<ScheduledTaskEntity> {
-  const store = new Map(entities.map(e => [e.id, e]));
-  return {
-    find: vi.fn(async (options?: { where?: Partial<ScheduledTaskEntity> }) => {
-      let results = [...store.values()];
-      if (options?.where) {
-        const { where } = options;
-        if ('enabled' in where) results = results.filter(e => e.enabled === where.enabled);
-      }
-      return results;
-    }),
-    findOne: vi.fn(async (options?: { where?: { id?: string } }) => {
-      const id = options?.where?.id;
-      return id ? (store.get(id) ?? null) : null;
-    }),
-    create: vi.fn((data: Partial<ScheduledTaskEntity>) => (Object.assign(makeEntity(), data) as ScheduledTaskEntity)),
-    save: vi.fn(async (entity: ScheduledTaskEntity) => {
-      store.set(entity.id, entity);
-      return entity;
-    }),
-    update: vi.fn(async (id: string, data: Partial<ScheduledTaskEntity>) => {
-      const existing = store.get(id);
-      if (existing) store.set(id, Object.assign({}, existing, data) as ScheduledTaskEntity);
-    }),
-    delete: vi.fn(async (id: string) => {
-      store.delete(id);
-    }),
-  } as unknown as Repository<ScheduledTaskEntity>;
-}
-
-function makeAgentService(sendMsgMock = vi.fn()): IAgentInstanceService {
-  return { sendMsgToAgent: sendMsgMock } as unknown as IAgentInstanceService;
-}
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
-
-describe('ScheduledTaskManager', () => {
-  let manager: Awaited<ReturnType<typeof importManager>>;
+describe('scheduled-task bounded keyset paging', () => {
+  let dataSource: DataSource;
 
   beforeEach(async () => {
-    vi.useFakeTimers();
-    manager = await importManager();
-    // Reset in-memory state between tests
-    manager.stopAllScheduledTasks();
+    dataSource = new DataSource({
+      type: 'better-sqlite3',
+      database: ':memory:',
+      entities: [ScheduledTaskEntity],
+      synchronize: true,
+    });
+    await dataSource.initialize();
+    initScheduledTaskManager(
+      dataSource.getRepository(ScheduledTaskEntity),
+      {} as IAgentInstanceService,
+      async () => ({ peerId: NODE_ID }),
+    );
   });
 
-  afterEach(() => {
-    manager.stopAllScheduledTasks();
-    vi.useRealTimers();
+  afterEach(async () => {
+    stopAllScheduledTasks();
+    await dataSource.destroy();
   });
 
-  describe('initScheduledTaskManager', () => {
-    it('initialises without error', () => {
-      const repo = makeRepo();
-      const service = makeAgentService();
-      expect(() => {
-        manager.initScheduledTaskManager(repo, service);
-      }).not.toThrow();
+  it('keeps a 10k-row query page bounded and uses the composite paging index', async () => {
+    const repository = dataSource.getRepository(ScheduledTaskEntity);
+    for (let start = 0; start < 10_000; start += 500) {
+      await repository.insert(Array.from({ length: 500 }, (_, offset) => row(start + offset)));
+    }
+
+    const page = await getScheduledTasksPageForAgent({
+      agentInstanceId: AGENT_ID,
+      executionNodeId: NODE_ID,
+      states: ['active'],
+      limit: 64,
     });
+    expect(page.items).toHaveLength(64);
+    expect(page.next).toBeDefined();
+    expect(new Set(page.items.map(task => task.id)).size).toBe(64);
+
+    const plan = await dataSource.query<Array<{ detail?: string }>>(
+      'EXPLAIN QUERY PLAN SELECT * FROM scheduled_tasks WHERE agentInstanceId = ? AND executionNodeId = ? AND state IN (?) ORDER BY updated DESC, id DESC LIMIT 65',
+      [AGENT_ID, NODE_ID, 'active'],
+    );
+    expect(plan.some(entry => entry.detail?.includes('IDX_scheduled_task_rpc_page'))).toBe(true);
+  }, 30_000);
+
+  it('continues by stable updated/id keyset without duplicates', async () => {
+    const repository = dataSource.getRepository(ScheduledTaskEntity);
+    await repository.insert(Array.from({ length: 6 }, (_, index) => row(index)));
+    const first = await getScheduledTasksPageForAgent({
+      agentInstanceId: AGENT_ID,
+      executionNodeId: NODE_ID,
+      states: ['active'],
+      limit: 3,
+    });
+    const second = await getScheduledTasksPageForAgent({
+      agentInstanceId: AGENT_ID,
+      executionNodeId: NODE_ID,
+      states: ['active'],
+      limit: 3,
+      after: first.next,
+      expectedRevision: first.revision,
+    });
+    expect(new Set([...first.items, ...second.items].map(task => task.id)).size).toBe(6);
   });
 
-  describe('addTask', () => {
-    it('creates an interval task and sets nextRunAt', async () => {
-      const repo = makeRepo();
-      manager.initScheduledTaskManager(repo, makeAgentService());
-
-      const task = await manager.addTask({
-        agentInstanceId: 'agent-1',
-        scheduleKind: 'interval',
-        schedule: { kind: 'interval', intervalSeconds: 120 },
-        enabled: true,
-      });
-
-      expect(task.id).toBeTruthy();
-      expect(task.scheduleKind).toBe('interval');
-      expect(task.nextRunAt).toBeTruthy();
+  it.each([
+    ['concurrent insert', async (repository: Repository<ScheduledTaskEntity>) => {
+      await repository.insert(row(99));
+    }],
+    ['archive', async (repository: Repository<ScheduledTaskEntity>) => {
+      await repository.update('task-000001', { state: 'archived', enabled: false, updated: new Date(Date.UTC(2027, 0, 1)) });
+    }],
+  ])('rejects a stale cursor after %s', async (_label, mutate) => {
+    const repository = dataSource.getRepository(ScheduledTaskEntity);
+    await repository.insert(Array.from({ length: 4 }, (_, index) => row(index)));
+    const first = await getScheduledTasksPageForAgent({
+      agentInstanceId: AGENT_ID,
+      executionNodeId: NODE_ID,
+      states: ['active'],
+      limit: 2,
     });
-
-    it('does not start a timer for disabled tasks', async () => {
-      const repo = makeRepo();
-      manager.initScheduledTaskManager(repo, makeAgentService());
-
-      await manager.addTask({
-        agentInstanceId: 'agent-2',
-        scheduleKind: 'interval',
-        schedule: { kind: 'interval', intervalSeconds: 120 },
-        enabled: false,
-      });
-
-      const activeTasks = manager.getActiveTasksForAgent('agent-2');
-      expect(activeTasks).toHaveLength(0);
-    });
+    await mutate(repository);
+    await expect(getScheduledTasksPageForAgent({
+      agentInstanceId: AGENT_ID,
+      executionNodeId: NODE_ID,
+      states: ['active'],
+      limit: 2,
+      after: first.next,
+      expectedRevision: first.revision,
+    })).rejects.toThrow('scheduled_task_cursor_stale');
   });
 
-  describe('removeTask', () => {
-    it('stops and removes the timer', async () => {
-      const repo = makeRepo();
-      manager.initScheduledTaskManager(repo, makeAgentService());
-
-      const task = await manager.addTask({
-        agentInstanceId: 'agent-3',
-        scheduleKind: 'interval',
-        schedule: { kind: 'interval', intervalSeconds: 60 },
-        enabled: true,
-      });
-
-      expect(manager.getActiveTasksForAgent('agent-3')).toHaveLength(1);
-      await manager.removeTask(task.id);
-      expect(manager.getActiveTasksForAgent('agent-3')).toHaveLength(0);
-    });
+  it('does not start a database read after cancellation', async () => {
+    const repository = dataSource.getRepository(ScheduledTaskEntity);
+    const querySpy = vi.spyOn(repository, 'createQueryBuilder');
+    const abortController = new AbortController();
+    abortController.abort(new Error('superseded'));
+    await expect(getScheduledTasksPageForAgent({
+      agentInstanceId: AGENT_ID,
+      executionNodeId: NODE_ID,
+      states: ['active'],
+      limit: 10,
+      signal: abortController.signal,
+    })).rejects.toThrow('superseded');
+    expect(querySpy).not.toHaveBeenCalled();
   });
 
-  describe('updateTask', () => {
-    it('restarts timer when schedule changes', async () => {
-      const repo = makeRepo();
-      manager.initScheduledTaskManager(repo, makeAgentService());
+  it('matches the complete resource tuple for atomic updates and deletes', async () => {
+    const repository = dataSource.getRepository(ScheduledTaskEntity);
+    await repository.insert(row(1));
+    const scope = {
+      taskId: 'task-000001',
+      agentInstanceId: AGENT_ID,
+      agentDefinitionId: 'definition-page',
+      executionNodeId: NODE_ID,
+    };
 
-      const task = await manager.addTask({
-        agentInstanceId: 'agent-4',
-        scheduleKind: 'interval',
-        schedule: { kind: 'interval', intervalSeconds: 60 },
-        enabled: true,
-      });
+    await expect(updateTaskScoped(
+      { ...scope, agentDefinitionId: 'definition-other' },
+      { id: scope.taskId, enabled: false },
+    )).rejects.toThrow('scheduled_task_scope_unavailable');
+    expect((await repository.findOneByOrFail({ id: scope.taskId })).enabled).toBe(true);
 
-      const updated = await manager.updateTask({ id: task.id, enabled: false });
-      expect(updated.enabled).toBe(false);
-      expect(manager.getActiveTasksForAgent('agent-4')).toHaveLength(0);
+    const updated = await updateTaskScoped(scope, {
+      id: scope.taskId,
+      name: 'Updated atomically',
+      enabled: false,
     });
-  });
+    expect(updated).toMatchObject({ name: 'Updated atomically', enabled: false, state: 'paused' });
+    expect(updated.executionRevision).toBe(1);
+    await expect(getTaskByScope(scope)).resolves.toMatchObject({ id: scope.taskId });
 
-  describe('cancelTasksForAgent', () => {
-    it('cancels all tasks for a given agent', async () => {
-      const repo = makeRepo();
-      manager.initScheduledTaskManager(repo, makeAgentService());
-
-      await manager.addTask({ agentInstanceId: 'agent-5', scheduleKind: 'interval', schedule: { kind: 'interval', intervalSeconds: 60 }, enabled: true });
-      await manager.addTask({ agentInstanceId: 'agent-5', scheduleKind: 'interval', schedule: { kind: 'interval', intervalSeconds: 120 }, enabled: true });
-      await manager.addTask({ agentInstanceId: 'agent-6', scheduleKind: 'interval', schedule: { kind: 'interval', intervalSeconds: 60 }, enabled: true });
-
-      expect(manager.getActiveTasksForAgent('agent-5')).toHaveLength(2);
-
-      manager.cancelTasksForAgent('agent-5');
-
-      expect(manager.getActiveTasksForAgent('agent-5')).toHaveLength(0);
-      expect(manager.getActiveTasksForAgent('agent-6')).toHaveLength(1);
-    });
-  });
-
-  describe('restoreScheduledTasks', () => {
-    it('restores enabled non-volatile tasks', async () => {
-      const entities = [
-        makeEntity({ id: 'task-restore-1', agentInstanceId: 'agent-7', enabled: true }),
-        makeEntity({ id: 'task-restore-2', agentInstanceId: 'agent-8', enabled: false }),
-      ];
-      const repo = makeRepo(entities);
-      const agentService = makeAgentService();
-      manager.initScheduledTaskManager(repo, agentService);
-
-      // All non-volatile
-      const isVolatile = vi.fn(async () => false);
-      await manager.restoreScheduledTasks(repo, isVolatile);
-
-      // Only the enabled task should be in the active entries
-      expect(manager.getActiveTasksForAgent('agent-7')).toHaveLength(1);
-      expect(manager.getActiveTasksForAgent('agent-8')).toHaveLength(0);
-    });
-
-    it('skips volatile agent instances', async () => {
-      const entities = [
-        makeEntity({ id: 'task-volatile', agentInstanceId: 'volatile-agent', enabled: true }),
-      ];
-      const repo = makeRepo(entities);
-      manager.initScheduledTaskManager(repo, makeAgentService());
-
-      const isVolatile = vi.fn(async (id: string) => id === 'volatile-agent');
-      await manager.restoreScheduledTasks(repo, isVolatile);
-
-      expect(manager.getActiveTasksForAgent('volatile-agent')).toHaveLength(0);
-    });
-  });
-
-  describe('active hours filtering', () => {
-    it('fires interval task when no active-hours restriction is set', async () => {
-      const sendMsg = vi.fn().mockResolvedValue(undefined);
-      const repo = makeRepo();
-      manager.initScheduledTaskManager(repo, makeAgentService(sendMsg));
-
-      await manager.addTask({
-        agentInstanceId: 'agent-active',
-        scheduleKind: 'interval',
-        schedule: { kind: 'interval', intervalSeconds: 60 },
-        enabled: true,
-        // No activeHoursStart / activeHoursEnd — always fires
-      });
-
-      // Advance timer by 60s to trigger the interval
-      await vi.advanceTimersByTimeAsync(61_000);
-      expect(sendMsg).toHaveBeenCalled();
-    });
-
-    it('skips when outside a narrow active hours window (00:00-00:01)', async () => {
-      // Use a window that only covers 00:00-00:01 — nearly always outside.
-      // Set mocked time well outside that window (e.g. 06:00 UTC = 06:00 local in any UTC timezone).
-      const outside = new Date('2026-03-06T06:00:00.000Z');
-      vi.setSystemTime(outside);
-
-      const sendMsg = vi.fn().mockResolvedValue(undefined);
-      const repo = makeRepo();
-      manager.initScheduledTaskManager(repo, makeAgentService(sendMsg));
-
-      await manager.addTask({
-        agentInstanceId: 'agent-inactive',
-        scheduleKind: 'interval',
-        schedule: { kind: 'interval', intervalSeconds: 60 },
-        enabled: true,
-        activeHoursStart: '00:00',
-        activeHoursEnd: '00:01',
-      });
-
-      await vi.advanceTimersByTimeAsync(61_000);
-      // 06:00 is outside 00:00-00:01, so sendMsg should NOT be called
-      expect(sendMsg).not.toHaveBeenCalled();
+    await expect(removeTaskScoped({ ...scope, executionNodeId: 'peer-other' }))
+      .rejects.toThrow('scheduled_task_scope_unavailable');
+    await removeTaskScoped(scope);
+    expect(await repository.findOneByOrFail({ id: scope.taskId })).toMatchObject({
+      enabled: false,
+      state: 'cancelled',
+      executionRevision: 2,
     });
   });
 
-  describe('getCronPreviewDates', () => {
-    it('returns N next run dates for a valid expression', () => {
-      const dates = manager.getCronPreviewDates('0 9 * * *', undefined, 3);
-      expect(dates).toHaveLength(3);
-      for (const date of dates) {
-        expect(() => new Date(date)).not.toThrow();
-      }
-    });
+  it.each([
+    { flags: { preview: true, volatile: true }, kind: 'preview' },
+    { flags: { preview: false, volatile: true }, kind: 'volatile' },
+  ])('rejects persistent schedules for a $kind Agent even when identity fields are supplied', async ({ flags }) => {
+    initScheduledTaskManager(
+      dataSource.getRepository(ScheduledTaskEntity),
+      {
+        getAgentMetadata: vi.fn().mockResolvedValue({
+          id: AGENT_ID,
+          agentDefId: 'definition-page',
+          name: 'Volatile Agent',
+          ...flags,
+        }),
+      } as unknown as IAgentInstanceService,
+      async () => ({ peerId: NODE_ID }),
+    );
+    await expect(addTask({
+      agentInstanceId: AGENT_ID,
+      agentDefinitionId: 'definition-page',
+      name: 'Must not persist',
+      scheduleKind: 'at',
+      schedule: { kind: 'at', wakeAtISO: new Date(Date.now() + 60_000).toISOString() },
+      executionNodeId: NODE_ID,
+      originNodeId: NODE_ID,
+    })).rejects.toThrow('scheduled_task_volatile_agent');
+    expect(await dataSource.getRepository(ScheduledTaskEntity).count()).toBe(0);
+  });
 
-    it('returns empty array for invalid cron expression', () => {
-      const dates = manager.getCronPreviewDates('NOT_A_CRON', undefined, 3);
-      expect(dates).toHaveLength(0);
-    });
+  it('rolls scoped mutations back when cancellation wins during the transaction', async () => {
+    const repository = dataSource.getRepository(ScheduledTaskEntity);
+    await repository.insert(row(2));
+    const scope = {
+      taskId: 'task-000002',
+      agentInstanceId: AGENT_ID,
+      agentDefinitionId: 'definition-page',
+      executionNodeId: NODE_ID,
+    };
+    const controller = new AbortController();
+    controller.abort(new Error('superseded'));
+
+    await expect(updateTaskScoped(scope, {
+      id: scope.taskId,
+      name: 'must not persist',
+    }, { signal: controller.signal })).rejects.toThrow('superseded');
+    expect((await repository.findOneByOrFail({ id: scope.taskId })).name).toBe('Task 2');
   });
 });

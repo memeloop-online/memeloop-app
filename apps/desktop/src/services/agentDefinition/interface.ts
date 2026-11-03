@@ -1,82 +1,7 @@
 import { AgentChannel } from '@/constants/channels';
+import type { AgentInitializationStatus } from '@services/startupLifecycle';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
-import type { AiAPIConfig } from '../agentInstance/promptConcat/promptConcatSchema/types';
-
-/**
- * Agent tool configuration
- */
-export interface AgentToolConfig {
-  /** Tool ID to reference the tool */
-  toolId: string;
-  /** Whether this tool is enabled for this agent */
-  enabled?: boolean;
-  /** Custom parameters for this tool instance */
-  parameters?: Record<string, unknown>;
-  /** Tags for categorization */
-  tags?: string[];
-}
-
-/**
- * Heartbeat configuration for automatic periodic agent wake-up
- */
-export interface AgentHeartbeatConfig {
-  /** Whether heartbeat is enabled */
-  enabled: boolean;
-  /** Interval in seconds between automatic wake-ups. Min 60s. */
-  intervalSeconds: number;
-  /** Message sent to the agent on each heartbeat tick */
-  message: string;
-  /** Optional: only run heartbeat between these hours (24h format, e.g. "09:00"-"18:00") */
-  activeHoursStart?: string;
-  /** Optional: end of active hours */
-  activeHoursEnd?: string;
-}
-
-/**
- * Tool calling match result
- */
-export interface ToolCallingMatch {
-  /** Whether a tool call was found in the text */
-  found: boolean;
-  /** Tool ID to call */
-  toolId?: string;
-  /** Parameters to pass to the tool */
-  parameters?: Record<string, unknown>;
-  /** Original text that matched the pattern */
-  originalText?: string;
-}
-
-/**
- * Agent definition, including basic information and processing logic
- */
-export interface AgentDefinition {
-  /** Unique identifier for the agent */
-  id: string;
-  /** Agent name */
-  name?: string;
-  /** Agent description */
-  description?: string;
-  /** Agent icon or avatar URL */
-  avatarUrl?: string;
-  /** Agent framework function's id, we will find function by this id */
-  agentFrameworkID?: string;
-  /** Agent framework's config, specific to the framework. This is required to ensure agent has valid configuration. */
-  agentFrameworkConfig: Record<string, unknown>;
-  /**
-   * Overwrite the default AI configuration for this agent.
-   * Priority is higher than the global default agent config.
-   */
-  aiApiConfig?: Partial<AiAPIConfig>;
-  /**
-   * Tools available to this agent
-   */
-  agentTools?: AgentToolConfig[];
-  /**
-   * Heartbeat configuration — periodically wake the agent with an automated message.
-   * Like OpenClaw-style autonomous agents that check in regularly.
-   */
-  heartbeat?: AgentHeartbeatConfig;
-}
+import type { AgentDefinition, AgentDefinitionToolConfig, AgentHeartbeatConfig, AgentModelConfig, ToolCallingMatch } from 'memeloop';
 
 /**
  * Agent service to manage agent definitions
@@ -86,6 +11,8 @@ export interface IAgentDefinitionService {
    * Initialize the service on application startup.
    */
   initialize(): Promise<void>;
+  /** Read-only startup health used by the renderer to fail closed. */
+  getInitializationStatus(): AgentInitializationStatus;
   /**
    * Create a new agent definition and persist it to the database.
    * Generates a new id when `agent.id` is not provided.
@@ -107,12 +34,12 @@ export interface IAgentDefinitionService {
   getAgentDefs(): Promise<AgentDefinition[]>;
   /**
    * Get a specific agent definition by id. When `id` is omitted, returns the default
-   * agent definition (currently the first agent in the repository as a temporary solution).
+   * Core agent definition.
    * @param id Optional agent id
    */
   getAgentDef(id?: string): Promise<AgentDefinition | undefined>;
   /**
-   * Get all available agent templates from built-in defaults and active main workspaces.
+   * Get all available agent templates from Core's built-in profiles.
    * This returns fully populated templates suitable for creating new agents. No server-side
    * search filtering is performed; clients should filter templates as needed.
    */
@@ -124,9 +51,12 @@ export interface IAgentDefinitionService {
   deleteAgentDef(id: string): Promise<void>;
 }
 
+export type { AgentDefinition, AgentDefinitionToolConfig, AgentHeartbeatConfig, AgentModelConfig, ToolCallingMatch };
+
 export const AgentDefinitionServiceIPCDescriptor = {
   channel: AgentChannel.definition,
   properties: {
+    getInitializationStatus: ProxyPropertyType.Function,
     createAgentDef: ProxyPropertyType.Function,
     updateAgentDef: ProxyPropertyType.Function,
     getAgentDefs: ProxyPropertyType.Function,

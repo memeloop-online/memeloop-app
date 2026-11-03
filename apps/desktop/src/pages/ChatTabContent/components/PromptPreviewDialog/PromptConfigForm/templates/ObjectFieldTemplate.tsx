@@ -10,8 +10,10 @@ export const ObjectFieldTemplate: React.FC<ObjectFieldTemplateProps> = (props) =
   const { t } = useTranslation('agent');
   const { isInArrayItem } = useArrayItemContext();
   // Check if this should use compact layout
-  const compactFieldsValue = uiSchema?.['ui:compactFields'] as unknown;
-  const compactFields = Array.isArray(compactFieldsValue) ? (compactFieldsValue as string[]) : [];
+  const compactFieldsValue: unknown = uiSchema?.['ui:compactFields'];
+  const compactFields = Array.isArray(compactFieldsValue) && compactFieldsValue.every(value => typeof value === 'string')
+    ? compactFieldsValue
+    : [];
   const useCompactLayout = compactFields.length > 0;
 
   const renderProperties = () => {

@@ -89,16 +89,6 @@ export default function FindInPage(): React.JSX.Element | null {
               void window.service.window.stopFindInPage();
             }
           }}
-          onInput={(event: React.FormEvent<HTMLInputElement>) => {
-            const value = event.currentTarget.value;
-            if (typeof value !== 'string') return;
-            textSetter(value);
-            if (value.length > 0) {
-              void window.service.window.findInPage(value, true);
-            } else {
-              void window.service.window.stopFindInPage();
-            }
-          }}
           onKeyDown={(event: React.KeyboardEvent<HTMLSpanElement>) => {
             if (
               event.key === 'Enter' && // Enter
