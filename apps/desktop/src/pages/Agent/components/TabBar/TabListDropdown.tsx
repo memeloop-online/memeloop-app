@@ -134,7 +134,7 @@ export const TabListDropdown: React.FC = () => {
 
   const handleCloseTab = useCallback((event: React.MouseEvent, tabId: string) => {
     event.stopPropagation();
-    closeTab(tabId);
+    void closeTab(tabId);
   }, [closeTab]);
 
   const handleNewTab = useCallback(async () => {

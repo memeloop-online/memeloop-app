@@ -282,7 +282,7 @@ export const CreateNewAgentContent: React.FC<CreateNewAgentContentProps> = ({ ta
         });
 
         // Close this create agent tab
-        closeTab(tab.id);
+        await closeTab(tab.id);
       }
     } catch (error) {
       console.error('Failed to save and use agent:', error);

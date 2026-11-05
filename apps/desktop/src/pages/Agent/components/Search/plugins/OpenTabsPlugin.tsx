@@ -129,7 +129,7 @@ export const createOpenTabsPlugin = (): AutocompletePlugin<TabSource, unknown> =
                 // Always close temp tabs or NEW_TAB type tabs when selecting from search
                 if (activeTab && (activeTab.id.startsWith(TEMP_TAB_ID_PREFIX) || activeTab.type === TabType.NEW_TAB)) {
                   // Use tabStore method instead of direct service call
-                  tabStore.closeTab(activeTabId);
+                  await tabStore.closeTab(activeTabId);
                 }
               }
 
