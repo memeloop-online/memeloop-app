@@ -1,15 +1,18 @@
 import {
   AgentSessionProvider,
+  getGoalPanelLabels,
   NativeAgentChatView,
+  NativeGoalDialog,
+  useAgentSession,
   useAgentSessionCoreAdapter,
 } from '@memeloop/react-ui/native';
 import { resolveAgentRunErrorPresentation } from '@memeloop/react-ui/chat/core';
 import { Stack, useRouter } from 'expo-router';
 import { setStringAsync } from 'expo-clipboard';
 import { createAgentDeviceRpcRequestId, createConversationEditingAdapter, type ConversationBranchState } from 'memeloop/mobile';
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, ScrollView, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Card, Dialog, IconButton, List, Menu, Portal, Text, useTheme } from 'react-native-paper';
 
 import {
@@ -25,33 +28,43 @@ import {
   mobileDeviceNetwork,
   type MobileDeviceNetworkState,
 } from '../lib/deviceNetwork';
-import { getMobileLabels } from '../lib/i18n';
+import { getMobileLabels, resolveMobileLocale } from '../lib/i18n';
 import { RemoteConversationSettings } from '../lib/RemoteConversationSettings';
+import { RemoteAgentPicker } from '../lib/RemoteAgentPicker';
+
+const EMPTY_BRANCHES: ConversationBranchState[] = [];
 
 function AgentChat({ session, onConversationChange, headerActions }: { headerActions: ReactNode; session: MobileRemoteAgentSession; onConversationChange: (conversationId: string, runId?: string) => Promise<void> }) {
   const router = useRouter();
   const labels = getMobileLabels();
+  const { snapshot } = useAgentSession();
   const baseAdapter = useAgentSessionCoreAdapter({
     conversationId: session.conversationId,
     timelineController: session.timelineController,
     createId: createAgentDeviceRpcRequestId,
     prepareSendMessage: MOBILE_ATTACHMENT_HOST.prepareSendMessage,
   });
-  const [branches, setBranches] = useState<ConversationBranchState[]>([]);
+  const [branchState, setBranchState] = useState<{ session: MobileRemoteAgentSession; branches: ConversationBranchState[] }>();
+  const branches = branchState?.session === session ? branchState.branches : EMPTY_BRANCHES;
+  const userMessageIdsKey = JSON.stringify(baseAdapter.messages.filter(message => message.role === 'user').map(message => message.messageId));
   useEffect(() => {
     let active = true;
+    let latestRequest = 0;
     const refreshBranches = () => {
+      const request = ++latestRequest;
       void session.client.getConversationBranches({
         conversationId: session.conversationId,
-        messageIds: baseAdapter.messages.filter(message => message.role === 'user').map(message => message.messageId),
-      }).then(result => { if (active) setBranches(result.branches); }).catch(() => undefined);
+        messageIds: JSON.parse(userMessageIdsKey) as string[],
+      }).then(result => {
+        if (active && request === latestRequest) setBranchState({ session, branches: result.branches });
+      }).catch(() => undefined);
     };
     refreshBranches();
     const subscription = AppState.addEventListener('change', state => {
       if (state === 'active') refreshBranches();
     });
     return () => { active = false; subscription.remove(); };
-  }, [session, baseAdapter.messages]);
+  }, [session, userMessageIdsKey, snapshot.revision, baseAdapter.isRunning]);
   const editing = useMemo(() => createConversationEditingAdapter({
     conversationId: session.conversationId,
     branches,
@@ -147,6 +160,8 @@ function AgentChat({ session, onConversationChange, headerActions }: { headerAct
 export default function ChatScreen() {
   const router = useRouter();
   const labels = getMobileLabels();
+  const goalLabels = getGoalPanelLabels(resolveMobileLocale());
+  const insets = useSafeAreaInsets();
   const theme = useTheme();
   const [network, setNetwork] = useState<MobileDeviceNetworkState>(mobileDeviceNetwork.getState());
   const [loadState, setLoadState] = useState<{
@@ -156,31 +171,63 @@ export default function ChatScreen() {
   }>();
   const [retryGeneration, setRetryGeneration] = useState(0);
   const [chosen, setChosen] = useState<{ peerId: string; conversation: MobileConversationMeta; runId?: string }>();
-  const [choices, setChoices] = useState<MobileConversationMeta[]>();
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [choicePage, setChoicePage] = useState<{ previousCursor?: string; nextCursor?: string; hasMoreBefore: boolean; hasMoreAfter: boolean }>();
-  const [choiceError, setChoiceError] = useState(false);
-  const [choosing, setChoosing] = useState(false);
+  const [historyPeer, setHistoryPeer] = useState<string>();
+  const [directory, setDirectory] = useState<{
+    peerId: string;
+    page?: Awaited<ReturnType<typeof listMobileRemoteConversations>>;
+    loading: boolean;
+    error: boolean;
+  }>();
+  const directoryRequest = useRef<AbortController>(undefined);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [settingsMode, setSettingsMode] = useState<'prompt' | 'parameters'>();
+  const [goalOpen, setGoalOpen] = useState(false);
+  const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const target = useMemo(() => selectMobileAgentDevice(network.devices), [network.devices]);
   const targetPeerId = target?.peerId;
   const selectedConversation = chosen && chosen.peerId === targetPeerId ? chosen.conversation : undefined;
   const loadKey = `${targetPeerId ?? 'none'}:${selectedConversation?.conversationId ?? 'main'}:${retryGeneration}`;
+  const currentDirectory = directory?.peerId === targetPeerId ? directory : undefined;
+  const choicePage = currentDirectory?.page;
+  const choosing = currentDirectory?.loading ?? false;
+  const choiceError = currentDirectory?.error ?? false;
+
+  useEffect(() => () => directoryRequest.current?.abort(), [targetPeerId]);
+
+  const closeHistory = () => {
+    directoryRequest.current?.abort();
+    setHistoryPeer(undefined);
+    setDirectory(current => current && { ...current, loading: false });
+  };
 
   const chooseConversation = async (cursor?: string, direction?: 'backward' | 'forward') => {
     if (!targetPeerId) return;
-    setChoosing(true);
-    setHistoryOpen(true);
-    setChoiceError(false);
+    directoryRequest.current?.abort();
+    const request = new AbortController();
+    directoryRequest.current = request;
+    setHistoryPeer(targetPeerId);
+    setDirectory(current => ({ peerId: targetPeerId, page: current?.peerId === targetPeerId ? current.page : undefined, loading: true, error: false }));
     try {
-      const page = await listMobileRemoteConversations(targetPeerId, undefined, cursor, direction);
-      setChoices(page.items);
-      setChoicePage(page);
+      const page = await listMobileRemoteConversations(targetPeerId, request.signal, cursor, direction);
+      if (!request.signal.aborted) setDirectory({ peerId: targetPeerId, page, loading: false, error: false });
     } catch {
-      setChoiceError(true);
-    } finally {
-      setChoosing(false);
+      if (!request.signal.aborted) setDirectory(current => ({ peerId: targetPeerId, page: current?.peerId === targetPeerId ? current.page : undefined, loading: false, error: true }));
+    }
+  };
+
+  const selectMainConversation = async (peerId: string, conversation: MobileConversationMeta) => {
+    directoryRequest.current?.abort();
+    const request = new AbortController();
+    directoryRequest.current = request;
+    setDirectory(current => current && { ...current, loading: true, error: false });
+    try {
+      await createMobileAgentRpcClient(peerId).setMainConversation({ conversationId: conversation.conversationId }, { signal: request.signal });
+      if (!request.signal.aborted) {
+        setChosen({ peerId, conversation });
+        closeHistory();
+      }
+    } catch {
+      if (!request.signal.aborted) setDirectory(current => current && { ...current, loading: false, error: true });
     }
   };
 
@@ -219,12 +266,12 @@ export default function ChatScreen() {
 
   const conversationPicker = (
     <Portal>
-      <Dialog visible={historyOpen} onDismiss={() => setHistoryOpen(false)}>
+      <Dialog visible={historyPeer !== undefined && historyPeer === targetPeerId} onDismiss={closeHistory}>
         <Dialog.Title>{labels.chat.chooseConversation}</Dialog.Title>
         <Dialog.ScrollArea style={styles.historyScroll}>
           <ScrollView keyboardShouldPersistTaps="handled">
             {choiceError && <Text accessibilityRole="alert">{labels.chat.operationFailedMessage}</Text>}
-            {choices?.map(conversation => (
+            {choicePage?.items.map(conversation => (
               <List.Item key={conversation.conversationId}
                 title={conversation.title && conversation.title !== conversation.definitionId ? conversation.title : labels.chat.agent}
                 titleNumberOfLines={2}
@@ -232,17 +279,12 @@ export default function ChatScreen() {
                 descriptionNumberOfLines={1}
                 left={props => <List.Icon {...props} icon={conversation.conversationId === session?.conversationId ? 'chat' : 'chat-outline'} />}
                 onPress={() => {
-                if (!targetPeerId) return;
-                setChosen({ peerId: targetPeerId, conversation });
-                setHistoryOpen(false);
+                setChosen({ peerId: currentDirectory!.peerId, conversation });
+                closeHistory();
               }}
                 right={props => <IconButton {...props} icon="star-outline" accessibilityLabel={labels.chat.useAsMain} onPress={() => {
-                if (!targetPeerId) return;
-                void createMobileAgentRpcClient(targetPeerId).setMainConversation({ conversationId: conversation.conversationId }).then(() => {
-                  setChosen({ peerId: targetPeerId, conversation });
-                  setHistoryOpen(false);
-                }).catch(() => setChoiceError(true));
-              }} />}
+                void selectMainConversation(currentDirectory!.peerId, conversation);
+              }} disabled={choosing} />}
               />
             ))}
             {choicePage?.hasMoreBefore && <Button disabled={choosing} onPress={() => { void chooseConversation(choicePage.previousCursor, 'backward'); }}>{labels.chat.loadEarlier}</Button>}
@@ -251,10 +293,19 @@ export default function ChatScreen() {
         </Dialog.ScrollArea>
         <Dialog.Actions>
           {choiceError && <Button loading={choosing} onPress={() => { void chooseConversation(); }}>{labels.chat.retry}</Button>}
-          <Button onPress={() => setHistoryOpen(false)}>{labels.chat.close}</Button>
+          <Button onPress={() => { closeHistory(); setAgentPickerOpen(true); }}>{labels.chat.newConversation}</Button>
+          <Button onPress={closeHistory}>{labels.chat.close}</Button>
         </Dialog.Actions>
       </Dialog>
     </Portal>
+  );
+  const agentPicker = agentPickerOpen && targetPeerId && (
+    <RemoteAgentPicker key={targetPeerId} peerId={targetPeerId} onClose={() => setAgentPickerOpen(false)} onSelect={conversation => {
+      setChosen({ peerId: targetPeerId, conversation });
+      setAgentPickerOpen(false);
+      setGoalOpen(false);
+      setSettingsMode(undefined);
+    }} />
   );
 
   if (session) {
@@ -262,6 +313,9 @@ export default function ChatScreen() {
       <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.chat, { backgroundColor: theme.colors.background }]}>
         <Stack.Screen options={{ title: session.title || labels.chat.agent }} />
         {conversationPicker}
+        {agentPicker}
+        {goalOpen && <NativeGoalDialog key={session.conversationId} client={session.client.goals} conversationId={session.conversationId}
+          definitionId={session.definitionId} labels={goalLabels} topInset={insets.top} bottomInset={insets.bottom} onClose={() => setGoalOpen(false)} />}
         {settingsMode && <RemoteConversationSettings key={`${session.conversationId}:${settingsMode}`} client={session.client} conversationId={session.conversationId}
           mode={settingsMode} onClose={() => setSettingsMode(undefined)} />}
         <AgentSessionProvider controller={session.controller}>
@@ -269,6 +323,8 @@ export default function ChatScreen() {
             <>
               <IconButton icon='chat-outline' accessibilityLabel={labels.chat.chooseConversation} onPress={() => { void chooseConversation(); }} />
               <Menu visible={actionsOpen} onDismiss={() => setActionsOpen(false)} anchor={<IconButton icon='dots-vertical' accessibilityLabel={labels.chat.actions} onPress={() => setActionsOpen(true)} />}>
+                <Menu.Item leadingIcon='chat-plus-outline' title={labels.chat.newConversation} onPress={() => { setActionsOpen(false); setAgentPickerOpen(true); }} />
+                <Menu.Item leadingIcon='flag-outline' title={goalLabels.title} onPress={() => { setActionsOpen(false); setGoalOpen(true); }} />
                 <Menu.Item leadingIcon='tune-variant' title={labels.chat.parameters} onPress={() => { setActionsOpen(false); setSettingsMode('parameters'); }} />
                 <Menu.Item leadingIcon='text-box-search-outline' title={labels.chat.prompt} onPress={() => { setActionsOpen(false); setSettingsMode('prompt'); }} />
               </Menu>
@@ -288,6 +344,7 @@ export default function ChatScreen() {
     <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Stack.Screen options={{ title: labels.chat.agent }} />
       {conversationPicker}
+      {agentPicker}
       <Card>
         <Card.Content>
           <Text variant="titleMedium">
@@ -307,6 +364,7 @@ export default function ChatScreen() {
         </Card.Content>
         <Card.Actions>
           {targetPeerId && <Button loading={choosing} onPress={() => { void chooseConversation(); }}>{labels.chat.chooseConversation}</Button>}
+          {targetPeerId && <Button onPress={() => setAgentPickerOpen(true)}>{labels.chat.newConversation}</Button>}
           {(noTarget || network.status === 'error') && (
             <Button onPress={() => router.push('/nodes')}>{labels.chat.manageDevices}</Button>
           )}

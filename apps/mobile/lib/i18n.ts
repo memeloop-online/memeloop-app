@@ -96,6 +96,9 @@ export interface MobileLabels {
     manageDevices: string;
     retry: string;
     chooseConversation: string;
+    newConversation: string;
+    chooseAgent: string;
+    noAgents: string;
     useAsMain: string;
     prompt: string;
     parameters: string;
@@ -219,6 +222,9 @@ const ENGLISH_LABELS: MobileLabels = {
     manageDevices: "Manage devices",
     retry: "Retry",
     chooseConversation: "Choose conversation",
+    newConversation: "New conversation",
+    chooseAgent: "Choose an agent",
+    noAgents: "This device has no agents yet.",
     useAsMain: "Use as main conversation",
     prompt: "Prompt",
     parameters: "Model parameters",
@@ -340,6 +346,9 @@ const CHINESE_LABELS: MobileLabels = {
     manageDevices: "管理设备",
     retry: "重试",
     chooseConversation: "选择对话",
+    newConversation: "新建对话",
+    chooseAgent: "选择智能体",
+    noAgents: "这台设备上暂时没有智能体。",
     useAsMain: "设为主对话",
     prompt: "提示词",
     parameters: "模型参数",
@@ -461,6 +470,9 @@ const JAPANESE_LABELS: MobileLabels = {
     manageDevices: "デバイスを管理",
     retry: "再試行",
     chooseConversation: "会話を選択",
+    newConversation: "新しい会話",
+    chooseAgent: "エージェントを選択",
+    noAgents: "このデバイスにはまだエージェントがありません。",
     useAsMain: "メインの会話に設定",
     prompt: "プロンプト",
     parameters: "モデル設定",

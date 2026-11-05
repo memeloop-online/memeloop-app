@@ -3,15 +3,15 @@ import { styled } from '@mui/material/styles';
 import type { RJSFSchema } from '@rjsf/utils';
 import type { AgentDefinition } from '@services/agentDefinition/interface';
 import { DEFAULT_AGENT_FRAMEWORK_ID } from '@services/agentInstance/defaultAgentFrameworkId';
-import useDebouncedCallback from 'beautiful-react-hooks/useDebouncedCallback';
-import type { AgentFrameworkConfig } from 'memeloop';
-import React, { useCallback, useEffect, useState } from 'react';
+import { type AgentFrameworkConfig, createAgentDefinitionSaveQueue } from 'memeloop';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChatTabContent } from '../../../ChatTabContent';
 import { PromptConfigForm } from '../../../ChatTabContent/components/PromptPreviewDialog/PromptConfigForm';
 import { useTabStore } from '../../store/tabStore';
 import type { IEditAgentDefinitionTab } from '../../types/tab';
 import { TabState, TabType } from '../../types/tab';
+import { AgentLoopScriptEditor } from './AgentLoopScriptEditor';
 
 interface EditAgentDefinitionContentProps {
   tab: IEditAgentDefinitionTab;
@@ -74,6 +74,18 @@ export const EditAgentDefinitionContent: React.FC<EditAgentDefinitionContentProp
   // Use stable timestamp to avoid recreating tab on every render
   const [tabTimestamp] = useState(() => Date.now());
   const [forceRecreatePreview, setForceRecreatePreview] = useState(0);
+  const pendingSaveCountReference = useRef(0);
+  const [saveQueue] = useState(() => createAgentDefinitionSaveQueue(async definition => await window.service.agentDefinition.updateAgentDef(definition)));
+  const saveDefinition = useCallback(async (definition: AgentDefinition, persist?: (definition: AgentDefinition) => Promise<AgentDefinition>) => {
+    pendingSaveCountReference.current += 1;
+    setIsSaving(true);
+    try {
+      return await saveQueue.save(definition, persist);
+    } finally {
+      pendingSaveCountReference.current -= 1;
+      if (pendingSaveCountReference.current === 0) setIsSaving(false);
+    }
+  }, [saveQueue]);
 
   // Load agent definition
   useEffect(() => {
@@ -107,7 +119,7 @@ export const EditAgentDefinitionContent: React.FC<EditAgentDefinitionContentProp
         return;
       }
 
-      const frameworkId = agentDefinition.agentFrameworkID ?? DEFAULT_AGENT_FRAMEWORK_ID;
+      const frameworkId = agentDefinition.loopId ?? agentDefinition.agentFrameworkID ?? DEFAULT_AGENT_FRAMEWORK_ID;
 
       try {
         // Loading framework config schema
@@ -124,37 +136,20 @@ export const EditAgentDefinitionContent: React.FC<EditAgentDefinitionContentProp
     };
 
     void loadSchema();
-  }, [agentDefinition?.id, agentDefinition?.agentFrameworkID]);
+  }, [agentDefinition?.id, agentDefinition?.loopId, agentDefinition?.agentFrameworkID]);
 
   // Auto-save to backend whenever agentDefinition changes (debounced)
-  const saveToBackendDebounced = useDebouncedCallback(
-    async () => {
-      if (!agentDefinition) return;
-
-      try {
-        setIsSaving(true);
-
-        // Auto-save agent definition changes
-
-        await window.service.agentDefinition.updateAgentDef(agentDefinition);
-
-        // Agent definition auto-saved successfully
-      } catch (error) {
-        void window.service.native.log('error', 'Failed to auto-save agent definition', { error, agentDefId: agentDefinition.id });
-        console.error('Failed to save agent definition:', error);
-      } finally {
-        setIsSaving(false);
-      }
-    },
-    [agentDefinition],
-    1000,
-  );
-
   useEffect(() => {
-    if (agentDefinition) {
-      void saveToBackendDebounced();
-    }
-  }, [agentDefinition, saveToBackendDebounced]);
+    if (!agentDefinition) return;
+    const timer = setTimeout(() => {
+      void saveDefinition(agentDefinition).catch((error: unknown) => {
+        void window.service.native.log('error', 'Failed to auto-save agent definition', { error, agentDefId: agentDefinition.id });
+      });
+    }, 1000);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [agentDefinition, saveDefinition]);
 
   // Create preview agent for testing - ensure latest config is saved first
   useEffect(() => {
@@ -175,9 +170,7 @@ export const EditAgentDefinitionContent: React.FC<EditAgentDefinitionContentProp
           setPreviewAgentId(null);
         }
 
-        // Flush any pending debounced saves and force save latest config
-        await saveToBackendDebounced.flush();
-        await window.service.agentDefinition.updateAgentDef(agentDefinition);
+        await saveDefinition(agentDefinition);
 
         // Create new preview agent
         const agent = await window.service.agentInstance.createAgent(
@@ -213,7 +206,7 @@ export const EditAgentDefinitionContent: React.FC<EditAgentDefinitionContentProp
         clearTimeout(debounceTimer);
       };
     }
-  }, [agentDefinition, saveToBackendDebounced, forceRecreatePreview]); // Recreate preview agent when the agent definition changes or when forced to recreate
+  }, [agentDefinition, saveDefinition, forceRecreatePreview]); // Recreate preview agent when the agent definition changes or when forced to recreate
 
   // Cleanup preview agent when component unmounts
   useEffect(() => {
@@ -256,7 +249,7 @@ export const EditAgentDefinitionContent: React.FC<EditAgentDefinitionContentProp
       setIsLoading(true);
 
       // Save the final version
-      await window.service.agentDefinition.updateAgentDef(agentDefinition);
+      await saveDefinition(agentDefinition);
 
       // Agent definition saved successfully
     } catch (error) {
@@ -265,14 +258,13 @@ export const EditAgentDefinitionContent: React.FC<EditAgentDefinitionContentProp
     } finally {
       setIsLoading(false);
     }
-  }, [agentDefinition]);
+  }, [agentDefinition, saveDefinition]);
 
   const handleCreatePersistentConversation = useCallback(async () => {
     if (!agentDefinition || isCreatingConversation) return;
     setIsCreatingConversation(true);
     try {
-      await saveToBackendDebounced.flush();
-      await window.service.agentDefinition.updateAgentDef(agentDefinition);
+      await saveDefinition(agentDefinition);
       await addTab(TabType.CHAT, {
         agentDefId: agentDefinition.id,
         title: agentDefinition.name,
@@ -285,7 +277,7 @@ export const EditAgentDefinitionContent: React.FC<EditAgentDefinitionContentProp
     } finally {
       setIsCreatingConversation(false);
     }
-  }, [addTab, agentDefinition, isCreatingConversation, saveToBackendDebounced]);
+  }, [addTab, agentDefinition, isCreatingConversation, saveDefinition]);
 
   if (isLoading && !agentDefinition) {
     return (
@@ -396,6 +388,24 @@ export const EditAgentDefinitionContent: React.FC<EditAgentDefinitionContentProp
         </SectionContainer>
 
         <Divider sx={{ my: 3 }} />
+
+        <SectionContainer>
+          <AgentLoopScriptEditor
+            key={agentDefinition.id}
+            definition={agentDefinition}
+            onSave={async (loopId, source, metadata) => {
+              const updated: AgentDefinition = {
+                ...agentDefinition,
+                loopId,
+                metadata,
+                agentFrameworkID: loopId,
+                scriptReference: { kind: 'source', source, name: `${agentDefinition.id}.mjs` },
+              };
+              setAgentDefinition(updated);
+              await saveDefinition(updated, async () => await window.service.agentDefinition.saveAgentLoopScript({ id: updated.id, loopId, source, metadata }));
+            }}
+          />
+        </SectionContainer>
 
         <Alert
           severity='info'

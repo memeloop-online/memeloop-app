@@ -105,7 +105,7 @@ export const CreateNewAgentContent: React.FC<CreateNewAgentContentProps> = ({ ta
         setPromptSchema(null);
         return;
       }
-      const frameworkId = temporaryAgentDefinition.agentFrameworkID ?? DEFAULT_AGENT_FRAMEWORK_ID;
+      const frameworkId = temporaryAgentDefinition.loopId ?? temporaryAgentDefinition.agentFrameworkID ?? DEFAULT_AGENT_FRAMEWORK_ID;
       try {
         const schema = await window.service.agentInstance.getFrameworkConfigSchema(frameworkId);
         setPromptSchema(schema);
@@ -116,7 +116,7 @@ export const CreateNewAgentContent: React.FC<CreateNewAgentContentProps> = ({ ta
     };
 
     void loadSchema();
-  }, [temporaryAgentDefinition?.id, temporaryAgentDefinition?.agentFrameworkID]);
+  }, [temporaryAgentDefinition?.id, temporaryAgentDefinition?.loopId, temporaryAgentDefinition?.agentFrameworkID]);
 
   // Create preview agent when entering step 3
   useEffect(() => {

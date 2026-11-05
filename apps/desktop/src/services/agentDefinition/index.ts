@@ -1,5 +1,6 @@
 import { inject, injectable } from 'inversify';
 import type { AgentDefinition } from 'memeloop';
+import { digestNormalizedScript, normalizeScript } from 'memeloop';
 import { nanoid } from 'nanoid';
 import { DataSource, Repository } from 'typeorm';
 
@@ -12,7 +13,7 @@ import { logger } from '@services/libs/log';
 import serviceIdentifier from '@services/serviceIdentifier';
 import type { AgentInitializationStatus } from '@services/startupLifecycle';
 import { DEFAULT_AGENT_DEFINITION_ID, getOfficialAgentDefinitions } from './builtinAgentDefinitions';
-import type { IAgentDefinitionService } from './interface';
+import type { AgentDefinitionRuntimeSnapshot, IAgentDefinitionService } from './interface';
 
 /** Map the physical TypeORM row to Core's portable definition exactly once. */
 function isDefined<T>(value: T | null | undefined): value is T {
@@ -20,6 +21,8 @@ function isDefined<T>(value: T | null | undefined): value is T {
 }
 
 function entityToAgentDefinition(entity: AgentDefinitionEntity): AgentDefinition {
+  const loopId = entity.loopId ??
+    (entity.agentFrameworkID === 'agent-tool-loop' || entity.agentFrameworkID === 'agent-agent-loop' ? entity.agentFrameworkID : undefined);
   return {
     id: entity.id,
     name: entity.name,
@@ -27,6 +30,9 @@ function entityToAgentDefinition(entity: AgentDefinitionEntity): AgentDefinition
     systemPrompt: entity.systemPrompt,
     tools: [...entity.tools],
     version: entity.version,
+    ...(isDefined(loopId) ? { loopId } : {}),
+    ...(isDefined(entity.scriptReference) ? { scriptReference: entity.scriptReference } : {}),
+    ...(isDefined(entity.metadata) ? { metadata: entity.metadata } : {}),
     ...(isDefined(entity.modelConfig) ? { modelConfig: entity.modelConfig } : {}),
     ...(isDefined(entity.promptSchema) ? { promptSchema: entity.promptSchema } : {}),
     ...(isDefined(entity.agentFrameworkConfig) ? { agentFrameworkConfig: entity.agentFrameworkConfig } : {}),
@@ -45,6 +51,9 @@ function agentDefinitionToEntity(definition: AgentDefinition): Partial<AgentDefi
     systemPrompt: definition.systemPrompt,
     tools: [...definition.tools],
     version: definition.version,
+    loopId: definition.loopId,
+    scriptReference: definition.scriptReference,
+    metadata: definition.metadata,
     modelConfig: definition.modelConfig,
     promptSchema: definition.promptSchema,
     agentFrameworkConfig: definition.agentFrameworkConfig,
@@ -61,6 +70,9 @@ function applyAgentDefinitionPatch(entity: AgentDefinitionEntity, patch: Partial
   if (patch.systemPrompt !== undefined) entity.systemPrompt = patch.systemPrompt;
   if (patch.tools !== undefined) entity.tools = [...patch.tools];
   if (patch.version !== undefined) entity.version = patch.version;
+  if (patch.loopId !== undefined) entity.loopId = patch.loopId;
+  if (patch.scriptReference !== undefined) entity.scriptReference = patch.scriptReference;
+  if (patch.metadata !== undefined) entity.metadata = patch.metadata;
   if (patch.modelConfig !== undefined) entity.modelConfig = patch.modelConfig;
   if (patch.promptSchema !== undefined) entity.promptSchema = patch.promptSchema;
   if (patch.agentFrameworkConfig !== undefined) entity.agentFrameworkConfig = patch.agentFrameworkConfig;
@@ -79,6 +91,7 @@ export class AgentDefinitionService implements IAgentDefinitionService {
 
   private dataSource: DataSource | null = null;
   private agentDefRepository: Repository<AgentDefinitionEntity> | null = null;
+  private publishRuntime: ((snapshot: AgentDefinitionRuntimeSnapshot) => Promise<void>) | undefined;
   private initializationStatus: AgentInitializationStatus = {
     state: 'starting',
     recoveryRequired: false,
@@ -86,6 +99,21 @@ export class AgentDefinitionService implements IAgentDefinitionService {
 
   public getInitializationStatus(): AgentInitializationStatus {
     return { ...this.initializationStatus };
+  }
+
+  public async configureRuntimePublisher(publish: (snapshot: AgentDefinitionRuntimeSnapshot) => Promise<void>): Promise<void> {
+    this.publishRuntime = publish;
+    await this.publishRuntimeDefinitions();
+  }
+
+  private async publishRuntimeDefinitions(): Promise<void> {
+    if (!this.publishRuntime) return;
+    this.ensureRepositories();
+    const entities = await this.agentDefRepository!.find();
+    await this.publishRuntime({
+      definitions: entities.map(entityToAgentDefinition),
+      approvedScriptDigests: entities.flatMap(entity => entity.approvedScriptDigest ? [entity.approvedScriptDigest] : []),
+    });
   }
 
   public async initialize(): Promise<void> {
@@ -101,7 +129,7 @@ export class AgentDefinitionService implements IAgentDefinitionService {
       logger.debug('Agent database initialized');
       logger.debug('Agent repositories initialized');
 
-      // Check if database is empty and initialize with default agents if needed
+      // Seed new installations and complete the canonical fields on legacy rows.
       await this.initializeDefaultAgentsIfEmpty();
       logger.debug('Agent handlers registered');
 
@@ -128,7 +156,7 @@ export class AgentDefinitionService implements IAgentDefinitionService {
   }
 
   /**
-   * Initialize default agents if database is empty (for first-time users)
+   * Seed the catalogue and backfill fields introduced after its first release.
    */
   private async initializeDefaultAgentsIfEmpty(): Promise<void> {
     if (!this.agentDefRepository) {
@@ -141,15 +169,30 @@ export class AgentDefinitionService implements IAgentDefinitionService {
       if (existingCount === 0) {
         logger.info('Agent database is empty, initializing with default agents');
         const defaultAgentsList = getOfficialAgentDefinitions();
-        // Core owns the built-in profiles. This database is only the App UI's
-        // editable/listing projection; the UtilityProcess executes Core's
-        // canonical profile for the same id.
+        // Core provides the defaults; saved definitions are also published to
+        // the UtilityProcess so the editor and execution use the same profile.
         const agentDefinitionEntities = defaultAgentsList.map(defaultAgent => this.agentDefRepository!.create(agentDefinitionToEntity(defaultAgent)));
         // Save all default agents to database
         await this.agentDefRepository.save(agentDefinitionEntities);
         logger.info(`Initialized ${defaultAgentsList.length} default agents in database`);
       } else {
-        logger.debug(`Agent database already contains ${existingCount} agents, skipping default initialization`);
+        for (const builtin of getOfficialAgentDefinitions()) {
+          const existing = await this.agentDefRepository.findOneBy({ id: builtin.id });
+          if (!existing) continue;
+          const patch: Partial<AgentDefinitionEntity> = {};
+          if (existing.loopId == null && builtin.loopId !== undefined) {
+            patch.loopId = existing.agentFrameworkID === 'agent-tool-loop' || existing.agentFrameworkID === 'agent-agent-loop'
+              ? existing.agentFrameworkID
+              : builtin.loopId;
+          }
+          if ((existing.loopId ?? patch.loopId) === builtin.loopId) {
+            if (existing.scriptReference == null && builtin.scriptReference !== undefined) patch.scriptReference = builtin.scriptReference;
+            if (existing.metadata == null && builtin.metadata !== undefined) patch.metadata = builtin.metadata;
+          }
+          if (Object.keys(patch).length > 0) {
+            await this.agentDefRepository.save(Object.assign(existing, patch));
+          }
+        }
       }
     } catch (error) {
       logger.error(`Failed to initialize default agents: ${error as Error}`);
@@ -179,6 +222,7 @@ export class AgentDefinitionService implements IAgentDefinitionService {
       const agentDefinitionEntity = this.agentDefRepository!.create(agentDefinitionToEntity(agent));
 
       await this.agentDefRepository!.save(agentDefinitionEntity);
+      await this.publishRuntimeDefinitions();
       logger.info(`Created agent definition: ${agent.id}`);
 
       return entityToAgentDefinition(agentDefinitionEntity);
@@ -202,9 +246,16 @@ export class AgentDefinitionService implements IAgentDefinitionService {
         throw new Error(`Agent definition not found: ${agent.id}`);
       }
 
+      if (agent.scriptReference !== undefined && existingAgent.approvedScriptDigest) {
+        const digest = agent.scriptReference.kind === 'source'
+          ? await digestNormalizedScript(normalizeScript(agent.scriptReference.source))
+          : null;
+        if (digest !== existingAgent.approvedScriptDigest) existingAgent.approvedScriptDigest = null;
+      }
       applyAgentDefinitionPatch(existingAgent, agent);
 
       await this.agentDefRepository!.save(existingAgent);
+      await this.publishRuntimeDefinitions();
       logger.info(`Updated agent definition: ${agent.id}`);
 
       return entityToAgentDefinition(existingAgent);
@@ -213,6 +264,20 @@ export class AgentDefinitionService implements IAgentDefinitionService {
       logger.error(`Failed to update agent definition: ${errorMessage}`);
       throw error;
     }
+  }
+
+  public async saveAgentLoopScript(input: { id: string; loopId: string; source: string; metadata?: Record<string, unknown> }): Promise<AgentDefinition> {
+    this.ensureRepositories();
+    const entity = await this.agentDefRepository!.findOneByOrFail({ id: input.id });
+    if (input.loopId !== 'agent-tool-loop' && input.loopId !== 'agent-agent-loop') throw new Error(`Unknown agent loop: ${input.loopId}`);
+    entity.loopId = input.loopId;
+    entity.agentFrameworkID = input.loopId;
+    entity.scriptReference = { kind: 'source', source: input.source, name: `${input.id}.mjs` };
+    if (input.metadata !== undefined) entity.metadata = input.metadata;
+    entity.approvedScriptDigest = await digestNormalizedScript(normalizeScript(input.source));
+    await this.agentDefRepository!.save(entity);
+    await this.publishRuntimeDefinitions();
+    return entityToAgentDefinition(entity);
   }
 
   // Get all available agent definitions
@@ -265,6 +330,7 @@ export class AgentDefinitionService implements IAgentDefinitionService {
     try {
       // Delete the agent definition - instances will be handled by cleanup processes
       await this.agentDefRepository!.delete(id);
+      await this.publishRuntimeDefinitions();
       logger.info(`Deleted agent definition: ${id}`);
     } catch (error) {
       logger.error(`Failed to delete agent definition: ${error as Error}`);

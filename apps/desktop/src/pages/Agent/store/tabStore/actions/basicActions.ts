@@ -115,10 +115,8 @@ export const createBasicActions = (): Pick<
   closeTab: async (tabId) => {
     try {
       await window.service.agentBrowser.closeTab(tabId);
-      return true;
     } catch (error) {
       console.error('Failed to close tab:', error);
-      return false;
     }
   },
 

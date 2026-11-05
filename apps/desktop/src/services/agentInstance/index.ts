@@ -41,6 +41,8 @@ import {
   type DeviceCapabilities,
   type DeviceRpcHandler,
   type FullAgentStorage,
+  GOAL_RPC_METHODS,
+  type GoalClient,
   type LocalDeviceIdentity,
   type PromptPreviewAuditDetailChunk,
   type PromptPreviewAuditDetailRequest,
@@ -883,6 +885,9 @@ export class AgentInstanceService implements IAgentInstanceService {
         orchestrationAccessToken: this.memeLoopOrchestrationToken,
         localPeerId: this.memeLoopHostIdentity.peerId,
       });
+      await this.agentDefinitionService.configureRuntimePublisher(async snapshot => {
+        await this.memeLoopWorker?.replaceAgentDefinitions(snapshot);
+      });
 
       // Subscribe UtilityProcess logs via the standard workerAdapter protocol.
       this.memeLoopWorkerLogCleanup?.();
@@ -1184,6 +1189,26 @@ export class AgentInstanceService implements IAgentInstanceService {
     await this.callLocalAgentDeviceRpc(AGENT_DEVICE_RPC_METHODS.setMainConversation, { conversationId });
   }
 
+  public getGoal(conversationId: string): ReturnType<GoalClient['get']> {
+    return this.callLocalAgentDeviceRpc(GOAL_RPC_METHODS.get, { conversationId });
+  }
+
+  public startGoal(input: Parameters<GoalClient['start']>[0]): ReturnType<GoalClient['start']> {
+    return this.callLocalAgentDeviceRpc(GOAL_RPC_METHODS.start, input);
+  }
+
+  public pauseGoal(input: Parameters<GoalClient['pause']>[0]): ReturnType<GoalClient['pause']> {
+    return this.callLocalAgentDeviceRpc(GOAL_RPC_METHODS.pause, input);
+  }
+
+  public resumeGoal(input: Parameters<GoalClient['resume']>[0]): ReturnType<GoalClient['resume']> {
+    return this.callLocalAgentDeviceRpc(GOAL_RPC_METHODS.resume, input);
+  }
+
+  public completeGoal(input: Parameters<GoalClient['complete']>[0]): ReturnType<GoalClient['complete']> {
+    return this.callLocalAgentDeviceRpc(GOAL_RPC_METHODS.complete, input);
+  }
+
   public async acceptConversationBranch(request: ConversationForkRequest): Promise<void> {
     const conversation = await this.callMemeLoopWorkerStorage<ConversationMeta | null>('getConversationMeta', request.targetConversationId);
     if (!conversation) throw new Error('conversation_branch_target_missing');
@@ -1464,7 +1489,7 @@ export class AgentInstanceService implements IAgentInstanceService {
       stopHeartbeat(agentId);
       await deleteTasksForAgent(agentId);
       await cleanupMCPClient(agentId);
-      await this.cancelWorkerConversation(agentId);
+      await this.cancelAgent(agentId);
       await repo.deleteAgent(
         this.agentInstanceRepository!,
         this.agentMessageRepository!,
@@ -1691,8 +1716,7 @@ export class AgentInstanceService implements IAgentInstanceService {
 
   public async cancelAgent(agentId: string): Promise<void> {
     stopHeartbeat(agentId);
-    const workerConversationId = this.workerConversationByAgentId.get(agentId);
-    if (!workerConversationId) return;
+    const workerConversationId = this.workerConversationByAgentId.get(agentId) ?? agentId;
     await this.ensureMemeLoopWorkerHealthy();
     if (!this.memeLoopWorker) throw new Error('MemeLoop runtime is unavailable');
     const runId = this.workerActiveRunIdByConversationId.get(workerConversationId);
@@ -1706,7 +1730,7 @@ export class AgentInstanceService implements IAgentInstanceService {
       stopHeartbeat(agentId);
       await cancelTasksForAgent(agentId);
       await cleanupMCPClient(agentId);
-      await this.cancelWorkerConversation(agentId);
+      await this.cancelAgent(agentId);
       this.cleanupWorkerConversation(agentId);
       this.workerConversationByAgentId.delete(agentId);
 
@@ -2116,29 +2140,6 @@ Result: ${JSON.stringify(approvalPrompt)}
       this.workerAgentIdByConversationId.delete(workerConversationId);
       this.workerActiveTurnIdByConversationId.delete(workerConversationId);
       this.workerActiveRunIdByConversationId.delete(workerConversationId);
-    }
-  }
-
-  private async cancelWorkerConversation(agentId: string): Promise<void> {
-    const workerConversationId = this.workerConversationByAgentId.get(agentId);
-    if (!workerConversationId) return;
-    try {
-      await this.ensureMemeLoopWorkerHealthy();
-    } catch (error: unknown) {
-      logger.debug('MemeLoop UtilityProcess conversation was unavailable during cancellation', { error });
-      return;
-    }
-    if (!this.memeLoopWorker) return;
-    try {
-      await this.memeLoopWorker.cancelRun(
-        workerConversationId,
-        this.workerActiveRunIdByConversationId.get(workerConversationId),
-      );
-    } catch (error) {
-      logger.warn(
-        'Failed to cancel MemeLoop UtilityProcess conversation during cleanup',
-        { agentId, workerConversationId, error },
-      );
     }
   }
 

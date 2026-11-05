@@ -87,4 +87,25 @@ describe('createDesktopDeviceRpcHandlers', () => {
       `rpc_permission_denied:${AGENT_DEVICE_RPC_METHODS.getMessagePage}`,
     );
   });
+
+  it('shares goal state between local IPC and authenticated paired devices', async () => {
+    const goals = {
+      get: vi.fn().mockResolvedValue(null),
+      start: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      complete: vi.fn(),
+    };
+    const { local, network } = createDesktopDeviceRpcHandlers({
+      ...createHandlerOptions(),
+      authorize: authorizeNetworkAgentRequest,
+      goals,
+    });
+    const request = { remotePeerId, method: 'memeloop.goal.get', parameters: { conversationId } };
+    await expect(local(request)).resolves.toBeNull();
+    await expect(authenticatedPairedPeer.run(remotePeerId, () => network(request))).resolves.toBeNull();
+    expect(goals.get).toHaveBeenCalledTimes(2);
+    await expect(network(request)).rejects.toThrow('rpc_permission_denied');
+    expect(goals.get).toHaveBeenCalledTimes(2);
+  });
 });

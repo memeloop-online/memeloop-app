@@ -46,6 +46,7 @@ vi.mock('@services/libs/workerAdapter', async (importOriginal) => {
     ...actual,
     createWorkerProxy: () => ({
       configureHost: async () => ({ ok: true }),
+      replaceAgentDefinitions: async () => undefined,
       ping: async () => ({ ok: true }),
       startServer: async (port: number) => ({ running: true, nodeId: 'test-node-id', port: port || 31_337 }),
       stopServer: async () => ({ ok: true }),

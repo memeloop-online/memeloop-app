@@ -1,8 +1,8 @@
-import { AgentChatShell, AgentSessionProvider, useAgentSession, useAgentSessionChatAdapter } from '@memeloop/react-ui/agent';
+import { AgentChatShell, AgentSessionProvider, getGoalPanelLabels, GoalDialog, useAgentSession, useAgentSessionChatAdapter } from '@memeloop/react-ui/agent';
 import type { MemeLoopMessageLabels, WebMemeLoopChatAdapter } from '@memeloop/react-ui/chat';
 import { Box, Typography } from '@mui/material';
 import type { AgentInstanceMetadata } from '@services/agentInstance/interface';
-import { type ConversationBranchState, createConversationEditingAdapter } from 'memeloop';
+import { type ConversationBranchState, createConversationEditingAdapter, type GoalClient } from 'memeloop';
 import { nanoid } from 'nanoid';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -30,6 +30,8 @@ interface ActiveChatTabContentProps extends ChatTabContentProps {
   agentDefId?: string;
   title?: string;
 }
+
+const EMPTY_BRANCHES: ConversationBranchState[] = [];
 
 const PromptPreviewDialog = React.lazy(async () => {
   const module = await import('./components/PromptPreviewDialog');
@@ -68,6 +70,15 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
   const [metadata, setMetadata] = useState<AgentInstanceMetadata>();
   const [previewMode, setPreviewMode] = useState<'preview' | 'edit'>();
   const [parametersOpen, setParametersOpen] = useState(false);
+  const [goalOpen, setGoalOpen] = useState(false);
+  const goalLabels = getGoalPanelLabels(i18n.language);
+  const goalClient = useMemo<GoalClient>(() => ({
+    get: conversationId => window.service.agentInstance.getGoal(conversationId),
+    start: input => window.service.agentInstance.startGoal(input),
+    pause: input => window.service.agentInstance.pauseGoal(input),
+    resume: input => window.service.agentInstance.resumeGoal(input),
+    complete: input => window.service.agentInstance.completeGoal(input),
+  }), []);
   const switchGeneration = useRef(0);
   const updateTabData = useTabStore(useShallow(state => state.updateTabData));
   const formatTimelineTimestamp = useMemo(() => {
@@ -110,13 +121,17 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
       void window.service.native.log('warn', 'Agent chat operation failed', { agentId, error });
     },
   });
-  const [branches, setBranches] = useState<ConversationBranchState[]>([]);
+  const [branchState, setBranchState] = useState<{ agentId: string; branches: ConversationBranchState[] }>();
+  const branches = branchState?.agentId === agentId ? branchState.branches : EMPTY_BRANCHES;
+  const userMessageIdsKey = JSON.stringify(sessionAdapter.messages.filter(message => message.role === 'user').map(message => message.messageId));
   useEffect(() => {
     let active = true;
+    let latestRequest = 0;
     const refreshBranches = () => {
-      void window.service.agentInstance.getConversationBranches(agentId, sessionAdapter.messages.filter(message => message.role === 'user').map(message => message.messageId))
+      const request = ++latestRequest;
+      void window.service.agentInstance.getConversationBranches(agentId, JSON.parse(userMessageIdsKey) as string[])
         .then(value => {
-          if (active) setBranches(value);
+          if (active && request === latestRequest) setBranchState({ agentId, branches: value });
         })
         .catch((error: unknown) => {
           void window.service.native.log('warn', 'Failed to load branch history', { error });
@@ -128,7 +143,7 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
       active = false;
       window.removeEventListener('focus', refreshBranches);
     };
-  }, [agentId, sessionAdapter.messages]);
+  }, [agentId, userMessageIdsKey, snapshot.revision, sessionAdapter.isRunning]);
   const switchConversation = useCallback(async (conversationId: string) => {
     const next = await window.service.agentInstance.getAgentMetadata(conversationId);
     if (!next) throw new Error('conversation_branch_target_missing');
@@ -256,6 +271,9 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
               setParametersOpen(true);
             }}
             onOpenPreview={setPreviewMode}
+            onOpenGoal={() => {
+              setGoalOpen(true);
+            }}
             onSwitchAgent={handleSwitchAgent}
           />
         ),
@@ -324,6 +342,11 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
         error: t('Chat.Message.Error'),
         toolResult: t('Chat.Message.ToolResult'),
         toolCall: toolName => t('Chat.Message.ToolCall', { toolName }),
+        workSteps: count => t('Chat.Message.WorkSteps', { count }),
+        toolSteps: count => t('Chat.Message.ToolSteps', { count }),
+        toolInput: t('Chat.Message.ToolInput'),
+        toolOutput: t('Chat.Message.ToolOutput'),
+        toolInputTruncated: t('Chat.Message.ToolInputTruncated'),
         truncated: (count, capability) =>
           t(
             capability === 'detail'
@@ -350,6 +373,18 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
       }}
       dialogs={
         <>
+          {goalOpen && (agentDefId ?? snapshot.agent?.agentDefId) && (
+            <GoalDialog
+              key={agentId}
+              client={goalClient}
+              conversationId={agentId}
+              definitionId={(agentDefId ?? snapshot.agent?.agentDefId)!}
+              labels={goalLabels}
+              onClose={() => {
+                setGoalOpen(false);
+              }}
+            />
+          )}
           {parametersOpen && (
             <ConversationModelParametersDialog
               key={agentId}

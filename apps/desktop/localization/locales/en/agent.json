@@ -1,4 +1,16 @@
 {
+  "LoopScript": {
+    "Title": "Execution script",
+    "Description": "Customize the agent loop with JavaScript (.mjs). Saving enables this source to run on this computer with your account's access.",
+    "Family": "Loop",
+    "ToolLoop": "Tools",
+    "AgentLoop": "Subagents",
+    "Source": "JavaScript source",
+    "Metadata": "Loop configuration (JSON)",
+    "InvalidMetadata": "Enter a JSON object for the loop configuration.",
+    "Save": "Save script",
+    "Saved": "Script saved and ready for the next run."
+  },
   "APILogs": {
     "CurrentAgent": "Showing logs for agent: {{agentId}}",
     "Description": "Debug logs for external API calls made by this agent. Enable 'External API Debug' in preferences to start logging.",
@@ -123,6 +135,11 @@
       "Error": "Error",
       "ToolResult": "Tool result",
       "ToolCall": "Tool call: {{toolName}}",
+      "WorkSteps": "Worked {{count}} steps",
+      "ToolSteps": "{{count}} tool calls",
+      "ToolInput": "Command / arguments",
+      "ToolOutput": "Result",
+      "ToolInputTruncated": "Arguments exceed the preview limit. Open details for more.",
       "Truncated": "Message shortened for display ({{count}} characters).",
       "TruncatedDetail": "Message shortened for display ({{count}} characters). View details for complete content.",
       "TruncatedExport": "Message shortened for display ({{count}} characters). Export for complete content.",

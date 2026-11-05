@@ -207,7 +207,6 @@ async function launchMemeLoopApplication(world: ApplicationWorld): Promise<void>
       '--disable-extensions',
       '--disable-plugins',
       '--disable-default-apps',
-      '--virtual-time-budget=1000',
       '--run-all-compositor-stages-before-draw',
       '--disable-checker-imaging',
       ...(process.env.CI && process.platform === 'linux'

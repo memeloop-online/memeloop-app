@@ -3,6 +3,12 @@ import type { AgentInitializationStatus } from '@services/startupLifecycle';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
 import type { AgentDefinition, AgentDefinitionToolConfig, AgentHeartbeatConfig, AgentModelConfig, ToolCallingMatch } from 'memeloop';
 
+/** Private main-to-UtilityProcess configuration; approval stays on this device. */
+export interface AgentDefinitionRuntimeSnapshot {
+  definitions: AgentDefinition[];
+  approvedScriptDigests: string[];
+}
+
 /**
  * Agent service to manage agent definitions
  */
@@ -26,6 +32,8 @@ export interface IAgentDefinitionService {
    * @returns The updated AgentDefinition
    */
   updateAgentDef(agent: Partial<AgentDefinition> & { id: string }): Promise<AgentDefinition>;
+  saveAgentLoopScript(input: { id: string; loopId: string; source: string; metadata?: Record<string, unknown> }): Promise<AgentDefinition>;
+  configureRuntimePublisher(publish: (snapshot: AgentDefinitionRuntimeSnapshot) => Promise<void>): Promise<void>;
   /**
    * Get all available agent definitions.
    * This returns simplified definitions (without handler instances). No server-side
@@ -59,6 +67,7 @@ export const AgentDefinitionServiceIPCDescriptor = {
     getInitializationStatus: ProxyPropertyType.Function,
     createAgentDef: ProxyPropertyType.Function,
     updateAgentDef: ProxyPropertyType.Function,
+    saveAgentLoopScript: ProxyPropertyType.Function,
     getAgentDefs: ProxyPropertyType.Function,
     getAgentDef: ProxyPropertyType.Function,
     getAgentTemplates: ProxyPropertyType.Function,

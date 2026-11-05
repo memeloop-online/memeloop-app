@@ -19,6 +19,7 @@ import {
   type DeviceCapabilities,
   type DeviceRpcHandler,
   type DeviceRpcHandlerInput,
+  GoalCoordinator,
   type PortableLlmRequest,
   type PortableLlmStreamPart,
   prepareAgentExecutionModelRequest,
@@ -28,10 +29,13 @@ import {
   PromptPreviewAuditSessionStore,
 } from 'memeloop';
 import type { NodeRuntimeResult } from 'memeloop-cli/runtime';
+import type { AgentDefinitionRuntimeSnapshot } from '../agentDefinition/interface';
 import { requireDesktopAtomicRetryStore } from './atomicRetryCapability';
 import { createDesktopConversationModelParameters, type DesktopModelConfiguration } from './conversationModelParameters';
 import { type ConversationMutationWake, installConversationMutationObserver } from './conversationMutationObserver';
 import { createDesktopDeviceRpcHandlers } from './desktopDeviceRpcHandlers';
+import { cancelDesktopGoalRun } from './goalLifecycle';
+import { SqliteGoalStore } from './goalStore';
 import { createLlmCorrelatedRuntime, resolveLlmConversationId, runWithLlmConversation } from './llmRequestCorrelation';
 import { authenticatedPairedPeer, authorizeNetworkAgentRequest } from './networkRpcAuthorization';
 import { createDesktopRetryTurnHandler } from './retryTurn';
@@ -45,6 +49,7 @@ import type {
   UpdateScheduledTaskInput,
 } from './scheduledTaskTypes';
 import { TerminalSessionManager } from './terminal/sessionManager';
+import { WorkerAgentDefinitions } from './workerAgentDefinitions';
 import { ensureMemeLoopWorkerDataDirectory } from './workerDataDirectory';
 import { DesktopWorkerModelRegistry } from './workerModelRegistry';
 import { createWorkerStorageBridge, type WorkerStorageRequest } from './workerStorageBridge';
@@ -705,6 +710,7 @@ let localDeviceRpcHandler: DeviceRpcHandler | undefined;
 let scheduledTaskRpcHandler: ReturnType<typeof createDesktopScheduledTaskRpcHandler> | undefined;
 let runtimeToolIds: string[] = [];
 let runtimeAgentDefinitions: AgentDefinition[] = [];
+const workerAgentDefinitions = new WorkerAgentDefinitions();
 let orchestrationClient:
   | import('memeloop').AgentOrchestrationClient
   | undefined;
@@ -730,6 +736,8 @@ interface DesktopHostConfig {
 }
 
 let hostConfig: DesktopHostConfig | undefined;
+let goalStore: SqliteGoalStore | undefined;
+let goals: GoalCoordinator | undefined;
 
 function isAgentRuntimeRpcStorage(value: unknown): value is AgentRuntimeRpcStorage & ConversationEditingPort & {
   getMainConversationId(): Promise<string | null>;
@@ -775,10 +783,14 @@ function getDesktopDeviceRpcHandler(localOnly: boolean): DeviceRpcHandler {
   }
   const retryTurn = createDesktopRetryTurnHandler(activeRuntime);
   const handlers = createDesktopDeviceRpcHandlers({
-    runtime: createLlmCorrelatedRuntime(activeRuntime),
+    runtime: {
+      ...createLlmCorrelatedRuntime(activeRuntime),
+      cancelRun: runId => cancelDesktopGoalRun(activeRuntime, goals, { runId }),
+    },
     storage: activeStorage,
     authorize: authorizeNetworkAgentRequest,
     conversationEditing: activeStorage,
+    goals,
     conversationModelParameters: createWorkerConversationModelParameters(),
     getMainConversationId: () => activeStorage.getMainConversationId(),
     setMainConversationId: conversationId => activeStorage.setMainConversationId(conversationId),
@@ -843,6 +855,22 @@ async function ensureRuntimeInitialized(): Promise<void> {
     createRemoteOrchestrationHttpHandlerFunction = createRemoteOrchestrationHttpHandler;
     const configuredHost = requireHostConfig();
     localNodeId = configuredHost.localPeerId;
+    goalStore = new SqliteGoalStore(path.join(configuredHost.dataDir, 'goals.sqlite'), configuredHost.sqliteNativeBinding);
+    goals = new GoalCoordinator({
+      store: goalStore,
+      executionNodeId: localNodeId,
+      getRuntime: async () => {
+        await ensureRuntimeInitialized();
+        const activeRuntime = runtime!;
+        return {
+          ...createLlmCorrelatedRuntime(activeRuntime),
+          subscribeToUpdates: activeRuntime.subscribeToUpdates.bind(activeRuntime),
+        };
+      },
+      onError: error => {
+        workerLog('error', 'Goal continuation failed', { error });
+      },
+    });
     workerLog('info', '[memeloop-utility-process] runtime module loaded');
 
     const mainBridgeToolIds = await requestMainBridgeToolList().catch(
@@ -860,12 +888,13 @@ async function ensureRuntimeInitialized(): Promise<void> {
     workerLog('info', '[memeloop-utility-process] createNodeRuntime starting');
     const modelConfiguration = await refreshWorkerModelConfiguration();
     const runtimeResult = await createNodeRuntime({
-      // Core supplies the official profiles. App-specific definitions are
-      // resolved explicitly from storage and must never shadow Core defaults.
-      config: { agents: [], defaultModelConfig: modelConfiguration.default },
+      config: { agents: runtimeAgentDefinitions, defaultModelConfig: modelConfiguration.default },
+      getAgentDefinition: workerAgentDefinitions.get,
+      loopScriptPolicy: workerAgentDefinitions.scriptPolicy,
       dataDir: configuredHost.dataDir,
       sqliteNativeBinding: configuredHost.sqliteNativeBinding,
       localNodeId,
+      goals,
       llmProvider: modelConfiguration.default
         ? workerModelRegistry.registry.get(modelConfiguration.default.providerId) ?? llmProvider
         : llmProvider,
@@ -978,8 +1007,9 @@ async function ensureRuntimeInitialized(): Promise<void> {
       });
     });
     runtimeToolIds = runtimeResult.toolRegistry.listTools();
-    runtimeAgentDefinitions = [...runtimeResult.agentDefinitions];
+    runtimeAgentDefinitions = workerAgentDefinitions.list();
     orchestrationClient = runtimeResult.context.orchestration;
+    await goals.restore();
   })();
 
   await runtimeInitPromise;
@@ -1105,6 +1135,8 @@ async function shutdownDesktopNode(): Promise<void> {
   if (shutdownDesktopNodePromise) return shutdownDesktopNodePromise;
   shutdownDesktopNodePromise = (async () => {
     await stopDesktopHttpServer();
+    await goals?.suspend();
+    goals = undefined;
     for (const controller of pendingNetworkRpc.values()) controller.abort(new Error('MemeLoop UtilityProcess is shutting down'));
     pendingNetworkRpc.clear();
     workerStorageBridge.abortAll();
@@ -1121,6 +1153,8 @@ async function shutdownDesktopNode(): Promise<void> {
     try {
       await stop?.();
     } finally {
+      goalStore?.close();
+      goalStore = undefined;
       runtime = undefined;
       storage = undefined;
       runtimeContext = undefined;
@@ -1144,6 +1178,10 @@ const workerState = {
 };
 
 const memeloopWorker = {
+  replaceAgentDefinitions: async (snapshot: AgentDefinitionRuntimeSnapshot): Promise<void> => {
+    workerAgentDefinitions.replace(snapshot);
+    runtimeAgentDefinitions = workerAgentDefinitions.list();
+  },
   configureHost: async (config: DesktopHostConfig) => {
     if (runtimeInitPromise || runtime) {
       throw new Error('MemeLoop UtilityProcess is already initialized');
@@ -1429,13 +1467,7 @@ const memeloopWorker = {
     workerLog('warn', '[memeloop-utility-process] cancelRun', { conversationId, runId });
     conversationCancellation.add(conversationId);
     if (!runtime) throw new Error('MemeLoop runtime did not initialize');
-    if (runId) {
-      return { ok: await runtime.cancelRun(runId) };
-    }
-    // Handles the short accept/cancel race before the accepted run id crosses
-    // the worker boundary. The runtime owns the authoritative active-run set.
-    await runtime.cancelAgent(conversationId);
-    return { ok: true };
+    return { ok: await cancelDesktopGoalRun(runtime, goals, { conversationId, runId }) };
   },
   subscribeToUpdates: (conversationId: string) => {
     if (!runtime) throw new Error('MemeLoop runtime not initialized');

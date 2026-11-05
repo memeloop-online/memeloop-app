@@ -1,6 +1,8 @@
+import { getGoalPanelLabels } from '@memeloop/react-ui/agent';
 import ArticleIcon from '@mui/icons-material/Article';
 import BugReportIcon from '@mui/icons-material/BugReport';
 import EditIcon from '@mui/icons-material/Edit';
+import FlagOutlinedIcon from '@mui/icons-material/FlagOutlined';
 import HomeIcon from '@mui/icons-material/Home';
 import TuneIcon from '@mui/icons-material/Tune';
 import { Alert, Box, CircularProgress, IconButton } from '@mui/material';
@@ -17,6 +19,7 @@ interface ChatHeaderProps {
   agentDefId?: string;
   loading: boolean;
   onOpenParameters: () => void;
+  onOpenGoal: () => void;
   onOpenPreview: (mode: 'preview' | 'edit') => void;
   onSwitchAgent?: (agentDefinitionId: string) => void;
 }
@@ -27,10 +30,12 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   agentDefId,
   loading,
   onOpenParameters,
+  onOpenGoal,
   onOpenPreview,
   onSwitchAgent,
 }) => {
-  const { t } = useTranslation('agent');
+  const { i18n, t } = useTranslation('agent');
+  const goalLabels = getGoalPanelLabels(i18n.language);
   const preference = usePreferenceObservable();
   const [apiLogsDialogOpen, setApiLogsDialogOpen] = useState(false);
   const [mainSelection, setMainSelection] = useState<'saved' | 'failed'>();
@@ -59,6 +64,9 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             disabled={loading}
           />
         )}
+        <IconButton size='small' onClick={onOpenGoal} title={goalLabels.title} aria-label={goalLabels.title}>
+          <FlagOutlinedIcon />
+        </IconButton>
         <IconButton
           size='small'
           onClick={() => {

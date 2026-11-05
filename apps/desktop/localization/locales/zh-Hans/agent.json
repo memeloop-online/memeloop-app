@@ -1,4 +1,16 @@
 {
+  "LoopScript": {
+    "Title": "执行脚本",
+    "Description": "使用 JavaScript（.mjs）自定义智能体循环。保存后，这份源码会以你的账户权限在本机执行。",
+    "Family": "循环",
+    "ToolLoop": "工具调用",
+    "AgentLoop": "子智能体",
+    "Source": "JavaScript 源码",
+    "Metadata": "循环配置（JSON）",
+    "InvalidMetadata": "请使用 JSON 对象填写循环配置。",
+    "Save": "保存脚本",
+    "Saved": "脚本已保存，将用于下一轮运行。"
+  },
   "APILogs": {
     "CurrentAgent": "显示智能体日志: {{agentId}}",
     "Description": "此智能体的外部接口调用调试日志。在偏好设置中启用「外部接口调试」以开始记录。",
@@ -123,6 +135,11 @@
       "Error": "错误",
       "ToolResult": "工具结果",
       "ToolCall": "工具调用：{{toolName}}",
+      "WorkSteps": "工作了 {{count}} 步",
+      "ToolSteps": "{{count}} 次工具调用",
+      "ToolInput": "命令 / 参数",
+      "ToolOutput": "结果",
+      "ToolInputTruncated": "参数超出预览长度，可展开详情查看更多。",
       "Truncated": "消息已为显示而缩短（原 {{count}} 个字符）。",
       "TruncatedDetail": "消息已为显示而缩短（原 {{count}} 个字符）。查看详细内容以获取完整内容。",
       "TruncatedExport": "消息已为显示而缩短（原 {{count}} 个字符）。导出以获取完整内容。",

@@ -96,7 +96,7 @@ export const NewTabContent: React.FC<NewTabContentProps> = ({ tab: _tab }) => {
           // Must await to avoid race with the subsequent addTab.
           // If we close in parallel, the store can temporarily lose activeTabId
           // and render NewTabContent, causing E2E selectors to fail.
-          closeTab(activeTabId);
+          await closeTab(activeTabId);
         }
       }
 
@@ -116,7 +116,7 @@ export const NewTabContent: React.FC<NewTabContentProps> = ({ tab: _tab }) => {
       if (activeTabId) {
         const activeTab = tabs.find(tab => tab.id === activeTabId);
         if (activeTab && (activeTab.id.startsWith(TEMP_TAB_ID_PREFIX) || activeTab.type === TabType.NEW_TAB)) {
-          closeTab(activeTabId);
+          await closeTab(activeTabId);
         }
       }
 
@@ -140,7 +140,7 @@ export const NewTabContent: React.FC<NewTabContentProps> = ({ tab: _tab }) => {
       if (activeTabId) {
         const activeTab = tabs.find(tab => tab.id === activeTabId);
         if (activeTab && (activeTab.id.startsWith(TEMP_TAB_ID_PREFIX) || activeTab.type === TabType.NEW_TAB)) {
-          closeTab(activeTabId);
+          await closeTab(activeTabId);
         }
       }
 

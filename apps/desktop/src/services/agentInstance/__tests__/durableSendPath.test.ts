@@ -72,4 +72,15 @@ describe('AgentInstanceService durable send path', () => {
 
     expect(cancelRun).toHaveBeenCalledWith('conversation-1', undefined);
   });
+
+  it('stops a restored conversation goal before any local chat mapping is opened', async () => {
+    const cancelRun = vi.fn().mockResolvedValue({ ok: true });
+    const service = new AgentInstanceService();
+    Object.assign(service, {
+      memeLoopWorker: { cancelRun },
+      ensureMemeLoopWorkerHealthy: vi.fn().mockResolvedValue(undefined),
+    });
+    await service.cancelAgent('restored-conversation');
+    expect(cancelRun).toHaveBeenCalledWith('restored-conversation', undefined);
+  });
 });

@@ -38,6 +38,11 @@ describe('agent message locale parity', () => {
       'Error',
       'ToolResult',
       'ToolCall',
+      'WorkSteps',
+      'ToolSteps',
+      'ToolInput',
+      'ToolOutput',
+      'ToolInputTruncated',
       'Truncated',
       'TruncatedDetail',
       'TruncatedExport',
@@ -49,7 +54,7 @@ describe('agent message locale parity', () => {
       expect(Object.keys(labels), locale).toEqual(expect.arrayContaining(requiredKeys));
       for (const key of requiredKeys) expect(labels[key], `${locale}:${key}`).toMatch(/\S/);
       expect(labels.ToolCall, locale).toContain('{{toolName}}');
-      for (const key of ['Truncated', 'TruncatedDetail', 'TruncatedExport']) {
+      for (const key of ['Truncated', 'TruncatedDetail', 'TruncatedExport', 'WorkSteps', 'ToolSteps']) {
         expect(labels[key], `${locale}:${key}`).toContain('{{count}}');
       }
 

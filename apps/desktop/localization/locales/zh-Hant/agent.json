@@ -1,4 +1,16 @@
 {
+  "LoopScript": {
+    "Title": "執行腳本",
+    "Description": "使用 JavaScript（.mjs）自訂智能體循環。儲存後，這份原始碼會以你的帳戶權限在本機執行。",
+    "Family": "循環",
+    "ToolLoop": "工具呼叫",
+    "AgentLoop": "子智能體",
+    "Source": "JavaScript 原始碼",
+    "Metadata": "循環設定（JSON）",
+    "InvalidMetadata": "請使用 JSON 物件填寫循環設定。",
+    "Save": "儲存腳本",
+    "Saved": "腳本已儲存，將用於下一輪執行。"
+  },
   "APILogs": {
     "CurrentAgent": "顯示智慧體日誌: {{agentId}}",
     "Description": "此智慧體的外部介面調用除錯日誌。在偏好設置中啟用「外部介面除錯」以開始記錄。",
@@ -94,6 +106,11 @@
       "Error": "錯誤",
       "ToolResult": "工具結果",
       "ToolCall": "工具調用：{{toolName}}",
+      "WorkSteps": "工作了 {{count}} 步",
+      "ToolSteps": "{{count}} 次工具呼叫",
+      "ToolInput": "命令 / 參數",
+      "ToolOutput": "結果",
+      "ToolInputTruncated": "參數超出預覽長度，可展開詳細資料查看更多。",
       "Truncated": "訊息已為顯示而縮短（原 {{count}} 個字元）。",
       "TruncatedDetail": "訊息已為顯示而縮短（原 {{count}} 個字元）。查看詳細內容以取得完整內容。",
       "TruncatedExport": "訊息已為顯示而縮短（原 {{count}} 個字元）。匯出以取得完整內容。",

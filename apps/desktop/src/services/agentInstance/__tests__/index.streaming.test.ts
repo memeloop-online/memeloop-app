@@ -41,6 +41,9 @@ describe('AgentInstanceService incremental observable', () => {
     database.getDatabase = vi.fn().mockResolvedValue(dataSource);
     const definitions = container.get<IAgentDefinitionService>(serviceIdentifier.AgentDefinition);
     definitions.getAgentDef = vi.fn().mockResolvedValue(undefined);
+    definitions.configureRuntimePublisher = vi.fn(async publish => {
+      await publish({ definitions: [], approvedScriptDigests: [] });
+    });
 
     service = container.get<IAgentInstanceService>(serviceIdentifier.AgentInstance);
     await service.initialize();

@@ -8,6 +8,7 @@ import type {
   AgentModelConfig,
   ChatMessage,
   CreateScheduledTaskInput,
+  LoopProfileScriptReference,
   ScheduledTask,
   ScheduledTaskState,
 } from 'memeloop';
@@ -186,6 +187,19 @@ export class AgentDefinitionEntity implements AgentDefinition {
 
   @Column()
   version!: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  loopId?: string;
+
+  @Column({ type: 'simple-json', nullable: true })
+  scriptReference?: LoopProfileScriptReference;
+
+  @Column({ type: 'simple-json', nullable: true })
+  metadata?: Record<string, unknown>;
+
+  /** Local editor approval; excluded from portable definitions. */
+  @Column({ type: 'varchar', nullable: true })
+  approvedScriptDigest?: string | null;
 
   /** Agent avatar or icon URL, nullable indicates using default avatar */
   @Column({ nullable: true })

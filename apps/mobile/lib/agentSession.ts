@@ -278,7 +278,8 @@ class RemoteAgentRuntimeBridge {
         const { meta } = await this.client.getConversationMeta({ conversationId: agentId }, { signal: options?.signal });
         if (!meta) throw new Error('remote_agent_conversation_not_found');
         const { definitions } = await this.client.getDefinitions({}, { signal: options?.signal });
-        return definitions.find(definition => definition.id === meta.definitionId)?.agentFrameworkID ?? 'memeloop:agent-tool-loop';
+        const definition = definitions.find(candidate => candidate.id === meta.definitionId);
+        return definition?.loopId ?? definition?.agentFrameworkID ?? 'memeloop:agent-tool-loop';
       },
       getFrameworkConfigSchema: async () => {
         throw new Error('remote_framework_schema_not_supported');
@@ -389,7 +390,6 @@ class RemoteAgentRuntimeBridge {
           this.emit(conversationId, { status: { state: 'canceled' } });
           return;
         }
-        this.emit(conversationId, { status: { state: 'working' } });
         await wait(MOBILE_REMOTE_RUN_POLL_MS, signal);
       }
     } catch {
@@ -411,6 +411,7 @@ class RemoteAgentRuntimeBridge {
 export interface MobileRemoteAgentSession {
   readonly peerId: string;
   readonly conversationId: string;
+  readonly definitionId: string;
   readonly title: string;
   readonly controller: AgentSessionController;
   readonly timelineController: ConversationTimelineWindowController;
@@ -434,12 +435,21 @@ export async function listMobileRemoteConversations(peerId: string, signal?: Abo
   return createMobileAgentRpcClient(peerId).listConversations({ limit: 50, direction, ...(cursor ? { cursor } : {}) }, { signal });
 }
 
+export async function createMobileRemoteConversation(client: AgentDeviceRpcClient, definitionId: string, conversationId: string, signal?: AbortSignal): Promise<MobileConversationMeta> {
+  const created = await client.createAgent({ definitionId, conversationId }, { signal });
+  const { meta } = await client.getConversationMeta({ conversationId: created.conversationId }, { signal });
+  if (!meta) throw new Error('remote_agent_conversation_not_found');
+  return meta;
+}
+
 export async function createMobileRemoteAgentSession(peerId: string, signal?: AbortSignal, selectedConversation?: MobileConversationMeta, activeRunId?: string): Promise<MobileRemoteAgentSession> {
   throwIfAborted(signal);
   await mobileDeviceNetwork.start();
   throwIfAborted(signal);
   const client = createMobileAgentRpcClient(peerId);
-  const conversation = selectedConversation ?? (await client.getMainConversation({}, { signal })).conversation;
+  const conversation = selectedConversation
+    ? (await client.getConversationMeta({ conversationId: selectedConversation.conversationId }, { signal })).meta
+    : (await client.getMainConversation({}, { signal })).conversation;
   if (!conversation) throw new Error('remote_main_agent_not_configured');
   throwIfAborted(signal);
   const bridge = new RemoteAgentRuntimeBridge(client);
@@ -454,13 +464,17 @@ export async function createMobileRemoteAgentSession(peerId: string, signal?: Ab
   return {
     peerId,
     conversationId: conversation.conversationId,
+    definitionId: conversation.definitionId,
     title: conversation.title && conversation.title !== conversation.definitionId ? conversation.title : getMobileLabels().chat.agent,
     controller,
     timelineController,
     client,
     async acceptBranch(request) {
+      const { meta } = await client.getConversationMeta({ conversationId: request.targetConversationId });
+      if (!meta) throw new Error('remote_agent_conversation_not_found');
       const accepted = await client.send({
         conversationId: request.targetConversationId,
+        definitionId: meta.definitionId,
         requestId: request.requestId,
         turnId: request.replacementMessageId,
         message: request.text,

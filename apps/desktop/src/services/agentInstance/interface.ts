@@ -37,6 +37,7 @@ import type {
   DeviceCapabilities,
   DeviceRpcHandler,
   FullAgentStorage,
+  GoalClient,
   PromptPreviewAuditDetailChunk,
   PromptPreviewAuditDetailRequest,
   PromptPreviewAuditPage,
@@ -322,6 +323,11 @@ export interface IAgentInstanceService {
    * Create a new scheduled task and start its timer.
    */
   createScheduledTask(input: CreateScheduledTaskInput, options?: ScheduledTaskCallOptions): Promise<ScheduledTask>;
+  getGoal: GoalClient['get'];
+  startGoal: GoalClient['start'];
+  pauseGoal: GoalClient['pause'];
+  resumeGoal: GoalClient['resume'];
+  completeGoal: GoalClient['complete'];
 
   /**
    * Update an existing scheduled task (restarts timer with new config).
@@ -372,6 +378,11 @@ export interface IAgentInstanceService {
 export const AgentInstanceServiceIPCDescriptor = {
   channel: AgentChannel.instance,
   properties: {
+    getGoal: ProxyPropertyType.Function,
+    startGoal: ProxyPropertyType.Function,
+    pauseGoal: ProxyPropertyType.Function,
+    resumeGoal: ProxyPropertyType.Function,
+    completeGoal: ProxyPropertyType.Function,
     cancelAgent: ProxyPropertyType.Function,
     closeAgent: ProxyPropertyType.Function,
     createAgent: ProxyPropertyType.Function,
