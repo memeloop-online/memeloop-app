@@ -7,8 +7,13 @@ export interface IDeepLinkService {
    */
   initializeDeepLink(protocol: string): void;
   /**
-   * Process any pending deep link after workspaces are initialized.
-   * Should be called after all workspaces are ready.
+   * Open a deep link URL programmatically from within the app.
+   * Supports `memeloop://preferences/<sectionId>`.
+   */
+  openDeepLink(url: string): Promise<void>;
+  /**
+   * Kept as a lifecycle-compatible no-op. Protocol arguments are dispatched
+   * once Electron is ready and MemeLoop App has no workspace boot queue.
    */
   processPendingDeepLink(): Promise<void>;
 }
@@ -17,6 +22,7 @@ export const DeepLinkServiceIPCDescriptor = {
   channel: 'DeepLinkChannel',
   properties: {
     initializeDeepLink: ProxyPropertyType.Function,
+    openDeepLink: ProxyPropertyType.Function,
     processPendingDeepLink: ProxyPropertyType.Function,
   },
 };

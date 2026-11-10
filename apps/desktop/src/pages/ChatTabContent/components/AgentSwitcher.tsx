@@ -2,31 +2,33 @@
 
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
-import { Autocomplete, Box, ClickAwayListener, Paper, Popper, TextField, Typography } from '@mui/material';
+import { Autocomplete, Box, ButtonBase, ClickAwayListener, Paper, Popper, TextField, Typography } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import type { AgentDefinition } from '@services/agentDefinition/interface';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
-const SwitcherButton = styled(Box)<{ disabled?: boolean }>(({ theme, disabled }) => ({
+const SwitcherButton = styled(ButtonBase)(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
   gap: 4,
   padding: '2px 10px 2px 6px',
   borderRadius: 12,
-  cursor: disabled ? 'default' : 'pointer',
-  opacity: disabled ? 0.5 : 1,
   backgroundColor: theme.palette.action.hover,
   transition: 'background-color 0.15s',
   whiteSpace: 'nowrap',
-  '&:hover': disabled
-    ? {}
-    : {
-      backgroundColor: theme.palette.action.selected,
-    },
+  maxWidth: 180,
+  minWidth: 0,
+  '@container memeloop-chat (max-width: 480px)': {
+    minHeight: 44,
+    maxWidth: 140,
+  },
+  '&:hover': { backgroundColor: theme.palette.action.selected },
+  '&.Mui-disabled': { opacity: 0.5 },
 }));
 
 const DropdownPaper = styled(Paper)(({ theme }) => ({
-  minWidth: 280,
+  width: 'min(420px, calc(100vw - 16px))',
   maxWidth: 420,
   borderRadius: 8,
   boxShadow: theme.shadows[8],
@@ -40,10 +42,29 @@ interface AgentSwitcherProps {
 }
 
 export const AgentSwitcher: React.FC<AgentSwitcherProps> = ({ currentAgentDefId, onSwitch, disabled }) => {
+  const { t } = useTranslation('agent');
   const [anchorElement, setAnchorElement] = useState<HTMLElement | null>(null);
   const [agentDefs, setAgentDefs] = useState<AgentDefinition[]>([]);
   const open = Boolean(anchorElement);
   const searchInputReference = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!currentAgentDefId) return;
+    let disposed = false;
+    void window.service.agentDefinition.getAgentDef(currentAgentDefId).then(definition => {
+      if (disposed || !definition) return;
+      setAgentDefs(current =>
+        current.some(item => item.id === definition.id)
+          ? current.map(item => item.id === definition.id ? definition : item)
+          : [definition, ...current]
+      );
+    }).catch((error: unknown) => {
+      if (!disposed) void window.service.native.log('warn', 'Failed to load current agent definition', { currentAgentDefId, error });
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [currentAgentDefId]);
 
   const handleClick = useCallback(
     (event: React.MouseEvent<HTMLElement>) => {
@@ -70,14 +91,18 @@ export const AgentSwitcher: React.FC<AgentSwitcherProps> = ({ currentAgentDefId,
   // Load agent definitions when dropdown opens
   useEffect(() => {
     if (!open) return;
+    let disposed = false;
     void (async () => {
       try {
         const defs = await window.service.agentDefinition.getAgentDefs();
-        setAgentDefs(defs);
-      } catch {
-        // Silently fail — dropdown will just be empty
+        if (!disposed) setAgentDefs(defs);
+      } catch (error) {
+        if (!disposed) void window.service.native.log('warn', 'Failed to load agent definitions', { error });
       }
     })();
+    return () => {
+      disposed = true;
+    };
   }, [open]);
 
   // Auto-focus search input when dropdown opens
@@ -94,17 +119,20 @@ export const AgentSwitcher: React.FC<AgentSwitcherProps> = ({ currentAgentDefId,
   }, [open]);
 
   const currentDefinition = agentDefs.find((d) => d.id === currentAgentDefId);
-  const displayName = currentDefinition?.name ?? currentAgentDefId ?? 'Agent';
+  const displayName = currentDefinition?.name ?? currentAgentDefId ?? t('Chat.Actions.Agent');
 
   return (
     <>
       <SwitcherButton
         onClick={handleClick}
         disabled={disabled}
+        aria-controls={open ? 'agent-switcher-listbox' : undefined}
+        aria-expanded={open}
+        aria-haspopup='listbox'
         data-testid='agent-switcher-button'
       >
         <SmartToyIcon sx={{ fontSize: 16 }} />
-        <Typography variant='caption' sx={{ fontWeight: 500, lineHeight: 1.4 }}>
+        <Typography variant='caption' noWrap sx={{ fontWeight: 500, lineHeight: 1.4, minWidth: 0 }}>
           {displayName}
         </Typography>
         <ArrowDropDownIcon sx={{ fontSize: 16, transition: 'transform 0.2s', transform: open ? 'rotate(180deg)' : 'none' }} />
@@ -125,7 +153,7 @@ export const AgentSwitcher: React.FC<AgentSwitcherProps> = ({ currentAgentDefId,
               size='small'
               options={agentDefs}
               getOptionLabel={(option) => option.name ?? option.id}
-              value={currentDefinition ?? (agentDefs[0] as AgentDefinition | undefined) ?? { id: '', agentFrameworkConfig: {} } as AgentDefinition}
+              value={currentDefinition ?? (agentDefs[0]) ?? { id: '', agentFrameworkConfig: {} }}
               onChange={(_event, value) => {
                 handleSelect(value);
               }}
@@ -141,7 +169,7 @@ export const AgentSwitcher: React.FC<AgentSwitcherProps> = ({ currentAgentDefId,
                 <TextField
                   {...parameters}
                   inputRef={searchInputReference}
-                  placeholder='Search agents...'
+                  placeholder={t('AgentSwitcher.Search')}
                   autoFocus
                   data-testid='agent-switcher-search'
                   sx={{ mb: 0.5 }}
@@ -167,7 +195,11 @@ export const AgentSwitcher: React.FC<AgentSwitcherProps> = ({ currentAgentDefId,
               )}
               slotProps={{
                 paper: { sx: { boxShadow: 'none', border: 'none' } },
-                listbox: { sx: { maxHeight: 280 }, 'data-testid': 'agent-switcher-listbox' } as React.HTMLAttributes<HTMLUListElement> & { 'data-testid': string },
+                listbox: {
+                  id: 'agent-switcher-listbox',
+                  sx: { maxHeight: 280 },
+                  'data-testid': 'agent-switcher-listbox',
+                } as React.HTMLAttributes<HTMLUListElement> & { 'data-testid': string },
               }}
               // Prevent the autocomplete from closing the parent popper
               disablePortal

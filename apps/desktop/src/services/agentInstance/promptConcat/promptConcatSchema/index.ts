@@ -1,4 +1,4 @@
-import { createDynamicPromptConcatToolSchema } from '@services/agentInstance/tools/schemaRegistry';
+import { createDynamicPromptConcatToolSchema, type ToolSchemaCatalog } from '@services/agentInstance/tools/schemaRegistry';
 import { t } from '@services/libs/i18n/placeholder';
 import { z } from 'zod/v4';
 import { ModelParametersSchema, ModelSelectionSchema } from './modelParameters';
@@ -58,8 +58,8 @@ export const AIConfigSchema = z.object({
  * Contains the framework-related configuration fields for prompts, responses, and tools
  * This is dynamically generated to include all registered tools
  */
-export function getFrameworkConfigSchema() {
-  const dynamicToolSchema = createDynamicPromptConcatToolSchema();
+export function getFrameworkConfigSchema(toolCatalog: ToolSchemaCatalog) {
+  const dynamicToolSchema = createDynamicPromptConcatToolSchema(toolCatalog);
 
   return z.object({
     prompts: z.array(PromptSchema).meta({
@@ -100,8 +100,8 @@ export function getFrameworkConfigSchema() {
  * }
  * ```
  */
-export function getAgentConfigSchema() {
-  const dynamicFrameworkConfigSchema = getFrameworkConfigSchema();
+export function getAgentConfigSchema(toolCatalog: ToolSchemaCatalog) {
+  const dynamicFrameworkConfigSchema = getFrameworkConfigSchema(toolCatalog);
 
   return AIConfigSchema.extend({
     id: z.string().meta({
@@ -119,8 +119,8 @@ export function getAgentConfigSchema() {
  * Default agents list schema (dynamic)
  * Contains an array of agent configurations
  */
-export function getDefaultAgentsSchema() {
-  const dynamicAgentConfigSchema = getAgentConfigSchema();
+export function getDefaultAgentsSchema(toolCatalog: ToolSchemaCatalog) {
+  const dynamicAgentConfigSchema = getAgentConfigSchema(toolCatalog);
   return z.array(dynamicAgentConfigSchema).meta({
     title: t('Schema.DefaultAgents.Title'),
     description: t('Schema.DefaultAgents.Description'),

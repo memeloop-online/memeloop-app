@@ -7,12 +7,21 @@ import { ChatTabContent } from '../../ChatTabContent';
 import { TabListDropdown } from '../components/TabBar/TabListDropdown';
 import { useTabStore } from '../store/tabStore';
 import { TabItem, TabType } from '../types/tab';
-import { CreateNewAgentContent } from './TabTypes/CreateNewAgentContent';
-import { EditAgentDefinitionContent } from './TabTypes/EditAgentDefinitionContent';
-import { NewTabContent } from './TabTypes/NewTabContent';
 import { SplitViewTabContent } from './TabTypes/SplitViewTabContent';
 import { WebTabContent } from './TabTypes/WebTabContent';
-import { WikiEmbedTabContent } from './TabTypes/WikiEmbedTabContent';
+
+const CreateNewAgentContent = React.lazy(async () => {
+  const module = await import('./TabTypes/CreateNewAgentContent');
+  return { default: module.CreateNewAgentContent };
+});
+const EditAgentDefinitionContent = React.lazy(async () => {
+  const module = await import('./TabTypes/EditAgentDefinitionContent');
+  return { default: module.EditAgentDefinitionContent };
+});
+const NewTabContent = React.lazy(async () => {
+  const module = await import('./TabTypes/NewTabContent');
+  return { default: module.NewTabContent };
+});
 
 /** Props interface for tab content view component */
 interface TabContentViewProps {
@@ -28,6 +37,8 @@ const ContentContainer = styled(Box)<{ $splitview?: boolean }>`
   flex-direction: column;
   height: 100%;
   width: 100%;
+  min-height: 0;
+  min-width: 0;
   position: relative;
   overflow: hidden;
   border-radius: ${props => props.$splitview ? '8px' : '0'};
@@ -75,8 +86,6 @@ export const TabContentView: React.FC<TabContentViewProps> = ({ tab, isSplitView
         return <CreateNewAgentContent tab={tab} />;
       case TabType.EDIT_AGENT_DEFINITION:
         return <EditAgentDefinitionContent tab={tab} />;
-      case TabType.WIKI_EMBED:
-        return <WikiEmbedTabContent tab={tab} isSplitView={isSplitView} />;
       default:
         return null;
     }
@@ -105,7 +114,7 @@ export const TabContentView: React.FC<TabContentViewProps> = ({ tab, isSplitView
           </Typography>
         </GenericTabHeader>
       )}
-      {renderContent()}
+      <React.Suspense fallback={null}>{renderContent()}</React.Suspense>
     </ContentContainer>
   );
 };

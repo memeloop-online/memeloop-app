@@ -5,6 +5,7 @@
  * This acts as a safety net during schema-ification of complex sections.
  */
 import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
@@ -12,6 +13,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { lightTheme } from '@services/theme/defaultTheme';
+import type { ModelAssignments, ProviderAccountConfig } from 'memeloop';
 import { BehaviorSubject } from 'rxjs';
 
 import { defaultPreferences } from '@services/preferences/defaultPreferences';
@@ -58,14 +60,28 @@ describe('Preferences - All Sections Rendering', () => {
       configurable: true,
     });
 
+    // Keep the renderer fixture aligned with the canonical ProviderRegistry IPC contract.
+    Object.defineProperty(window.observables, 'externalAPI', {
+      value: {
+        modelAssignments$: new BehaviorSubject<ModelAssignments>({
+          default: { modelId: 'test-model', providerId: 'test-provider' },
+        }),
+        providerAccounts$: new BehaviorSubject<readonly ProviderAccountConfig[]>([]),
+      },
+      writable: true,
+      configurable: true,
+    });
+
     Object.defineProperty(window.service.context, 'get', {
       value: vi.fn().mockImplementation(async (key: string) => {
-        const contextValues: Record<string, string> = {
+        const contextValues: Record<string, unknown> = {
           platform: 'win32',
+          isTest: 'true',
           LOG_FOLDER: 'C:\\logs',
           SETTINGS_FOLDER: 'C:\\settings',
           V8_CACHE_FOLDER: 'C:\\v8cache',
           INSTALLER_LOG_FOLDER: 'C:\\installerlogs',
+          supportedLanguagesMap: { 'zh-Hans': '简体中文' },
         };
         return contextValues[key] ?? '';
       }),
@@ -92,31 +108,6 @@ describe('Preferences - All Sections Rendering', () => {
       writable: true,
     });
 
-    Object.defineProperty(window.service.native, 'registerKeyboardShortcut', {
-      value: vi.fn().mockResolvedValue(undefined),
-      writable: true,
-    });
-
-    Object.defineProperty(window.service.native, 'unregisterKeyboardShortcut', {
-      value: vi.fn().mockResolvedValue(undefined),
-      writable: true,
-    });
-
-    Object.defineProperty(window.service.native, 'quit', {
-      value: vi.fn().mockResolvedValue(undefined),
-      writable: true,
-    });
-
-    Object.defineProperty(window.service.auth, 'get', {
-      value: vi.fn().mockResolvedValue('TestUser'),
-      writable: true,
-    });
-
-    Object.defineProperty(window.service.auth, 'set', {
-      value: vi.fn().mockResolvedValue(undefined),
-      writable: true,
-    });
-
     // database may not exist in the mock; ensure it's an object first
     if (!('database' in window.service)) {
       (window.service as Record<string, unknown>).database = {};
@@ -129,6 +120,14 @@ describe('Preferences - All Sections Rendering', () => {
 
     Object.defineProperty(window.service.database, 'getDatabasePath', {
       value: vi.fn().mockResolvedValue(''),
+      writable: true,
+      configurable: true,
+    });
+
+    Object.defineProperty(window.service, 'agentInstance', {
+      value: {
+        getAgents: vi.fn().mockResolvedValue([]),
+      },
       writable: true,
       configurable: true,
     });
@@ -175,10 +174,9 @@ describe('Preferences - All Sections Rendering', () => {
       </TestWrapper>,
     );
 
-    // Wait for progressive rendering to complete — all sections are batched via setTimeout(0).
-    // The last section in allSections is 'misc', so wait until its title appears.
+    // Tests render every active App section synchronously. Wait for the last one.
     await waitFor(() => {
-      expect(screen.queryByText('Preference.Miscellaneous')).toBeInTheDocument();
+      expect(screen.queryByText('Preference.Updates')).toBeInTheDocument();
     }, { timeout: 5000 });
 
     return result;
@@ -190,7 +188,7 @@ describe('Preferences - All Sections Rendering', () => {
     await renderAllSections();
     expect(screen.getByText('Preference.General')).toBeInTheDocument();
     expect(screen.getByText('Preference.Theme')).toBeInTheDocument();
-    expect(screen.getByText('Preference.ShowSideBar')).toBeInTheDocument();
+    expect(screen.getByText('Preference.ShowTitleBar')).toBeInTheDocument();
     expect(screen.getByText('Preference.AlwaysOnTop')).toBeInTheDocument();
   });
 
@@ -199,7 +197,6 @@ describe('Preferences - All Sections Rendering', () => {
   it('should render Performance section', async () => {
     await renderAllSections();
     expect(screen.getByText('Preference.Performance')).toBeInTheDocument();
-    expect(screen.getByText('Preference.HibernateAllUnusedWorkspaces')).toBeInTheDocument();
     expect(screen.getByText('Preference.hardwareAcceleration')).toBeInTheDocument();
   });
 
@@ -213,20 +210,7 @@ describe('Preferences - All Sections Rendering', () => {
 
   // ─── Network section ────────────────────────────────────────────
 
-  it('should render Network section', async () => {
-    await renderAllSections();
-    expect(screen.getByText('Preference.Network')).toBeInTheDocument();
-    expect(screen.getByText('Preference.IgnoreCertificateErrors')).toBeInTheDocument();
-  });
-
   // ─── Privacy section ────────────────────────────────────────────
-
-  it('should render Privacy section', async () => {
-    await renderAllSections();
-    expect(screen.getByText('Preference.PrivacyAndSecurity')).toBeInTheDocument();
-    expect(screen.getByText('Preference.ShareBrowsingData')).toBeInTheDocument();
-    expect(screen.getByText('Preference.IgnoreCertificateErrors')).toBeInTheDocument();
-  });
 
   // ─── Updates section ────────────────────────────────────────────
 
@@ -238,12 +222,6 @@ describe('Preferences - All Sections Rendering', () => {
 
   // ─── Miscellaneous section ──────────────────────────────────────
 
-  it('should render Miscellaneous section', async () => {
-    await renderAllSections();
-    expect(screen.getByText('Preference.Miscellaneous')).toBeInTheDocument();
-    expect(screen.getByText('Preference.RunOnBackground')).toBeInTheDocument();
-  });
-
   // ─── Notifications section ──────────────────────────────────────
 
   it('should render Notifications section', async () => {
@@ -254,38 +232,19 @@ describe('Preferences - All Sections Rendering', () => {
   });
 
   // ─── TidGiMiniWindow section ────────────────────────────────────
-  // NOTE: Currently fails because Sync section's TimePicker crashes React rendering.
-  // Will be fixed when Sync section is schema-ified.
-  it.skip('should render TidGiMiniWindow section', async () => {
-    await renderAllSections();
-    await waitFor(() => {
-      expect(screen.getByText('Menu.TidGiMiniWindow')).toBeInTheDocument();
-    }, { timeout: 5000 });
-    expect(screen.getByText('Preference.TidgiMiniWindow')).toBeInTheDocument();
-  });
-
   // ─── Developers section ─────────────────────────────────────────
 
-  it.skip('should render DeveloperTools section', async () => {
-    await renderAllSections();
-    await waitFor(() => {
-      expect(screen.getByText('Preference.DeveloperTools')).toBeInTheDocument();
-    }, { timeout: 5000 });
-  });
-
   // ─── Boolean toggle interaction ─────────────────────────────────
-  // NOTE: Skipped because Sync section crash prevents full rendering.
-  it.skip('should toggle a boolean preference (alwaysOnTop)', async () => {
+  it('should toggle a boolean preference (alwaysOnTop)', async () => {
     await renderAllSections();
     // Find the switch for alwaysOnTop
     const label = screen.getByText('Preference.AlwaysOnTop');
     const listItem = label.closest('li')!;
-    const switchElement = within(listItem).getByRole('checkbox');
+    const switchElement = within(listItem).getByRole('switch');
 
     expect(switchElement).not.toBeChecked();
 
-    // Click
-    switchElement.click();
+    await userEvent.click(switchElement);
 
     await waitFor(() => {
       expect(window.service.preference.set).toHaveBeenCalledWith('alwaysOnTop', true);

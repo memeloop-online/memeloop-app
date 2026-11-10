@@ -8,6 +8,18 @@ import type { AgentDefinition } from '@services/agentDefinition/interface';
 import { lightTheme } from '@services/theme/defaultTheme';
 import { CreateNewAgentContent } from '../CreateNewAgentContent';
 
+function makeAgentDefinition(
+  definition: Pick<AgentDefinition, 'id' | 'name'> & Partial<AgentDefinition>,
+): AgentDefinition {
+  return {
+    description: '',
+    systemPrompt: '',
+    tools: [],
+    version: '1.0.0',
+    ...definition,
+  };
+}
+
 // Mock agent definition service
 const mockCreateAgentDef = vi.fn();
 const mockUpdateAgentDef = vi.fn();
@@ -31,6 +43,8 @@ Object.defineProperty(window, 'service', {
     },
     agentInstance: {
       getFrameworkConfigSchema: mockGetFrameworkConfigSchema,
+      getAgentMetadata: vi.fn().mockResolvedValue(undefined),
+      getAgentConversationTimeline: vi.fn().mockResolvedValue({ anchors: [], totalMessages: 0, totalTurns: 0 }),
     },
     agentBrowser: {
       updateTab: mockUpdateTab,
@@ -153,12 +167,13 @@ describe('CreateNewAgentContent', () => {
   });
 
   it('should advance to step 2 when template is selected', async () => {
-    const mockTemplate = {
+    const mockTemplate = makeAgentDefinition({
       id: 'template-1',
       name: 'Test Template',
       description: 'Test Description',
-      agentFrameworkConfig: { systemPrompt: 'Test prompt' },
-    };
+      systemPrompt: 'Test prompt',
+      agentFrameworkConfig: { prompts: [], plugins: [] },
+    });
 
     mockCreateAgentDef.mockResolvedValue({
       ...mockTemplate,
@@ -255,12 +270,12 @@ describe('CreateNewAgentContent', () => {
 
   it('should call getAgentDef when tab has agentDefId (state restoration)', async () => {
     // Mock agent definition for state restoration
-    const mockAgentDefinition = {
+    const mockAgentDefinition = makeAgentDefinition({
       id: 'temp-123',
       name: 'Test Agent',
       agentFrameworkID: 'test-handler',
-      agentFrameworkConfig: { prompts: [{ text: 'Original prompt', role: 'system' }] },
-    };
+      agentFrameworkConfig: { prompts: [{ id: 'system', text: 'Original prompt', role: 'system' }], plugins: [] },
+    });
 
     mockGetAgentDef.mockResolvedValue(mockAgentDefinition);
 
@@ -287,12 +302,12 @@ describe('CreateNewAgentContent', () => {
 
   it('should trigger schema loading when temporaryAgentDefinition has agentFrameworkID', async () => {
     // Mock agent definition with agentFrameworkID that will be restored
-    const mockAgentDefinition = {
+    const mockAgentDefinition = makeAgentDefinition({
       id: 'temp-123',
       name: 'Test Agent',
       agentFrameworkID: 'test-handler',
-      agentFrameworkConfig: { prompts: [{ text: 'Test prompt', role: 'system' }] },
-    };
+      agentFrameworkConfig: { prompts: [{ id: 'system', text: 'Test prompt', role: 'system' }], plugins: [] },
+    });
 
     mockGetAgentDef.mockResolvedValue(mockAgentDefinition);
 
@@ -338,12 +353,12 @@ describe('CreateNewAgentContent', () => {
 
   it('should call createAgentDef when template is selected', async () => {
     // Simple test to verify backend call happens
-    const mockTemplate = {
+    const mockTemplate = makeAgentDefinition({
       id: 'template-1',
       name: 'Test Template',
       agentFrameworkID: 'test-handler',
-      agentFrameworkConfig: { prompts: [{ text: 'Test prompt', role: 'system' }] },
-    };
+      agentFrameworkConfig: { prompts: [{ id: 'system', text: 'Test prompt', role: 'system' }], plugins: [] },
+    });
 
     const mockCreatedDefinition = {
       ...mockTemplate,
@@ -375,12 +390,12 @@ describe('CreateNewAgentContent', () => {
   });
 
   it('should verify data flow: template selection -> temporaryAgentDefinition -> auto-save', async () => {
-    const mockTemplate = {
+    const mockTemplate = makeAgentDefinition({
       id: 'template-1',
       name: 'Test Template',
       agentFrameworkID: 'test-handler',
-      agentFrameworkConfig: { prompts: [{ text: 'Original prompt' }] },
-    };
+      agentFrameworkConfig: { prompts: [{ id: 'system', text: 'Original prompt' }], plugins: [] },
+    });
 
     const mockCreatedDefinition = {
       ...mockTemplate,
@@ -467,7 +482,7 @@ describe('CreateNewAgentContent', () => {
 
   it('should handle nested prompt structure like taskAgents.json', async () => {
     // This is the actual structure from taskAgents.json
-    const mockTemplate = {
+    const mockTemplate = makeAgentDefinition({
       id: 'task-agent',
       name: 'Example Agent',
       agentFrameworkID: 'basicPromptConcatHandler',
@@ -481,7 +496,6 @@ describe('CreateNewAgentContent', () => {
             children: [
               {
                 id: 'default-main',
-                tags: ['SystemPrompt'],
                 text: 'You are a helpful assistant for Tiddlywiki user.',
               },
             ],
@@ -490,7 +504,7 @@ describe('CreateNewAgentContent', () => {
         response: [],
         plugins: [],
       },
-    };
+    });
 
     const mockCreatedDefinition = {
       ...mockTemplate,
@@ -503,22 +517,29 @@ describe('CreateNewAgentContent', () => {
     // Step 1: Create agent definition (simulates template selection)
     const createdDef = await window.service.agentDefinition.createAgentDef(mockCreatedDefinition);
     expect(createdDef).toBeDefined();
-    const prompts = (createdDef.agentFrameworkConfig).prompts as Array<{
-      children?: Array<{ text?: string }>;
-    }>;
-    expect((prompts as Array<{ children?: Array<{ text?: string }> }>)[0]?.children?.[0]?.text).toBe('You are a helpful assistant for Tiddlywiki user.');
+    const frameworkConfig = createdDef.agentFrameworkConfig;
+    expect(frameworkConfig).toBeDefined();
+    if (!frameworkConfig) throw new Error('created agent definition is missing framework config');
+    const prompts = frameworkConfig.prompts;
+    expect(prompts[0]?.children?.[0]?.text).toBe('You are a helpful assistant for Tiddlywiki user.');
 
     // Step 2: Update system prompt in nested structure
+    const templateConfig = mockCreatedDefinition.agentFrameworkConfig;
+    if (!templateConfig) throw new Error('template is missing framework config');
+    const rootPrompt = templateConfig.prompts[0];
+    if (!rootPrompt) throw new Error('template is missing root prompt');
+    const rootChild = rootPrompt.children?.[0];
+    if (!rootChild) throw new Error('template is missing root prompt child');
     const updatedDefinition = {
       ...mockCreatedDefinition,
       agentFrameworkConfig: {
-        ...mockCreatedDefinition.agentFrameworkConfig,
+        ...templateConfig,
         prompts: [
           {
-            ...mockCreatedDefinition.agentFrameworkConfig.prompts[0],
+            ...rootPrompt,
             children: [
               {
-                ...mockCreatedDefinition.agentFrameworkConfig.prompts[0].children[0],
+                ...rootChild,
                 text: '你是一个专业的代码助手，请用中文回答编程问题。',
               },
             ],

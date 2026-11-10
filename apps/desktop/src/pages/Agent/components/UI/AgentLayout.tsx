@@ -8,8 +8,11 @@ interface AgentLayoutProps {
 
 const LayoutContainer = styled(Box)`
   display: flex;
+  flex: 1;
   height: 100%;
   width: 100%;
+  min-height: 0;
+  min-width: 0;
   overflow: hidden;
   background-color: ${props => props.theme.palette.background.default};
 `;
