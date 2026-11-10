@@ -27,33 +27,8 @@ After(async function(this: ApplicationWorld) {
   // This releases database and log file handles before the harness exits.
   if (this.app) {
     try {
-      // Close all application windows before closing the app.
-      const allWindows = this.app.windows();
-
-      // Try to close windows gracefully with short timeout, then force close
-      await Promise.allSettled(
-        allWindows.map(async (window) => {
-          if (window.isClosed()) return;
-
-          try {
-            // Very short timeout for window close - we'll force close anyway
-            await Promise.race([
-              window.close(),
-              new Promise((_, reject) =>
-                setTimeout(() => {
-                  reject(new Error('Window close timeout'));
-                }, 1000)
-              ),
-            ]);
-          } catch (error) {
-            // Window close failed or timed out; force close will happen at app
-            // level, while this diagnostic keeps the scenario failure visible.
-            console.debug('Window close failed during scenario cleanup', error);
-          }
-        }),
-      );
-
-      // Try to close app gracefully with short timeout
+      // Let Playwright close the app and its windows together. Closing the last
+      // window first starts Electron shutdown before app.close can attach.
       try {
         await Promise.race([
           this.app.close(),

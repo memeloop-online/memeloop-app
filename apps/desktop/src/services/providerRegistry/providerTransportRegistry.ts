@@ -190,13 +190,15 @@ export class ProviderTransportRegistry {
 
       let fullResponse = '';
       const startTime = Date.now();
-      for await (const chunk of result.textStream) {
-        fullResponse += chunk;
+      for await (const part of result.stream) {
+        if (part.type === 'error') throw part.error;
         if (controller.signal.aborted) {
           void this.apiLogger.log(requestId, 'streaming', 'cancel', { responseContent: fullResponse });
           yield { requestId, content: 'Request cancelled', status: 'error' };
           return;
         }
+        if (part.type !== 'text-delta') continue;
+        fullResponse += part.text;
         yield { requestId, content: fullResponse, status: 'update' };
       }
       void this.apiLogger.log(requestId, 'streaming', 'done', {

@@ -81,7 +81,7 @@ Then('the App goal should persist {int} rounds with evidence {string}', async fu
   assert(this.currentWindow);
   await backOff(async () => {
     const goals = await this.currentWindow!.evaluate(async () => {
-      const { agentInstance } = (window as unknown as { service: { agentInstance: IAgentInstanceService } }).service;
+      const { agentInstance } = (window as Window & { service: { agentInstance: Pick<IAgentInstanceService, 'getAgents' | 'getGoal'> } }).service;
       const agents = await agentInstance.getAgents(1, 20, { closed: false });
       return Promise.all(agents.map(agent => agentInstance.getGoal(agent.id)));
     });
