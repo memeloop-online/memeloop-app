@@ -29,6 +29,7 @@ export default function RootLayout() {
       <ThemeProvider value={navigationTheme}>
         <Stack
           screenOptions={{
+            statusBarStyle: dark ? 'light' : 'dark',
             headerStyle: { backgroundColor: theme.colors.surface },
             headerTintColor: theme.colors.onSurface,
             contentStyle: { backgroundColor: theme.colors.background },

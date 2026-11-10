@@ -105,6 +105,7 @@ it.each(['light', 'dark', null] as const)(
     });
     expect((state.routerTheme as typeof router).fonts).toBe(router.fonts);
     expect(state.stackOptions).toEqual({
+      statusBarStyle: dark ? 'light' : 'dark',
       headerStyle: { backgroundColor: paper.colors.surface },
       headerTintColor: paper.colors.onSurface,
       contentStyle: { backgroundColor: paper.colors.background },
