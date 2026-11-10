@@ -2,10 +2,131 @@
 import type { PortableLlmRequest, PortableLlmStreamPart } from 'memeloop';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { streamPortableProviderRequest } from '../callProviderAPI';
 
 describe('canonical provider HTTP transport', () => {
+  it.each(
+    [
+      ['chat-completions', 'loopback'],
+      ['responses', 'loopback'],
+      ['chat-completions', 'tailnet'],
+      ['responses', 'tailnet'],
+    ] as const,
+  )('executes a compatible %s route on %s without an API key', async (apiMode, address) => {
+    const paths: string[] = [];
+    const server = createServer(async (request, response) => {
+      for await (const _chunk of request) { /* Drain the actual SDK request. */ }
+      paths.push(request.url!);
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      const send = (event: unknown) => response.write(`data: ${JSON.stringify(event)}\n\n`);
+      if (apiMode === 'responses') {
+        send({ type: 'response.output_item.added', output_index: 0, item: { type: 'message', id: 'message', role: 'assistant', content: [] } });
+        send({ type: 'response.output_text.delta', item_id: 'message', output_index: 0, content_index: 0, delta: 'Local result', sequence_number: 1 });
+        send({
+          type: 'response.output_item.done',
+          output_index: 0,
+          item: { type: 'message', id: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Local result', annotations: [] }] },
+        });
+        send({
+          type: 'response.completed',
+          sequence_number: 2,
+          response: {
+            id: 'response',
+            object: 'response',
+            created_at: 1,
+            model: 'local',
+            status: 'completed',
+            output: [],
+            usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+          },
+        });
+      } else {
+        send({
+          id: 'local',
+          object: 'chat.completion.chunk',
+          created: 1,
+          model: 'local',
+          choices: [{ index: 0, delta: { role: 'assistant', content: 'Local result' }, finish_reason: null }],
+        });
+        send({ id: 'local', object: 'chat.completion.chunk', created: 1, model: 'local', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] });
+      }
+      response.end('data: [DONE]\n\n');
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const localBaseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
+    const actualFetch = globalThis.fetch;
+    // Route the synthetic Tailnet hostname to the owned HTTP fixture.
+    const fetch = address === 'tailnet'
+      ? vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) =>
+        actualFetch(
+          (typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).replace('http://model.tailnet.test/v1', localBaseUrl),
+          init,
+        )
+      )
+      : undefined;
+    try {
+      const parts: PortableLlmStreamPart[] = [];
+      for await (
+        const part of streamPortableProviderRequest({
+          providerId: 'local',
+          logicalModelId: 'local',
+          wireModelId: 'local',
+          apiMode,
+          stream: true,
+          messages: [{ role: 'user', content: 'Hello' }],
+        }, {
+          account: {
+            providerId: 'local',
+            providerType: 'openAICompatible',
+            enabled: true,
+            baseUrl: address === 'tailnet' ? 'http://model.tailnet.test/v1' : localBaseUrl,
+            models: [{ modelId: 'local', wireModelId: 'local', apiMode }],
+          },
+        })
+      ) parts.push(part);
+      expect(paths).toEqual([apiMode === 'responses' ? '/v1/responses' : '/v1/chat/completions']);
+      expect(parts).toContainEqual(expect.objectContaining({ type: 'text-delta', text: 'Local result' }));
+      expect(parts.at(-1)).toMatchObject({ type: 'finish', finishReason: 'stop' });
+    } finally {
+      fetch?.mockRestore();
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        server.close(error => {
+          if (error) reject(error);
+          else resolve();
+        })
+      );
+    }
+  });
+
+  it('reports a missing account key through the canonical provider setting contract before HTTP', async () => {
+    const request: PortableLlmRequest = {
+      providerId: 'account',
+      logicalModelId: 'logical',
+      wireModelId: 'wire',
+      apiMode: 'chat-completions',
+      messages: [{ role: 'user', content: 'Hello' }],
+      stream: true,
+    };
+    const generator = streamPortableProviderRequest(request, {
+      account: {
+        providerId: 'account',
+        providerType: 'openai',
+        enabled: true,
+        baseUrl: 'http://127.0.0.1:1/v1',
+        models: [{ modelId: 'logical', wireModelId: 'wire', apiMode: 'chat-completions' }],
+      },
+    });
+    await expect(generator.next()).rejects.toMatchObject({
+      agentRunError: {
+        code: 'PROVIDER_AUTH_MISSING',
+        providerId: 'account',
+        settingTarget: { kind: 'provider', providerId: 'account', field: 'apiKey' },
+      },
+    });
+  });
+
   it('sends reasoning, all system instructions and tools, then preserves tool-call/result round trips', async () => {
     const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
     const server = createServer(async (request, response) => {

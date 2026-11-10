@@ -6,7 +6,6 @@ import {
   useAgentSession,
   useAgentSessionCoreAdapter,
 } from '@memeloop/react-ui/native';
-import { resolveAgentRunErrorPresentation } from '@memeloop/react-ui/chat/core';
 import { Stack, useRouter } from 'expo-router';
 import { setStringAsync } from 'expo-clipboard';
 import { createAgentDeviceRpcRequestId, createConversationEditingAdapter, type ConversationBranchState } from 'memeloop/mobile';
@@ -31,6 +30,7 @@ import {
 import { getMobileLabels, resolveMobileLocale } from '../lib/i18n';
 import { RemoteConversationSettings } from '../lib/RemoteConversationSettings';
 import { RemoteAgentPicker } from '../lib/RemoteAgentPicker';
+import { resolveMobileAgentRunError } from '../lib/agentRunErrorPresentation';
 
 const EMPTY_BRANCHES: ConversationBranchState[] = [];
 
@@ -141,13 +141,7 @@ function AgentChat({ session, onConversationChange, headerActions }: { headerAct
         actionId: 'open-settings',
         actionLabel: labels.chat.settingsAction,
       }}
-      resolveErrorPresentation={value => resolveAgentRunErrorPresentation(value, {
-        localize: () => ({
-          title: labels.chat.operationFailedTitle,
-          message: labels.chat.operationFailedMessage,
-        }),
-        settingActionLabel: () => labels.chat.settingsAction,
-      })}
+      resolveErrorPresentation={value => resolveMobileAgentRunError(value, labels)}
       onErrorAction={async presentation => {
         if (presentation.actionId === 'agent-run-setting' || presentation.actionId === 'open-settings') {
           router.push('/settings');
@@ -315,7 +309,8 @@ export default function ChatScreen() {
         {conversationPicker}
         {agentPicker}
         {goalOpen && <NativeGoalDialog key={session.conversationId} client={session.client.goals} conversationId={session.conversationId}
-          definitionId={session.definitionId} labels={goalLabels} topInset={insets.top} bottomInset={insets.bottom} onClose={() => setGoalOpen(false)} />}
+          definitionId={session.definitionId} labels={goalLabels} resolveErrorPresentation={value => resolveMobileAgentRunError(value, labels)}
+          topInset={insets.top} bottomInset={insets.bottom} onClose={() => setGoalOpen(false)} />}
         {settingsMode && <RemoteConversationSettings key={`${session.conversationId}:${settingsMode}`} client={session.client} conversationId={session.conversationId}
           mode={settingsMode} onClose={() => setSettingsMode(undefined)} />}
         <AgentSessionProvider controller={session.controller}>

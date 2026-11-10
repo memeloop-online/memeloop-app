@@ -371,9 +371,23 @@ class RemoteAgentRuntimeBridge {
   }
 
   private async pollRun(conversationId: string, runId: string, signal: AbortSignal): Promise<void> {
+    let consecutiveFailures = 0;
     try {
       for (;;) {
-        const { status } = await this.client.getRunStatus({ runId }, { signal });
+        let response: Awaited<ReturnType<AgentDeviceRpcClient['getRunStatus']>>;
+        try {
+          response = await this.client.getRunStatus({ runId }, { signal });
+          consecutiveFailures = 0;
+        } catch {
+          signal.throwIfAborted();
+          // A transport interruption leaves the remote run active. Retain its
+          // identity for cancellation while retrying with the head probe's backoff.
+          consecutiveFailures = Math.min(consecutiveFailures + 1, 5);
+          await wait(MOBILE_REMOTE_RUN_POLL_MS * 2 ** consecutiveFailures, signal);
+          continue;
+        }
+        signal.throwIfAborted();
+        const { status } = response;
         if (!status) {
           this.emit(conversationId, { status: { state: 'failed' } });
           return;
@@ -395,7 +409,7 @@ class RemoteAgentRuntimeBridge {
     } catch {
       if (!signal.aborted) this.emit(conversationId, { status: { state: 'failed' } });
     } finally {
-      if (this.activeRunIds.get(conversationId) === runId) {
+      if (this.runControllers.get(conversationId)?.signal === signal) {
         this.activeRunIds.delete(conversationId);
         this.runControllers.delete(conversationId);
         this.updateSource.wake(conversationId);

@@ -51,6 +51,7 @@ import type {
 import { TerminalSessionManager } from './terminal/sessionManager';
 import { WorkerAgentDefinitions } from './workerAgentDefinitions';
 import { ensureMemeLoopWorkerDataDirectory } from './workerDataDirectory';
+import { restoreWorkerError, type WorkerErrorDetails } from './workerError';
 import { DesktopWorkerModelRegistry } from './workerModelRegistry';
 import { createWorkerStorageBridge, type WorkerStorageRequest } from './workerStorageBridge';
 
@@ -214,7 +215,7 @@ if (parentPort) {
       part?: PortableLlmStreamPart;
       tools?: string[];
       result?: unknown;
-      error?: { message: string; name?: string; stack?: string };
+      error?: WorkerErrorDetails;
     };
     if (m?.type === 'memeloop-model-configuration-update') {
       modelConfigurationGeneration++;
@@ -302,10 +303,7 @@ if (parentPort) {
       }
       pendingMainLlmChat.delete(m.id);
     } else if (m.type === 'memeloop-llm-chat-error') {
-      const error = new Error(m.error?.message ?? 'memeloop-llm-chat failed');
-      error.name = m.error?.name ?? 'Error';
-      error.stack = m.error?.stack;
-      pending.error = error;
+      pending.error = restoreWorkerError(m.error, 'memeloop-llm-chat failed');
       while (pending.waiters.length > 0) {
         const waiter = pending.waiters.shift();
         if (waiter) waiter({ value: undefined, done: true });

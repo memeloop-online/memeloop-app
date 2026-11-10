@@ -6,12 +6,25 @@ import { logger } from '@services/libs/log';
 import { ModelMessage, streamText } from 'ai';
 import { createOllama } from 'ollama-ai-provider-v2';
 
-import { assertPortableLlmRequest, createFetchLLMProvider, type ModelAssignments, type PortableLlmRequest, type PortableLlmStreamPart, type ProviderModelRoute } from 'memeloop';
+import {
+  AgentRunFailure,
+  assertPortableLlmRequest,
+  createFetchLLMProvider,
+  createMissingApiKeyAgentRunError,
+  type ModelAssignments,
+  type PortableLlmRequest,
+  type PortableLlmStreamPart,
+  type ProviderModelRoute,
+} from 'memeloop';
 import { MissingAPIKeyError, MissingBaseURLError } from './errors';
 import { normalizeOpenAIBaseURL } from './openAIBaseURL';
 import type { ProviderRuntimeConfig } from './runtimeTypes';
 
 type AIStreamResult = ReturnType<typeof streamText>;
+
+function allowsMissingProviderKey(config: ProviderRuntimeConfig | undefined): boolean {
+  return config?.account.providerType === 'ollama' || config?.account.providerType === 'openAICompatible';
+}
 
 export function createProviderClient(providerConfig: ProviderRuntimeConfig, provider: string) {
   // 首先检查 providerClass，如果没有则回退到基于名称的判断
@@ -60,7 +73,8 @@ export function createProviderModel(providerConfig: ProviderRuntimeConfig, model
       throw new MissingBaseURLError(providerConfig.account.providerId);
     }
     return createOpenAI({
-      apiKey: providerConfig.apiKey,
+      // The Responses SDK requires a string credential even for an unauthenticated compatible server.
+      apiKey: providerConfig.apiKey ?? (allowsMissingProviderKey(providerConfig) ? '' : undefined),
       baseURL: providerConfig.account.baseUrl && normalizeOpenAIBaseURL(providerConfig.account.baseUrl),
     }).responses(model.wireModelId);
   }
@@ -117,6 +131,9 @@ export async function* streamPortableProviderRequest(
   ) {
     throw new Error('conversation_model_route_changed');
   }
+  if (!providerConfig.apiKey?.trim() && !allowsMissingProviderKey(providerConfig)) {
+    throw new AgentRunFailure(createMissingApiKeyAgentRunError({ providerId: account.providerId }));
+  }
   const provider = createFetchLLMProvider({
     name: request.providerId,
     apiMode: route.apiMode,
@@ -145,14 +162,7 @@ export function streamFromProvider(
   logger.info(`Using AI provider: ${provider}, model: ${model}`);
 
   try {
-    // Check if API key is required
-    const isOllama = providerConfig?.account.providerType === 'ollama';
-    const isLocalOpenAICompatible = providerConfig?.account.providerType === 'openAICompatible' &&
-      providerConfig.account.baseUrl &&
-      (providerConfig.account.baseUrl.includes('localhost') || providerConfig.account.baseUrl.includes('127.0.0.1'));
-
-    if (!providerConfig?.apiKey && !isOllama && !isLocalOpenAICompatible) {
-      // Ollama and local OpenAI-compatible servers don't require API key
+    if (!providerConfig || (!providerConfig.apiKey?.trim() && !allowsMissingProviderKey(providerConfig))) {
       throw new MissingAPIKeyError(provider);
     }
 

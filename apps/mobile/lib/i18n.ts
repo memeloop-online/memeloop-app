@@ -6,6 +6,8 @@
  * screen consumes this typed catalogue instead of embedding user-facing text.
  */
 
+import type { AgentRunErrorMessageKey } from 'memeloop/mobile';
+
 export const MOBILE_LOCALES = ["en", "zh-Hans", "ja"] as const;
 export type MobileLocale = (typeof MOBILE_LOCALES)[number];
 
@@ -87,6 +89,8 @@ export interface MobileLabels {
     operationFailedTitle: string;
     operationFailedMessage: string;
     settingsAction: string;
+    remoteSettings: string;
+    runErrors: Record<AgentRunErrorMessageKey, string>;
     couldNotOpen: string;
     noReachableDevice: string;
     connecting: string;
@@ -213,6 +217,27 @@ const ENGLISH_LABELS: MobileLabels = {
     operationFailedTitle: "Agent operation failed",
     operationFailedMessage: "The request could not be completed. Try again or review settings.",
     settingsAction: "Open settings",
+    remoteSettings: "Review this setting on the desktop running this conversation, then resume.",
+    runErrors: {
+      'agent.run.error.cancelled': 'This run was cancelled. Send a message to continue.',
+      'agent.run.error.interrupted': 'This run was interrupted. Resume to continue.',
+      'agent.run.error.invalidRequest': 'Review your message and agent settings, then try again.',
+      'agent.run.error.userMessageTooLarge': 'Shorten the message or split it into smaller messages.',
+      'agent.run.error.modelNotFound': 'Choose an available model in the provider settings.',
+      'agent.run.error.providerAuthMissing': 'Add a valid API key in the provider settings.',
+      'agent.run.error.providerConfigurationMissing': 'Complete the provider configuration.',
+      'agent.run.error.providerUnavailable': 'Check the provider connection and model availability.',
+      'agent.run.error.rateLimited': 'The provider rate limit was reached. Try again shortly.',
+      'agent.run.error.runnerUnavailable': 'Start the agent on the execution device, then try again.',
+      'agent.run.error.storageUnavailable': 'Check storage access and free space on the execution device.',
+      'agent.run.error.deviceAuthRequired': 'Pair and authorize the execution device.',
+      'agent.run.error.devicePermissionDenied': 'Allow this operation in the execution device permissions.',
+      'agent.run.error.networkUnavailable': 'Check the connection to the execution device.',
+      'agent.run.error.contextCompactionPending': 'Conversation context is being summarized. Try again shortly.',
+      'agent.run.error.contextCompactionFailed': 'Context summarization needs attention. Review the summarization model settings.',
+      'agent.run.error.contextBudgetExceeded': 'Reduce the conversation context or choose a model with a larger context window.',
+      'agent.run.error.internal': 'The agent run needs attention. Try again and use the diagnostic ID when reporting the issue.',
+    },
     couldNotOpen: "Could not open agent chat",
     noReachableDevice: "No reachable agent device",
     connecting: "Connecting securely…",
@@ -337,6 +362,27 @@ const CHINESE_LABELS: MobileLabels = {
     operationFailedTitle: "智能体操作失败",
     operationFailedMessage: "请求未能完成。请重试或检查设置。",
     settingsAction: "打开设置",
+    remoteSettings: "请在运行此对话的桌面端调整该设置，然后继续。",
+    runErrors: {
+      'agent.run.error.cancelled': '本轮执行已取消，发送消息即可继续。',
+      'agent.run.error.interrupted': '本轮执行已中断，请继续执行。',
+      'agent.run.error.invalidRequest': '请检查消息内容和智能体设置后重试。',
+      'agent.run.error.userMessageTooLarge': '请缩短消息，或分成多条发送。',
+      'agent.run.error.modelNotFound': '请在服务商设置中选择可用的模型。',
+      'agent.run.error.providerAuthMissing': '请在服务商设置中填写有效的 API 密钥。',
+      'agent.run.error.providerConfigurationMissing': '请完善服务商配置。',
+      'agent.run.error.providerUnavailable': '请检查服务商连接及模型可用性。',
+      'agent.run.error.rateLimited': '已达到服务商请求频率上限，请稍后重试。',
+      'agent.run.error.runnerUnavailable': '请在执行设备上启动智能体后重试。',
+      'agent.run.error.storageUnavailable': '请检查执行设备的存储访问权限和剩余空间。',
+      'agent.run.error.deviceAuthRequired': '请配对并授权执行设备。',
+      'agent.run.error.devicePermissionDenied': '请在执行设备的权限设置中允许此操作。',
+      'agent.run.error.networkUnavailable': '请检查与执行设备的网络连接。',
+      'agent.run.error.contextCompactionPending': '正在整理对话上下文，请稍后继续。',
+      'agent.run.error.contextCompactionFailed': '上下文整理需要处理，请检查摘要模型设置。',
+      'agent.run.error.contextBudgetExceeded': '请减少对话上下文，或选择上下文窗口更大的模型。',
+      'agent.run.error.internal': '智能体执行需要处理，请重试；反馈问题时可提供诊断编号。',
+    },
     couldNotOpen: "无法打开智能体对话",
     noReachableDevice: "没有可访问的智能体设备",
     connecting: "正在安全连接…",
@@ -461,6 +507,27 @@ const JAPANESE_LABELS: MobileLabels = {
     operationFailedTitle: "エージェント操作に失敗しました",
     operationFailedMessage: "要求を完了できませんでした。再試行するか設定を確認してください。",
     settingsAction: "設定を開く",
+    remoteSettings: "この会話を実行しているデスクトップで設定を確認してから再開してください。",
+    runErrors: {
+      'agent.run.error.cancelled': 'この実行はキャンセルされました。メッセージを送信して続行できます。',
+      'agent.run.error.interrupted': '実行が中断されました。再開してください。',
+      'agent.run.error.invalidRequest': 'メッセージとエージェント設定を確認して再試行してください。',
+      'agent.run.error.userMessageTooLarge': 'メッセージを短くするか、複数に分けて送信してください。',
+      'agent.run.error.modelNotFound': 'プロバイダー設定で利用可能なモデルを選択してください。',
+      'agent.run.error.providerAuthMissing': 'プロバイダー設定に有効な API キーを入力してください。',
+      'agent.run.error.providerConfigurationMissing': 'プロバイダー設定を完了してください。',
+      'agent.run.error.providerUnavailable': 'プロバイダーへの接続とモデルの利用状況を確認してください。',
+      'agent.run.error.rateLimited': 'プロバイダーの利用制限に達しました。しばらくして再試行してください。',
+      'agent.run.error.runnerUnavailable': '実行デバイスでエージェントを起動して再試行してください。',
+      'agent.run.error.storageUnavailable': '実行デバイスのストレージ権限と空き容量を確認してください。',
+      'agent.run.error.deviceAuthRequired': '実行デバイスをペアリングして承認してください。',
+      'agent.run.error.devicePermissionDenied': '実行デバイスの権限設定でこの操作を許可してください。',
+      'agent.run.error.networkUnavailable': '実行デバイスへのネットワーク接続を確認してください。',
+      'agent.run.error.contextCompactionPending': '会話のコンテキストを要約中です。しばらくして続行してください。',
+      'agent.run.error.contextCompactionFailed': 'コンテキストの要約設定を確認してください。',
+      'agent.run.error.contextBudgetExceeded': 'コンテキストを減らすか、より大きなコンテキストに対応したモデルを選択してください。',
+      'agent.run.error.internal': 'エージェントの実行を再試行してください。問題の報告には診断 ID をご利用ください。',
+    },
     couldNotOpen: "エージェントチャットを開けませんでした",
     noReachableDevice: "到達可能なエージェントデバイスがありません",
     connecting: "安全に接続中…",

@@ -1,5 +1,23 @@
 Feature: Persistent goals in the packaged desktop application
   @agentGoal
+  Scenario: App goal explains a missing provider key and opens its settings
+    Given I prepare an isolated goal model with "missing-key" replies
+    When I launch the MemeLoop application
+    And I wait for the page to load completely
+    And I click on a "default agent" element with selector "[data-testid='create-default-agent-button']"
+    Then I should see a "message input" element with selector "[data-testid='agent-message-input']"
+    When I click on a "goal button" element with selector "button[aria-label='目标']"
+    And I type "Verify the configured provider before working." in "goal objective" element with selector "[role='dialog'] textarea:not([readonly])"
+    And I click on a "start goal" element with selector "[role='dialog'] button:has-text('开始目标')"
+    Then I should see a "localized provider error" element with selector "[role='dialog'] [role='alert']:has-text('请在设置中检查 goal-test 的 API 密钥')"
+    And I capture the App goal screenshot "goal-provider-error"
+    When I click on a "provider settings action" element with selector "[role='dialog'] button:has-text('前往设置')"
+    And I switch to "preferences" window
+    Then I should see a "provider settings" element with selector "body:has-text('goal-test')"
+    And I focus the App goal provider key setting
+    And I capture the App goal screenshot "goal-provider-settings"
+
+  @agentGoal
   Scenario: App goal continues across two rounds and keeps its result after restart
     Given I prepare an isolated goal model with "completed" replies
     When I launch the MemeLoop application

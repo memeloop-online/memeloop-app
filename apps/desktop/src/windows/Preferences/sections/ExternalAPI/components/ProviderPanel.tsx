@@ -68,7 +68,7 @@ export function ProviderPanel({ provider, formState, onFormChange, onEnabledChan
           label={t('Preference.APIKey')}
           type={showApiKey ? 'text' : 'password'}
           value={formState.apiKey}
-          placeholder={provider.secretRef ? 'Configured securely; type to replace' : undefined}
+          placeholder={t('Preference.APIKeyPlaceholder')}
           onChange={event => {
             onFormChange('apiKey', event.target.value);
           }}

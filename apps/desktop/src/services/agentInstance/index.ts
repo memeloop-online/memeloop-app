@@ -66,6 +66,7 @@ import type { ExportAgentMessageRequest, ExportAgentMessageResult, PreparePrompt
 import type { MemeLoopWorker } from './memeloopWorker';
 import createMemeLoopUtilityProcess from './memeloopWorkerFactory';
 import { AGENT_MESSAGE_EXPORT_CHUNK_BYTES, AGENT_MESSAGE_EXPORT_MAX_BYTES, streamAgentMessageDetailRanges } from './messageExport';
+import { getWorkerErrorDetails } from './workerError';
 
 import { USER_DATA_FOLDER } from '@/constants/appPaths';
 import { SQLITE_BINARY_PATH } from '@/constants/paths';
@@ -213,17 +214,6 @@ function waitForUtilityProcessSpawn(
     signal.addEventListener('abort', onAbort, { once: true });
     if (signal.aborted) onAbort();
   });
-}
-
-function getWorkerErrorDetails(error: unknown): {
-  message: string;
-  name: string;
-  stack?: string;
-} {
-  if (error instanceof Error) {
-    return { message: error.message, name: error.name, stack: error.stack };
-  }
-  return { message: String(error), name: 'Error' };
 }
 
 @injectable()
@@ -1033,7 +1023,7 @@ export class AgentInstanceService implements IAgentInstanceService {
         logger.warn('MemeLoop UtilityProcess unhealthy; restarting process', {
           error,
         });
-        await this.disposeMemeLoopWorker();
+        await this.disposeMemeLoopWorkerProcess();
         await this.initializeMemeLoopWorker();
       }
     } finally {
@@ -2395,6 +2385,18 @@ Result: ${JSON.stringify(approvalPrompt)}
    * before the OS process is terminated.
    */
   public async disposeMemeLoopWorker(): Promise<void> {
+    try {
+      await this.disposeMemeLoopWorkerProcess();
+    } finally {
+      this.agentToolRuntime?.dispose();
+      this.agentToolRuntime = undefined;
+      this.frameworkSchemas.clear();
+      this.workerConversationByAgentId.clear();
+    }
+  }
+
+  /** Release process-owned resources while retaining the host catalog and durable IDs for restart. */
+  private async disposeMemeLoopWorkerProcess(): Promise<void> {
     if (this.memeLoopDisposePromise) return this.memeLoopDisposePromise;
     this.memeLoopDisposePromise = (async () => {
       this.memeLoopStartupAbortController?.abort(new Error('MemeLoop UtilityProcess shutdown requested'));
@@ -2408,9 +2410,6 @@ Result: ${JSON.stringify(approvalPrompt)}
         subscription.unsubscribe();
       }
       this.workerConversationMutationSubscriptions.clear();
-      this.agentToolRuntime?.dispose();
-      this.agentToolRuntime = undefined;
-      this.frameworkSchemas.clear();
       for (
         const [agentId, cleanup] of [
           ...this.workerConversationCleanupByAgentId.entries(),
@@ -2424,7 +2423,6 @@ Result: ${JSON.stringify(approvalPrompt)}
         this.workerConversationCleanupByAgentId.delete(agentId);
       }
       this.workerAgentIdByConversationId.clear();
-      this.workerConversationByAgentId.clear();
 
       const proxy = this.memeLoopWorker;
       const utilityProcess = this.memeLoopUtilityProcess;

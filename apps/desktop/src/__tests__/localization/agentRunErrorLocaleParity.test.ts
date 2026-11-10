@@ -31,4 +31,16 @@ describe('agent run error locale parity', () => {
       expect(labels.UserMessageTooLarge, locale).toContain('{{limit}}');
     }
   });
+
+  it('preserves provider guidance and key-entry labels in every supported locale', () => {
+    for (const locale of Object.keys(supportedLanguages)) {
+      const agent = JSON.parse(
+        fs.readFileSync(path.join(localizationRoot, 'locales', locale, 'agent.json'), 'utf8'),
+      ) as { Chat: { ConfigError: Record<string, string> }; Preference: { APIKeyPlaceholder: string } };
+      expect(agent.Chat.ConfigError.AuthenticationError, locale).toContain('{{provider}}');
+      expect(agent.Chat.ConfigError.AuthenticationFailed, locale).toContain('{{provider}}');
+      expect(agent.Preference.APIKeyPlaceholder, locale).toEqual(expect.any(String));
+      expect(agent.Preference.APIKeyPlaceholder.length, locale).toBeGreaterThan(0);
+    }
+  });
 });

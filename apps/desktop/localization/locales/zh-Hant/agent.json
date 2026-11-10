@@ -62,8 +62,8 @@
   "Chat": {
     "Cancel": "取消",
     "ConfigError": {
-      "AuthenticationError": "{{provider}} 身份驗證失敗。請在設置中檢查您的 API 密鑰。",
-      "AuthenticationFailed": "{{provider}} 身份驗證失敗。請在設置中檢查您的 API 密鑰。",
+      "AuthenticationError": "請在設定中檢查 {{provider}} 的 API 金鑰。",
+      "AuthenticationFailed": "請在設定中檢查 {{provider}} 的 API 金鑰。",
       "GoToSettings": "前往設置",
       "MissingAPIKeyError": "未找到 {{provider}} 的 API 密鑰。請在設置中添加。",
       "MissingBaseURLError": "{{provider}} 提供商需要配置基礎 URL。請在設置中進行配置。",
@@ -290,6 +290,7 @@
     "AIAgentDescription": "管理智慧體對話記錄資料庫",
     "AIAgentDescriptionDetail": "這裡可以查看和刪除智慧體對話記錄資料庫的大小和位置資訊",
     "APIKey": "API 金鑰",
+    "APIKeyPlaceholder": "輸入 API 金鑰",
     "AddNewModel": "添加新模型",
     "AddNewProvider": "添加新提供商",
     "AddProvider": "添加提供商",

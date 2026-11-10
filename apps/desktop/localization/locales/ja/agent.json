@@ -62,8 +62,8 @@
   "Chat": {
     "Cancel": "キャンセル",
     "ConfigError": {
-      "AuthenticationError": "{{provider}} の認証に失敗しました。設定でAPIキーを確認してください。",
-      "AuthenticationFailed": "{{provider}} の認証に失敗しました。設定でAPIキーを確認してください。",
+      "AuthenticationError": "設定で {{provider}} の API キーを確認してください。",
+      "AuthenticationFailed": "設定で {{provider}} の API キーを確認してください。",
       "GoToSettings": "設定へ移動",
       "MissingAPIKeyError": "{{provider}} のAPIキーが見つかりません。設定で追加してください。",
       "MissingBaseURLError": "{{provider}} プロバイダーにはベーsURLの設定が必要です。設定で構成してください。",
@@ -289,6 +289,7 @@
     "AIAgentDescription": "AI Agentの対話記録データベースを管理する",
     "AIAgentDescriptionDetail": "ここではAI Agentの会話記録データベースのサイズと位置情報を確認および削除できます。",
     "APIKey": "APIキー",
+    "APIKeyPlaceholder": "API キーを入力",
     "AddNewModel": "新しいモデルを追加",
     "AddNewProvider": "新しいプロバイダーを追加",
     "AddProvider": "プロバイダーを追加",

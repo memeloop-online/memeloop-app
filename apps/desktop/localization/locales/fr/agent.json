@@ -62,8 +62,8 @@
   "Chat": {
     "Cancel": "Annuler",
     "ConfigError": {
-      "AuthenticationError": "L'authentification {{provider}} a échoué. Veuillez vérifier votre clé API dans les paramètres.",
-      "AuthenticationFailed": "L'authentification {{provider}} a échoué. Veuillez vérifier votre clé API dans les paramètres.",
+      "AuthenticationError": "Vérifiez la clé API de {{provider}} dans les paramètres.",
+      "AuthenticationFailed": "Vérifiez la clé API de {{provider}} dans les paramètres.",
       "GoToSettings": "Aller aux paramètres",
       "MissingAPIKeyError": "Clé API pour {{provider}} introuvable. Veuillez l'ajouter dans les paramètres.",
       "MissingBaseURLError": "Le fournisseur {{provider}} nécessite une URL de base. Veuillez la configurer dans les paramètres.",
@@ -289,6 +289,7 @@
     "AIAgentDescription": "Gérer la base de données des enregistrements de conversation des agents IA",
     "AIAgentDescriptionDetail": "Ici, vous pouvez consulter et supprimer les informations sur la taille et l'emplacement de la base de données des historiques de conversation avec l'Agent IA.",
     "APIKey": "Clé API",
+    "APIKeyPlaceholder": "Saisissez la clé API",
     "AddNewModel": "Ajouter un nouveau modèle",
     "AddNewProvider": "Ajouter un nouveau fournisseur",
     "AddProvider": "Ajouter un fournisseur",

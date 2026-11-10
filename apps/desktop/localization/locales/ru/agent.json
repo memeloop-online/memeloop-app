@@ -62,8 +62,8 @@
   "Chat": {
     "Cancel": "Отмена",
     "ConfigError": {
-      "AuthenticationError": "Ошибка аутентификации {{provider}}. Пожалуйста, проверьте API-ключ в настройках.",
-      "AuthenticationFailed": "Ошибка аутентификации {{provider}}. Пожалуйста, проверьте API-ключ в настройках.",
+      "AuthenticationError": "Проверьте API-ключ {{provider}} в настройках.",
+      "AuthenticationFailed": "Проверьте API-ключ {{provider}} в настройках.",
       "GoToSettings": "Перейти к настройкам",
       "MissingAPIKeyError": "API-ключ для {{provider}} не найден. Пожалуйста, добавьте его в настройках.",
       "MissingBaseURLError": "Провайдер {{provider}} требует базовый URL. Пожалуйста, настройте его в настройках.",
@@ -289,6 +289,7 @@
     "AIAgentDescription": "Управление базой данных записей диалогов AI Agent",
     "AIAgentDescriptionDetail": "Здесь можно просмотреть и удалить информацию о размере и местоположении базы данных записей диалогов AI Agent.",
     "APIKey": "API ключ",
+    "APIKeyPlaceholder": "Введите API-ключ",
     "AddNewModel": "Добавить новую модель",
     "AddNewProvider": "Добавить нового поставщика",
     "AddProvider": "Добавить поставщика",

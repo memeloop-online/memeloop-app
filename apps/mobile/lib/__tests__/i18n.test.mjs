@@ -11,6 +11,11 @@ function leafKeys(value, prefix = '') {
   return Object.entries(value).flatMap(([key, child]) => leafKeys(child, prefix ? `${prefix}.${key}` : key));
 }
 
+function leafValues(value, prefix = '') {
+  if (!value || typeof value !== 'object') return [[prefix, value]];
+  return Object.entries(value).flatMap(([key, child]) => leafValues(child, prefix ? `${prefix}.${key}` : key));
+}
+
 test('mobile dictionaries have identical label shape and locale resolution', () => {
   const [firstLocale, ...otherLocales] = Object.keys(MOBILE_LABELS);
   const expected = leafKeys(MOBILE_LABELS[firstLocale]).filter(key => key !== 'locale');
@@ -27,10 +32,7 @@ test('screen labels remain bounded for narrow mobile layouts', () => {
   const allLabels = Object.values(MOBILE_LABELS).flatMap(labels => leafKeys(labels).map(key => key));
   assert.ok(allLabels.length > 0);
   for (const labels of Object.values(MOBILE_LABELS)) {
-    for (const key of leafKeys(labels)) {
-      const segments = key.split('.');
-      let current = labels;
-      for (const segment of segments) current = current[segment];
+    for (const [key, current] of leafValues(labels)) {
       if (typeof current === 'string') {
         assert.ok(current.length > 0, `${labels.locale}:${key} must not be empty`);
         assert.ok(current.length <= 512, `${labels.locale}:${key} exceeds the narrow-screen label bound`);

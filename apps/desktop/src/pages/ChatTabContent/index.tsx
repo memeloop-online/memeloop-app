@@ -1,5 +1,6 @@
 import { AgentChatShell, AgentSessionProvider, getGoalPanelLabels, GoalDialog, useAgentSession, useAgentSessionChatAdapter } from '@memeloop/react-ui/agent';
 import type { MemeLoopMessageLabels, WebMemeLoopChatAdapter } from '@memeloop/react-ui/chat';
+import type { MemeLoopChatErrorPresentation } from '@memeloop/react-ui/chat/core';
 import { Box, Typography } from '@mui/material';
 import type { AgentInstanceMetadata } from '@services/agentInstance/interface';
 import { type ConversationBranchState, createConversationEditingAdapter, type GoalClient } from 'memeloop';
@@ -255,6 +256,13 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
     if (nextMetadata) setMetadata(nextMetadata);
     updateTabData(tab.id, { title: name });
   }, [agentId, tab.id, updateTabData]);
+  const handleErrorAction = useCallback(async (presentation: MemeLoopChatErrorPresentation) => {
+    if (presentation.actionId === 'open-provider-settings') {
+      await window.service.window.open(WindowNames.preferences, {
+        preferenceGotoTab: PreferenceSections.externalAPI,
+      });
+    }
+  }, []);
 
   return (
     <AgentChatShell
@@ -285,13 +293,7 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
       placeholder={t('Chat.InputPlaceholder')}
       resolveErrorPresentation={value => resolveDesktopAgentError(value, t)}
       genericErrorPresentation={createDesktopGenericErrorPresentation(t)}
-      onErrorAction={async presentation => {
-        if (presentation.actionId === 'open-provider-settings') {
-          await window.service.window.open(WindowNames.preferences, {
-            preferenceGotoTab: PreferenceSections.externalAPI,
-          });
-        }
-      }}
+      onErrorAction={handleErrorAction}
       timelineLabels={{
         navigation: t('Chat.Timeline.Navigation'),
         message: (index, total, role) => t('Chat.Timeline.Turn', { index, total, role }),
@@ -380,6 +382,8 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
               conversationId={agentId}
               definitionId={(agentDefId ?? snapshot.agent?.agentDefId)!}
               labels={goalLabels}
+              resolveErrorPresentation={value => resolveDesktopAgentError(value, t)}
+              onErrorAction={handleErrorAction}
               onClose={() => {
                 setGoalOpen(false);
               }}

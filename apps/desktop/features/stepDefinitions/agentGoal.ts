@@ -48,7 +48,7 @@ Given('I prepare an isolated goal model with {string} replies', async function(t
   }, { spaces: 2 });
   await fs.writeJson(getTestArtifactsPath(this, 'userData-test', 'auth.json'), {
     version: 1,
-    secrets: { 'ai-provider/goal-test': 'isolated-e2e-key' },
+    secrets: mode === 'missing-key' ? {} : { 'ai-provider/goal-test': 'isolated-e2e-key' },
   });
 });
 
@@ -112,4 +112,14 @@ Then('I capture the App goal screenshot {string}', async function(this: Applicat
   assert(this.currentWindow);
   await fs.writeFile(getTestArtifactsPath(this, `${name}.txt`), await this.currentWindow.locator('body').innerText());
   await captureGoalWindow(this, name);
+});
+
+Then('I focus the App goal provider key setting', async function(this: ApplicationWorld) {
+  assert(this.currentWindow);
+  const key = this.currentWindow.locator("[data-testid='provider-api-key-input']");
+  await key.scrollIntoViewIfNeeded();
+  await key.focus();
+  assert(await key.isVisible());
+  assert.equal(await key.inputValue(), '');
+  assert((await this.currentWindow.locator('body').innerText()).toLowerCase().includes('goal-test'));
 });

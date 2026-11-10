@@ -4,8 +4,67 @@ import { logger } from '@services/libs/log';
 import serviceIdentifier from '@services/serviceIdentifier';
 import { Subscription } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
+import { AgentInstanceService } from '../index';
+import { AppAgentToolRuntime } from '../tools/runtime';
 
 describe('AgentInstanceService worker cleanup', () => {
+  it('retains host tools and framework schemas across an unhealthy worker restart, then disposes them at app shutdown', async () => {
+    const service = new AgentInstanceService();
+    const hostRuntime = new AppAgentToolRuntime();
+    const execute = vi.fn((arguments_: Record<string, unknown>) => ({ value: arguments_.value }));
+    hostRuntime.workerBridgeTools.register('host-echo', execute);
+    const schema = { type: 'object', properties: { message: { type: 'string' } } };
+    const internals = service as unknown as {
+      agentToolRuntime?: AppAgentToolRuntime;
+      frameworkSchemas: Map<string, Record<string, unknown>>;
+      memeLoopWorker?: { ping: () => Promise<unknown>; shutdown: () => Promise<void> };
+      memeLoopUtilityProcess?: { kill: () => boolean };
+      workerConversationByAgentId: Map<string, string>;
+      workerAgentIdByConversationId: Map<string, string>;
+      workerConversationCleanupByAgentId: Map<string, () => void>;
+      initializeMemeLoopWorker: () => Promise<void>;
+      ensureMemeLoopWorkerHealthy: () => Promise<void>;
+      requireAgentToolRuntime: () => AppAgentToolRuntime;
+    };
+    internals.agentToolRuntime = hostRuntime;
+    internals.frameworkSchemas.set('restart-framework', schema);
+    internals.workerConversationByAgentId.set('agent', 'conversation');
+    internals.workerAgentIdByConversationId.set('conversation', 'agent');
+    const cleanup = vi.fn();
+    internals.workerConversationCleanupByAgentId.set('agent', cleanup);
+    const shutdown = vi.fn().mockResolvedValue(undefined);
+    const kill = vi.fn(() => true);
+    internals.memeLoopWorker = { ping: vi.fn().mockRejectedValue(new Error('worker disconnected')), shutdown };
+    internals.memeLoopUtilityProcess = { kill };
+    const initialize = vi.spyOn(internals, 'initializeMemeLoopWorker').mockImplementation(async () => {
+      expect(internals.workerConversationByAgentId.get('agent')).toBe('conversation');
+      const tools = internals.requireAgentToolRuntime();
+      expect(tools).toBe(hostRuntime);
+      expect(tools.workerBridgeTools.listTools()).toContain('host-echo');
+      expect(tools.getAllRegisteredToolIds()).toContain('fullReplacement');
+      expect(tools.getToolParameterSchema('fullReplacement')).toBeDefined();
+      expect(service.getFrameworkConfigSchema('restart-framework')).toBe(schema);
+      expect(await tools.workerBridgeTools.execute('host-echo', { value: 'after-restart' })).toEqual({ value: 'after-restart' });
+      internals.memeLoopWorker = { ping: vi.fn().mockResolvedValue({ ok: true }), shutdown: vi.fn().mockResolvedValue(undefined) };
+    });
+    try {
+      await Promise.all([internals.ensureMemeLoopWorkerHealthy(), internals.ensureMemeLoopWorkerHealthy()]);
+      expect(initialize).toHaveBeenCalledTimes(1);
+      expect(shutdown).toHaveBeenCalledTimes(1);
+      expect(kill).toHaveBeenCalledTimes(1);
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      expect(execute).toHaveBeenCalledWith({ value: 'after-restart' });
+      expect(internals.agentToolRuntime).toBe(hostRuntime);
+    } finally {
+      await service.disposeMemeLoopWorker();
+      initialize.mockRestore();
+    }
+    expect(internals.agentToolRuntime).toBeUndefined();
+    expect(hostRuntime.workerBridgeTools.listTools()).toEqual([]);
+    expect(internals.frameworkSchemas.size).toBe(0);
+    expect(internals.workerConversationByAgentId.size).toBe(0);
+  });
+
   it('cleans reverse worker conversation mapping when a single worker conversation is cleaned up', () => {
     const service = container.get<IAgentInstanceService>(serviceIdentifier.AgentInstance) as unknown as {
       workerConversationByAgentId: Map<string, string>;

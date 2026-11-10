@@ -68,6 +68,15 @@ describe('ProviderConfig', () => {
     expect(getProviderApiKey).toHaveBeenCalledWith('openai');
   });
 
+  it('offers key entry when a secret reference resolves to an empty value', async () => {
+    renderProviderConfig([{ ...account, secretRef: 'ai-provider/openai' }]);
+    await waitFor(() => {
+      expect(window.service.externalAPI.getProviderApiKey).toHaveBeenCalledWith('openai');
+    });
+    expect(screen.getByTestId('provider-api-key-input')).toHaveValue('');
+    expect(screen.getByTestId('provider-api-key-input')).toHaveAttribute('placeholder', 'Preference.APIKeyPlaceholder');
+  });
+
   it('does not replace a key typed while saved value is loading', async () => {
     const user = userEvent.setup();
     let resolveSavedKey!: (value: string) => void;
