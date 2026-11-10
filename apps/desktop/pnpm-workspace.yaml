@@ -2,7 +2,7 @@ packages: []
 
 overrides:
   '@memeloop/libp2p': 0.3.5
-  memeloop: 0.3.11
+  memeloop: 0.3.12
   memeloop-cli: 0.3.7
   '@memeloop/react-ui': 0.2.13
   prebuild-install: 7.1.3
@@ -61,6 +61,7 @@ allowBuilds:
 blockExoticSubdeps: false
 
 minimumReleaseAgeExclude:
+  - 'memeloop@0.3.12'
   - 'memeloop@0.3.11'
   - 'memeloop-cli@0.3.7'
   - '@memeloop/react-ui@0.2.13'
