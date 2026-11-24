@@ -34,6 +34,7 @@ import { requireDesktopAtomicRetryStore } from './atomicRetryCapability';
 import { createDesktopConversationModelParameters, type DesktopModelConfiguration } from './conversationModelParameters';
 import { type ConversationMutationWake, installConversationMutationObserver } from './conversationMutationObserver';
 import { createDesktopDeviceRpcHandlers } from './desktopDeviceRpcHandlers';
+import { getDesktopGoalAvailability } from './goalAvailability';
 import { cancelDesktopGoalRun } from './goalLifecycle';
 import { SqliteGoalStore } from './goalStore';
 import { createLlmCorrelatedRuntime, resolveLlmConversationId, runWithLlmConversation } from './llmRequestCorrelation';
@@ -678,7 +679,6 @@ let latestModelConfiguration: DesktopModelConfiguration | undefined;
 function applyWorkerModelConfiguration(configuration: DesktopModelConfiguration): DesktopModelConfiguration {
   workerModelRegistry.update(configuration);
   latestModelConfiguration = configuration;
-  if (runtimeContext) runtimeContext.defaultModelConfig = configuration.default;
   return configuration;
 }
 
@@ -789,6 +789,9 @@ function getDesktopDeviceRpcHandler(localOnly: boolean): DeviceRpcHandler {
     authorize: authorizeNetworkAgentRequest,
     conversationEditing: activeStorage,
     goals,
+    conversationWorkflowCapabilities: {
+      get: async (conversationId: string) => ({ goal: await memeloopWorker.getGoalAvailability(conversationId) }),
+    },
     conversationModelParameters: createWorkerConversationModelParameters(),
     getMainConversationId: () => activeStorage.getMainConversationId(),
     setMainConversationId: conversationId => activeStorage.setMainConversationId(conversationId),
@@ -857,6 +860,10 @@ async function ensureRuntimeInitialized(): Promise<void> {
     goals = new GoalCoordinator({
       store: goalStore,
       executionNodeId: localNodeId,
+      supportsGoal: async input => {
+        await ensureRuntimeInitialized();
+        return getDesktopGoalAvailability(runtimeContext!, input.conversationId);
+      },
       getRuntime: async () => {
         await ensureRuntimeInitialized();
         const activeRuntime = runtime!;
@@ -887,6 +894,7 @@ async function ensureRuntimeInitialized(): Promise<void> {
     const modelConfiguration = await refreshWorkerModelConfiguration();
     const runtimeResult = await createNodeRuntime({
       config: { agents: runtimeAgentDefinitions, defaultModelConfig: modelConfiguration.default },
+      resolveDefaultModelConfig: async () => (await refreshWorkerModelConfiguration()).default,
       getAgentDefinition: workerAgentDefinitions.get,
       loopScriptPolicy: workerAgentDefinitions.scriptPolicy,
       dataDir: configuredHost.dataDir,
@@ -991,7 +999,6 @@ async function ensureRuntimeInitialized(): Promise<void> {
       },
     );
     runtimeContext = runtimeResult.context;
-    runtimeContext.defaultModelConfig = latestModelConfiguration?.default;
     approvalRequestCleanup?.();
     approvalRequestCleanup = runtimeContext.toolApprovals?.onApprovalRequest(request => {
       emitCustomUpdate(request.conversationId, {
@@ -1261,6 +1268,11 @@ const memeloopWorker = {
   },
   cancelDeviceRpc: async (requestId: string): Promise<void> => {
     pendingNetworkRpc.get(requestId)?.abort(new Error('remote_request_cancelled'));
+  },
+  /** Local UI capability query; the worker owns the selected workflow and script policy. */
+  getGoalAvailability: async (conversationId: string): Promise<boolean> => {
+    await ensureRuntimeInitialized();
+    return getDesktopGoalAvailability(runtimeContext!, conversationId);
   },
   /** Main-process-only counterpart: it never accepts DeviceNetwork traffic. */
   handleLocalDeviceRpc: async (input: DeviceRpcHandlerInput) => {

@@ -323,6 +323,7 @@ export interface IAgentInstanceService {
    * Create a new scheduled task and start its timer.
    */
   createScheduledTask(input: CreateScheduledTaskInput, options?: ScheduledTaskCallOptions): Promise<ScheduledTask>;
+  getGoalAvailability(conversationId: string): Promise<boolean>;
   getGoal: GoalClient['get'];
   startGoal: GoalClient['start'];
   pauseGoal: GoalClient['pause'];
@@ -378,6 +379,7 @@ export interface IAgentInstanceService {
 export const AgentInstanceServiceIPCDescriptor = {
   channel: AgentChannel.instance,
   properties: {
+    getGoalAvailability: ProxyPropertyType.Function,
     getGoal: ProxyPropertyType.Function,
     startGoal: ProxyPropertyType.Function,
     pauseGoal: ProxyPropertyType.Function,

@@ -19,7 +19,7 @@ interface ChatHeaderProps {
   agentDefId?: string;
   loading: boolean;
   onOpenParameters: () => void;
-  onOpenGoal: () => void;
+  onOpenGoal?: () => void;
   onOpenPreview: (mode: 'preview' | 'edit') => void;
   onSwitchAgent?: (agentDefinitionId: string) => void;
 }
@@ -64,9 +64,11 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             disabled={loading}
           />
         )}
-        <IconButton size='small' onClick={onOpenGoal} title={goalLabels.title} aria-label={goalLabels.title}>
-          <FlagOutlinedIcon />
-        </IconButton>
+        {onOpenGoal && (
+          <IconButton size='small' onClick={onOpenGoal} title={goalLabels.title} aria-label={goalLabels.title}>
+            <FlagOutlinedIcon />
+          </IconButton>
+        )}
         <IconButton
           size='small'
           onClick={() => {

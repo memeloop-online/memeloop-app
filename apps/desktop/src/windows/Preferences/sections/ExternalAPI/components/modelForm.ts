@@ -10,6 +10,7 @@ export class DuplicateModelNameError extends Error {
 /** Renderer-only form state. It is converted to a canonical Core route at save time. */
 export interface ModelFormState {
   modelId: string;
+  displayName?: string;
   wireModelId: string;
   apiMode: ProviderModelRoute['apiMode'];
   maxOutputTokens: string;
@@ -30,6 +31,7 @@ export const reasoningEffortOptions: Array<NonNullable<ModelFormState['reasoning
 export function createEmptyModelForm(): ModelFormState {
   return {
     modelId: '',
+    displayName: '',
     wireModelId: '',
     apiMode: 'chat-completions',
     maxOutputTokens: '',
@@ -39,9 +41,10 @@ export function createEmptyModelForm(): ModelFormState {
   };
 }
 
-export function createModelForm(route: ProviderModelRoute): ModelFormState {
+export function createModelForm(route: ProviderModelRoute, displayName = route.modelId): ModelFormState {
   return {
     modelId: route.modelId,
+    displayName,
     wireModelId: route.wireModelId,
     apiMode: route.apiMode,
     maxOutputTokens: route.requestDefaults?.maxOutputTokens?.toString() ?? '',
@@ -54,21 +57,21 @@ export function createModelForm(route: ProviderModelRoute): ModelFormState {
 function positiveInteger(value: string, label: string): string | undefined {
   if (!value.trim()) return undefined;
   const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? undefined : `${label} must be a positive safe integer`;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? undefined : label;
 }
 
 function boundedNumber(value: string, label: string, min: number, max: number): string | undefined {
   if (!value.trim()) return undefined;
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= min && parsed <= max ? undefined : `${label} must be between ${min} and ${max}`;
+  return Number.isFinite(parsed) && parsed >= min && parsed <= max ? undefined : label;
 }
 
 export function validateModelForm(form: ModelFormState): ModelFormValidationErrors {
   const errors: ModelFormValidationErrors = {};
-  if (!form.modelId.trim()) errors.modelId = 'Model id is required';
-  errors.maxOutputTokens = positiveInteger(form.maxOutputTokens, 'Max output tokens');
-  errors.temperature = boundedNumber(form.temperature, 'Temperature', 0, 1);
-  errors.topP = boundedNumber(form.topP, 'Top P', 0, 1);
+  if (!form.wireModelId.trim()) errors.modelId = 'Preference.ProviderModelIdRequired';
+  errors.maxOutputTokens = positiveInteger(form.maxOutputTokens, 'Preference.MaxOutputTokensInvalid');
+  errors.temperature = boundedNumber(form.temperature, 'Preference.TemperatureInvalid', 0, 1);
+  errors.topP = boundedNumber(form.topP, 'Preference.TopPInvalid', 0, 1);
   return errors;
 }
 
@@ -91,7 +94,7 @@ export function routeFromForm(form: ModelFormState): ProviderModelRoute {
     };
 
   return {
-    modelId: form.modelId.trim(),
+    modelId: form.modelId.trim() || form.wireModelId.trim(),
     wireModelId: form.wireModelId.trim() || form.modelId.trim(),
     apiMode: form.apiMode,
     ...(requestDefaults ? { requestDefaults } : {}),
@@ -106,7 +109,7 @@ export interface PersistModelFormOptions {
 }
 
 export async function persistModelForm({ account, form, editingModelId, updateProvider }: PersistModelFormOptions): Promise<readonly ProviderModelRoute[]> {
-  const newRoute = routeFromForm(form);
+  const newRoute = { ...routeFromForm(form), ...(editingModelId ? { modelId: editingModelId } : {}) };
   const hasDuplicate = account.models.some(route => route.modelId === newRoute.modelId && route.modelId !== editingModelId);
   if (hasDuplicate) throw new DuplicateModelNameError();
 

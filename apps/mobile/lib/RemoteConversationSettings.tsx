@@ -1,11 +1,11 @@
-import { NativeModelParameterFields, NativePromptExecutionInspector, type NativePromptExecutionInspectorHandle } from '@memeloop/react-ui/native';
+import { getReasoningEffortLabels, NativeModelParameterFields, NativePromptExecutionInspector, type NativePromptExecutionInspectorHandle } from '@memeloop/react-ui/native';
 import type { AgentDeviceRpcClient, AgentModelConfig, PromptPreviewPreparedExecution } from 'memeloop/mobile';
 import type { ModelCatalogModel } from 'memeloop/model-catalog';
 import { createAgentDeviceRpcRequestId } from 'memeloop/mobile';
 import { useEffect, useRef, useState } from 'react';
 import { Modal, ScrollView, View } from 'react-native';
 import { ActivityIndicator, Appbar, Button, Text, useTheme } from 'react-native-paper';
-import { getMobileLabels } from './i18n';
+import { getMobileLabels, resolveMobileLocale } from './i18n';
 
 export function RemoteConversationSettings({ client, conversationId, mode, onClose }: {
   client: AgentDeviceRpcClient;
@@ -86,6 +86,7 @@ export function RemoteConversationSettings({ client, conversationId, mode, onClo
         {selection && <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
           <Text variant="titleMedium">{model?.name ?? selection.modelId}</Text>
           <NativeModelParameterFields model={model} value={selection.parameters ?? {}} labels={labels.modelParameters} disabled={busy}
+            reasoningEffortLabels={getReasoningEffortLabels(resolveMobileLocale())}
             onChange={parameters => setSelection({ ...selection, parameters })} />
           <Button mode="contained" disabled={busy} onPress={() => { void save(); }}>{labels.save}</Button>
         </ScrollView>}

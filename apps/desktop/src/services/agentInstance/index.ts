@@ -1179,6 +1179,10 @@ export class AgentInstanceService implements IAgentInstanceService {
     await this.callLocalAgentDeviceRpc(AGENT_DEVICE_RPC_METHODS.setMainConversation, { conversationId });
   }
 
+  public async getGoalAvailability(conversationId: string): Promise<boolean> {
+    return (await this.getMemeLoopWorkerProxy()).getGoalAvailability(conversationId);
+  }
+
   public getGoal(conversationId: string): ReturnType<GoalClient['get']> {
     return this.callLocalAgentDeviceRpc(GOAL_RPC_METHODS.get, { conversationId });
   }

@@ -2,6 +2,7 @@ import { AgentChannel } from '@/constants/channels';
 import type { AgentInitializationStatus } from '@services/startupLifecycle';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
 import type { AgentDefinition, AgentDefinitionToolConfig, AgentHeartbeatConfig, AgentModelConfig, ToolCallingMatch } from 'memeloop';
+import type { Observable } from 'rxjs';
 
 /** Private main-to-UtilityProcess configuration; approval stays on this device. */
 export interface AgentDefinitionRuntimeSnapshot {
@@ -13,6 +14,7 @@ export interface AgentDefinitionRuntimeSnapshot {
  * Agent service to manage agent definitions
  */
 export interface IAgentDefinitionService {
+  workflowChanged$: Observable<string>;
   /**
    * Initialize the service on application startup.
    */
@@ -64,6 +66,7 @@ export type { AgentDefinition, AgentDefinitionToolConfig, AgentHeartbeatConfig, 
 export const AgentDefinitionServiceIPCDescriptor = {
   channel: AgentChannel.definition,
   properties: {
+    workflowChanged$: ProxyPropertyType.Value$,
     getInitializationStatus: ProxyPropertyType.Function,
     createAgentDef: ProxyPropertyType.Function,
     updateAgentDef: ProxyPropertyType.Function,

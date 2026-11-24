@@ -7,6 +7,7 @@ import { type ConversationBranchState, createConversationEditingAdapter, type Go
 import { nanoid } from 'nanoid';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { catchError, filter, from, fromEvent, merge, of, startWith, switchMap } from 'rxjs';
 import { useShallow } from 'zustand/react/shallow';
 
 import { TabListDropdown } from '@/pages/Agent/components/TabBar/TabListDropdown';
@@ -72,6 +73,25 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
   const [previewMode, setPreviewMode] = useState<'preview' | 'edit'>();
   const [parametersOpen, setParametersOpen] = useState(false);
   const [goalOpen, setGoalOpen] = useState(false);
+  const [goalAvailable, setGoalAvailable] = useState(false);
+  const goalDefinitionId = snapshot.agent?.agentDefId ?? agentDefId;
+  useEffect(() => {
+    setGoalAvailable(false);
+    setGoalOpen(false);
+    const subscription = merge(
+      fromEvent(window, 'focus'),
+      window.observables.agentDefinition.workflowChanged$.pipe(filter(id => id === goalDefinitionId)),
+    ).pipe(
+      startWith(undefined),
+      switchMap(() => from(window.service.agentInstance.getGoalAvailability(agentId)).pipe(catchError(() => of(false)))),
+    ).subscribe(available => {
+      setGoalAvailable(available);
+      if (!available) setGoalOpen(false);
+    });
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [agentId, goalDefinitionId]);
   const goalLabels = getGoalPanelLabels(i18n.language);
   const goalClient = useMemo<GoalClient>(() => ({
     get: conversationId => window.service.agentInstance.getGoal(conversationId),
@@ -279,9 +299,11 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
               setParametersOpen(true);
             }}
             onOpenPreview={setPreviewMode}
-            onOpenGoal={() => {
-              setGoalOpen(true);
-            }}
+            onOpenGoal={goalAvailable
+              ? () => {
+                setGoalOpen(true);
+              }
+              : undefined}
             onSwitchAgent={handleSwitchAgent}
           />
         ),
@@ -375,7 +397,7 @@ const ChatTabView: React.FC<ActiveChatTabContentProps> = ({
       }}
       dialogs={
         <>
-          {goalOpen && (agentDefId ?? snapshot.agent?.agentDefId) && (
+          {goalAvailable && goalOpen && (agentDefId ?? snapshot.agent?.agentDefId) && (
             <GoalDialog
               key={agentId}
               client={goalClient}

@@ -10,7 +10,9 @@ const state = vi.hoisted(() => {
     revision: 'r1',
     isRunning: false,
     branches: vi.fn(),
+    capabilities: vi.fn(),
     editing: {} as { branches: unknown[]; conversationId: string },
+    appStateListeners: new Set<(state: string) => void>(),
     appStateListener: undefined as undefined | ((state: string) => void),
     list: vi.fn(),
     start: vi.fn(),
@@ -68,8 +70,9 @@ vi.mock('@memeloop/react-ui/native', () => ({
 vi.mock('react-native', () => ({
   AppState: {
     addEventListener: (_event: string, listener: typeof state.appStateListener) => {
-      state.appStateListener = listener;
-      return { remove: () => { state.appStateListener = undefined; } };
+      state.appStateListeners.add(listener!);
+      state.appStateListener = next => { for (const callback of state.appStateListeners) callback(next); };
+      return { remove: () => { state.appStateListeners.delete(listener!); } };
     },
   },
   View: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -136,7 +139,7 @@ vi.mock('../agentSession', () => ({
     peerId,
     start: state.start,
     dispose: state.dispose,
-    client: { goals: state.goals, getConversationBranches: (...args: unknown[]) => state.branches(...args) },
+    client: { getConversationWorkflowCapabilities: (...args: unknown[]) => state.capabilities(...args), goals: state.goals, getConversationBranches: (...args: unknown[]) => state.branches(...args) },
     });
   },
 }));
@@ -155,6 +158,7 @@ describe('conversation history preserves the mounted chat', () => {
     state.messages = [{ role: 'user', messageId: 'user-1' }];
     state.revision = 'r1';
     state.isRunning = false;
+    state.capabilities.mockReset().mockResolvedValue({ goal: true });
     state.branches.mockReset().mockResolvedValue({ branches: [] });
   });
   afterEach(cleanup);
@@ -322,6 +326,7 @@ describe('conversation history preserves the mounted chat', () => {
       view.rerender(<ChatScreen />);
     }
     expect(state.branches).toHaveBeenCalledTimes(1);
+    expect(state.capabilities).toHaveBeenCalledTimes(1);
     state.messages = [{ role: 'user', messageId: 'earlier-user' }, ...state.messages];
     view.rerender(<ChatScreen />);
     await waitFor(() => expect(state.branches).toHaveBeenCalledTimes(2));
@@ -335,7 +340,9 @@ describe('conversation history preserves the mounted chat', () => {
     state.isRunning = false;
     view.rerender(<ChatScreen />);
     await waitFor(() => expect(state.branches).toHaveBeenCalledTimes(5));
+    expect(state.capabilities).toHaveBeenCalledTimes(1);
     await act(async () => state.appStateListener?.('active'));
+    expect(state.capabilities).toHaveBeenCalledTimes(2);
     expect(state.branches).toHaveBeenCalledTimes(6);
     expect(screen.getByRole('textbox', { name: 'Draft' })).toBe(composer);
     expect((composer as HTMLTextAreaElement).value).toBe('draft stays mounted');
@@ -380,4 +387,83 @@ describe('conversation history preserves the mounted chat', () => {
     await act(async () => finishInitial({ branches: [{ messageId: 'user-1', marker: 'stale' }] }));
     expect(state.editing.branches).toEqual(fresh);
   });
+  it.each([{ goal: false }, undefined])('handles workflow capability %j', async capabilities => {
+    state.capabilities.mockResolvedValue(capabilities);
+    render(<ChatScreen />);
+    await screen.findByRole('textbox', { name: 'Draft' });
+    await waitFor(() => expect(state.capabilities).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: getMobileLabels().chat.actions }));
+    expect(Boolean(screen.queryByRole('button', { name: 'Goal' }))).toBe(capabilities === undefined);
+  });
+
+  it('closes an open goal when foreground refresh reports an unsupported workflow', async () => {
+    render(<ChatScreen />);
+    const composer = await screen.findByRole('textbox', { name: 'Draft' });
+    fireEvent.change(composer, { target: { value: 'Preserved draft' } });
+    fireEvent.click(screen.getByRole('button', { name: getMobileLabels().chat.actions }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Goal' }));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    state.capabilities.mockResolvedValue({ goal: false });
+    await act(async () => state.appStateListener?.('active'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: getMobileLabels().chat.actions }));
+    expect(screen.queryByRole('button', { name: 'Goal' })).toBeNull();
+    state.capabilities.mockResolvedValue({ goal: true });
+    fireEvent.click(screen.getByRole('button', { name: getMobileLabels().chat.actions }));
+    await screen.findByRole('button', { name: 'Goal' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'Draft' })).toBe(composer);
+    expect((composer as HTMLTextAreaElement).value).toBe('Preserved draft');
+  });
+
+  it('hides goals on permission or transport failure instead of using legacy fallback', async () => {
+    state.capabilities.mockRejectedValue(new Error('rpc_permission_denied'));
+    render(<ChatScreen />);
+    await screen.findByRole('textbox', { name: 'Draft' });
+    await waitFor(() => expect(state.capabilities).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: getMobileLabels().chat.actions }));
+    expect(screen.queryByRole('button', { name: 'Goal' })).toBeNull();
+  });
+
+  it('ignores an older capability response after a foreground refresh', async () => {
+    let finishInitial!: (value: { goal: boolean }) => void;
+    state.capabilities.mockReturnValueOnce(new Promise(resolve => { finishInitial = resolve; }));
+    render(<ChatScreen />);
+    await screen.findByRole('textbox', { name: 'Draft' });
+    state.capabilities.mockResolvedValue({ goal: false });
+    await act(async () => state.appStateListener?.('active'));
+    await act(async () => finishInitial({ goal: true }));
+    fireEvent.click(screen.getByRole('button', { name: getMobileLabels().chat.actions }));
+    expect(screen.queryByRole('button', { name: 'Goal' })).toBeNull();
+  });
+
+  it('does not apply capabilities from a previous conversation', async () => {
+    let finishPrevious!: (value: { goal: boolean }) => void;
+    state.capabilities.mockReturnValueOnce(new Promise(resolve => { finishPrevious = resolve; }));
+    render(<ChatScreen />);
+    await screen.findByRole('textbox', { name: 'Draft' });
+    fireEvent.click(screen.getByRole('button', { name: getMobileLabels().chat.actions }));
+    fireEvent.click(screen.getByRole('button', { name: getMobileLabels().chat.newConversation }));
+    state.capabilities.mockResolvedValue({ goal: false });
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose custom research agent' }));
+    await waitFor(() => expect(state.capabilities).toHaveBeenLastCalledWith({ conversationId: 'custom-conversation' }));
+    await act(async () => finishPrevious({ goal: true }));
+    fireEvent.click(screen.getByRole('button', { name: getMobileLabels().chat.actions }));
+    expect(screen.queryByRole('button', { name: 'Goal' })).toBeNull();
+  });
+
+  it('reloads workflow capabilities when reopening actions without a history change', async () => {
+    render(<ChatScreen />);
+    await screen.findByRole('textbox', { name: 'Draft' });
+    fireEvent.click(screen.getByRole('button', { name: getMobileLabels().chat.actions }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Goal' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back from goal' }));
+    const requests = state.capabilities.mock.calls.length;
+    state.capabilities.mockResolvedValue({ goal: false });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: getMobileLabels().chat.actions })));
+    expect(state.capabilities).toHaveBeenCalledTimes(requests + 1);
+    expect(screen.queryByRole('button', { name: 'Goal' })).toBeNull();
+    expect(state.revision).toBe('r1');
+  });
+
 });

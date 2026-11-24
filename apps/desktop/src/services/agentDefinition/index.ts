@@ -2,6 +2,8 @@ import { inject, injectable } from 'inversify';
 import type { AgentDefinition } from 'memeloop';
 import { digestNormalizedScript, normalizeScript } from 'memeloop';
 import { nanoid } from 'nanoid';
+import { isDeepStrictEqual } from 'node:util';
+import { Subject } from 'rxjs';
 import { DataSource, Repository } from 'typeorm';
 
 import type { IAgentBrowserService } from '@services/agentBrowser/interface';
@@ -92,6 +94,7 @@ export class AgentDefinitionService implements IAgentDefinitionService {
   private dataSource: DataSource | null = null;
   private agentDefRepository: Repository<AgentDefinitionEntity> | null = null;
   private publishRuntime: ((snapshot: AgentDefinitionRuntimeSnapshot) => Promise<void>) | undefined;
+  public readonly workflowChanged$ = new Subject<string>();
   private initializationStatus: AgentInitializationStatus = {
     state: 'starting',
     recoveryRequired: false,
@@ -245,6 +248,8 @@ export class AgentDefinitionService implements IAgentDefinitionService {
       if (!existingAgent) {
         throw new Error(`Agent definition not found: ${agent.id}`);
       }
+      const workflowChanged = (agent.loopId !== undefined && agent.loopId !== existingAgent.loopId) ||
+        (agent.scriptReference !== undefined && !isDeepStrictEqual(agent.scriptReference, existingAgent.scriptReference));
 
       if (agent.scriptReference !== undefined && existingAgent.approvedScriptDigest) {
         const digest = agent.scriptReference.kind === 'source'
@@ -256,6 +261,7 @@ export class AgentDefinitionService implements IAgentDefinitionService {
 
       await this.agentDefRepository!.save(existingAgent);
       await this.publishRuntimeDefinitions();
+      if (workflowChanged) this.workflowChanged$.next(agent.id);
       logger.info(`Updated agent definition: ${agent.id}`);
 
       return entityToAgentDefinition(existingAgent);
@@ -277,6 +283,7 @@ export class AgentDefinitionService implements IAgentDefinitionService {
     entity.approvedScriptDigest = await digestNormalizedScript(normalizeScript(input.source));
     await this.agentDefRepository!.save(entity);
     await this.publishRuntimeDefinitions();
+    this.workflowChanged$.next(input.id);
     return entityToAgentDefinition(entity);
   }
 

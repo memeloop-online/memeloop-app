@@ -1,4 +1,4 @@
-import { ModelParameterFields } from '@memeloop/react-ui/agent';
+import { getReasoningEffortLabels, ModelParameterFields } from '@memeloop/react-ui/agent';
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material';
 import type { AgentModelConfig, ModelCatalogModel } from 'memeloop';
 import { useEffect, useState } from 'react';
@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 /** Resolve and save the same instance → definition → host model selection used by execution. */
 export function ConversationModelParametersDialog({ agentId, onClose }: { agentId: string; onClose: () => void }) {
-  const { t } = useTranslation('agent');
+  const { t, i18n } = useTranslation('agent');
   const [selection, setSelection] = useState<AgentModelConfig>();
   const [model, setModel] = useState<ModelCatalogModel>();
   const [saving, setSaving] = useState(false);
@@ -51,6 +51,7 @@ export function ConversationModelParametersDialog({ agentId, onClose }: { agentI
           <>
             <Typography gutterBottom>{model?.name ?? selection.modelId}</Typography>
             <ModelParameterFields
+              reasoningEffortLabels={getReasoningEffortLabels(i18n.language)}
               labels={{
                 reasoningEffort: t('Chat.Experience.ReasoningEffort'),
                 temperature: t('Preference.Temperature'),

@@ -195,7 +195,10 @@ export function ProviderConfig({ providerAccounts, setProviderAccounts }: Provid
     setEditingModelId(modelId);
     setSelectedDefaultModel('');
     setAvailableDefaultModels([]);
-    setProviderForms(previous => ({ ...previous, [providerId]: { ...previous[providerId], newModel: createModelForm(route) } }));
+    setProviderForms(previous => ({
+      ...previous,
+      [providerId]: { ...previous[providerId], newModel: createModelForm(route, account.catalogProvider?.models.find(model => model.id === modelId)?.name ?? route.wireModelId) },
+    }));
     setModelDialogOpen(true);
   };
 
@@ -221,13 +224,28 @@ export function ProviderConfig({ providerAccounts, setProviderAccounts }: Provid
     const form = providerForms[currentProviderId]?.newModel;
     if (!account || !form) return;
     try {
+      const withDisplayName = (models: readonly ProviderModelRoute[]): ProviderAccountConfig => {
+        const id = editingModelId ?? (form.modelId.trim() || form.wireModelId.trim());
+        const catalog = account.catalogProvider ?? { id: account.providerId, name: account.providerId, env: [], models: [] };
+        const previous = catalog.models.find(model => model.id === id);
+        return {
+          ...accountWithModels(account, models),
+          catalogProvider: {
+            ...catalog,
+            models: [
+              ...catalog.models.filter(model => model.id !== id),
+              { attachment: false, reasoning: false, toolCall: false, ...previous, id, name: form.displayName?.trim() || form.wireModelId.trim() || id },
+            ],
+          },
+        };
+      };
       const updatedModels = await persistModelForm({
         account,
         form,
         editingModelId,
-        updateProvider: models => updateAccount(accountWithModels(account, models)),
+        updateProvider: models => updateAccount(withDisplayName(models)),
       });
-      replaceAccount(accountWithModels(account, updatedModels));
+      replaceAccount(withDisplayName(updatedModels));
       showMessage(editingModelId ? t('Preference.ModelUpdatedSuccessfully') : t('Preference.ModelAddedSuccessfully'), 'success');
       closeModelDialog();
     } catch (error) {
@@ -397,7 +415,7 @@ export function ProviderConfig({ providerAccounts, setProviderAccounts }: Provid
                     }}
                   />
                 )
-                : 'Loading...'}
+                : t('Loading', { ns: 'translation' })}
             </TabPanel>
           );
         })}

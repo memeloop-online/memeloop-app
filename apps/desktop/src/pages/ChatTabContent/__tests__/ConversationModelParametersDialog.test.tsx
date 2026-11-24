@@ -3,8 +3,9 @@ import type { AgentModelConfig, ConversationModelParameters } from 'memeloop';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ConversationModelParametersDialog } from '../components/ConversationModelParametersDialog';
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-vi.mock('@memeloop/react-ui/agent', () => ({
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }) }));
+vi.mock('@memeloop/react-ui/agent', async importOriginal => ({
+  ...await importOriginal<typeof import('@memeloop/react-ui/agent')>(),
   ModelParameterFields: ({ value, onChange }: { value: AgentModelConfig['parameters']; onChange: (value: AgentModelConfig['parameters']) => void }) => (
     <input
       aria-label='temperature'

@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TabItem } from '../../Agent/types/tab';
 
@@ -8,6 +9,7 @@ const state = vi.hoisted(() => ({
   revision: 'r1',
   isRunning: false,
   branches: vi.fn(),
+  goalAvailable: vi.fn(),
   editing: {} as { conversationId: string; branches: unknown[] },
   updateTabData: vi.fn(),
   goalProps: {},
@@ -35,7 +37,7 @@ vi.mock('memeloop', () => ({
 }));
 vi.mock('@/pages/Agent/store/tabStore', () => ({ useTabStore: () => state.updateTabData }));
 vi.mock('@/pages/Agent/components/TabBar/TabListDropdown', () => ({ TabListDropdown: () => null }));
-vi.mock('../components/ChatHeader', () => ({ ChatHeader: ({ onOpenGoal }: { onOpenGoal: () => void }) => <button onClick={onOpenGoal}>Goal</button> }));
+vi.mock('../components/ChatHeader', () => ({ ChatHeader: ({ onOpenGoal }: { onOpenGoal?: () => void }) => onOpenGoal ? <button onClick={onOpenGoal}>Goal</button> : null }));
 vi.mock('../components/ConversationModelParametersDialog', () => ({ ConversationModelParametersDialog: () => null }));
 vi.mock('../errorPresentation', () => ({ createDesktopGenericErrorPresentation: () => ({}), resolveDesktopAgentError: vi.fn() }));
 vi.mock('../sessionClients', () => ({
@@ -52,6 +54,9 @@ import { ChatTabContent } from '..';
 const tab = { id: 'tab', type: 'chat', agentId: 'conversation' } as TabItem;
 const service = window.service as unknown as Record<string, unknown>;
 const originalAgentService = service.agentInstance;
+const observables = window.observables as unknown as Record<string, unknown>;
+const originalDefinitionObservable = observables.agentDefinition;
+let workflowChanges: Subject<string>;
 let focusEvents: EventTarget;
 let previousAddEventListener: typeof window.addEventListener;
 let previousRemoveEventListener: typeof window.removeEventListener;
@@ -61,22 +66,49 @@ describe('desktop branch refresh', () => {
     previousAddEventListener = window.addEventListener;
     previousRemoveEventListener = window.removeEventListener;
     focusEvents = new EventTarget();
+    workflowChanges = new Subject<string>();
+    observables.agentDefinition = { workflowChanged$: workflowChanges };
     window.addEventListener = focusEvents.addEventListener.bind(focusEvents);
     window.removeEventListener = focusEvents.removeEventListener.bind(focusEvents);
     state.messages = [{ role: 'user', messageId: 'user-1' }];
     state.revision = 'r1';
     state.isRunning = false;
     state.branches.mockReset().mockResolvedValue([]);
+    state.goalAvailable.mockReset().mockResolvedValue(true);
     service.agentInstance = {
       getConversationBranches: state.branches,
+      getGoalAvailability: state.goalAvailable,
       getAgentMetadata: vi.fn().mockResolvedValue(undefined),
     };
   });
   afterEach(() => {
     cleanup();
+    observables.agentDefinition = originalDefinitionObservable;
     service.agentInstance = originalAgentService;
     window.addEventListener = previousAddEventListener;
     window.removeEventListener = previousRemoveEventListener;
+  });
+
+  it('closes an open Goal when the conversation workflow changes', async () => {
+    render(<ChatTabContent tab={{ ...tab, agentDefId: 'definition' } as TabItem} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Goal' }));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    state.goalAvailable.mockResolvedValue(false);
+    act(() => {
+      workflowChanges.next('definition');
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Goal' })).toBeNull();
+    });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    state.goalAvailable.mockRejectedValue(new Error('workflow admission denied'));
+    act(() => {
+      focusEvents.dispatchEvent(new Event('focus'));
+    });
+    await waitFor(() => {
+      expect(state.goalAvailable).toHaveBeenCalledTimes(3);
+    });
+    expect(screen.queryByRole('button', { name: 'Goal' })).toBeNull();
   });
 
   it('uses stable user identities through streaming and refreshes on canonical revision, run state and focus', async () => {
@@ -122,7 +154,7 @@ describe('desktop branch refresh', () => {
     await waitFor(() => {
       expect(state.branches).toHaveBeenCalledTimes(1);
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Goal' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Goal' }));
     expect(state.goalProps).toMatchObject({ conversationId: 'conversation', definitionId: 'definition' });
     fireEvent.click(screen.getByRole('button', { name: 'Back from goal' }));
     expect(screen.queryByRole('dialog')).toBeNull();

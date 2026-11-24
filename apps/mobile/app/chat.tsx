@@ -176,6 +176,8 @@ export default function ChatScreen() {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [settingsMode, setSettingsMode] = useState<'prompt' | 'parameters'>();
   const [goalOpen, setGoalOpen] = useState(false);
+  const [goalAvailability, setGoalAvailability] = useState<{ session: MobileRemoteAgentSession; available: boolean }>();
+  const refreshGoalAvailability = useRef<() => void>(() => undefined);
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const target = useMemo(() => selectMobileAgentDevice(network.devices), [network.devices]);
   const targetPeerId = target?.peerId;
@@ -256,6 +258,32 @@ export default function ChatScreen() {
   }, [loadKey, targetPeerId, selectedConversation, chosen]);
 
   const session = loadState?.key === loadKey ? loadState.session : undefined;
+  useEffect(() => {
+    let active = true;
+    let latestRequest = 0;
+    const refresh = () => {
+      if (!session) return;
+      const request = ++latestRequest;
+      const apply = (available: boolean) => {
+        if (!active || request !== latestRequest) return;
+        setGoalAvailability({ session, available });
+        if (!available) setGoalOpen(false);
+      };
+      void session.client.getConversationWorkflowCapabilities({ conversationId: session.conversationId })
+        .then(capabilities => apply(capabilities?.goal ?? true))
+        .catch(() => apply(false));
+    };
+    refreshGoalAvailability.current = refresh;
+    refresh();
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') refresh();
+    });
+    return () => {
+      active = false;
+      refreshGoalAvailability.current = () => undefined;
+      subscription.remove();
+    };
+  }, [session]);
   const initializationFailed = loadState?.key === loadKey && loadState.failed === true;
 
   const conversationPicker = (
@@ -303,12 +331,13 @@ export default function ChatScreen() {
   );
 
   if (session) {
+    const goalAvailable = goalAvailability?.session === session && goalAvailability.available;
     return (
       <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.chat, { backgroundColor: theme.colors.background }]}>
         <Stack.Screen options={{ title: session.title || labels.chat.agent }} />
         {conversationPicker}
         {agentPicker}
-        {goalOpen && <NativeGoalDialog key={session.conversationId} client={session.client.goals} conversationId={session.conversationId}
+        {goalAvailable && goalOpen && <NativeGoalDialog key={session.conversationId} client={session.client.goals} conversationId={session.conversationId}
           definitionId={session.definitionId} labels={goalLabels} resolveErrorPresentation={value => resolveMobileAgentRunError(value, labels)}
           topInset={insets.top} bottomInset={insets.bottom} onClose={() => setGoalOpen(false)} />}
         {settingsMode && <RemoteConversationSettings key={`${session.conversationId}:${settingsMode}`} client={session.client} conversationId={session.conversationId}
@@ -317,9 +346,9 @@ export default function ChatScreen() {
           <AgentChat session={session} headerActions={
             <>
               <IconButton icon='chat-outline' accessibilityLabel={labels.chat.chooseConversation} onPress={() => { void chooseConversation(); }} />
-              <Menu visible={actionsOpen} onDismiss={() => setActionsOpen(false)} anchor={<IconButton icon='dots-vertical' accessibilityLabel={labels.chat.actions} onPress={() => setActionsOpen(true)} />}>
+              <Menu visible={actionsOpen} onDismiss={() => setActionsOpen(false)} anchor={<IconButton icon='dots-vertical' accessibilityLabel={labels.chat.actions} onPress={() => { refreshGoalAvailability.current(); setActionsOpen(true); }} />}>
                 <Menu.Item leadingIcon='chat-plus-outline' title={labels.chat.newConversation} onPress={() => { setActionsOpen(false); setAgentPickerOpen(true); }} />
-                <Menu.Item leadingIcon='flag-outline' title={goalLabels.title} onPress={() => { setActionsOpen(false); setGoalOpen(true); }} />
+                {goalAvailable && <Menu.Item leadingIcon='flag-outline' title={goalLabels.title} onPress={() => { setActionsOpen(false); setGoalOpen(true); }} />}
                 <Menu.Item leadingIcon='tune-variant' title={labels.chat.parameters} onPress={() => { setActionsOpen(false); setSettingsMode('parameters'); }} />
                 <Menu.Item leadingIcon='text-box-search-outline' title={labels.chat.prompt} onPress={() => { setActionsOpen(false); setSettingsMode('prompt'); }} />
               </Menu>
