@@ -101,8 +101,8 @@ vi.mock('react-native-paper', () => {
     ),
     List: {
       Icon: () => null,
-      Item: ({ title, onPress, right }: { title: string; onPress: () => void; right?: (props: object) => ReactNode }) => (
-        <div><button onClick={onPress}>{title}</button>{right?.({})}</div>
+      Item: ({ title, description, onPress, right }: { title: string; description?: string; onPress: () => void; right?: (props: object) => ReactNode }) => (
+        <div><button onClick={onPress}>{title}</button><span>{description}</span>{right?.({})}</div>
       ),
     },
   };
@@ -464,6 +464,24 @@ describe('conversation history preserves the mounted chat', () => {
     expect(state.capabilities).toHaveBeenCalledTimes(requests + 1);
     expect(screen.queryByRole('button', { name: 'Goal' })).toBeNull();
     expect(state.revision).toBe('r1');
+  });
+
+  it('shows localized failed-run previews in the paired conversation picker', async () => {
+    const preview = 'agent.run.error.providerUnavailable';
+    state.list.mockResolvedValue({
+      items: [
+        { conversationId: 'failed', title: 'Failed conversation', lastMessagePreview: preview },
+        { conversationId: 'normal', title: 'Normal conversation', lastMessagePreview: 'Ordinary message preview' },
+      ],
+      hasMoreBefore: false, hasMoreAfter: false,
+    });
+    render(<ChatScreen />);
+    await screen.findByRole('textbox', { name: 'Draft' });
+    fireEvent.click(screen.getByRole('button', { name: getMobileLabels().chat.chooseConversation }));
+    expect(await screen.findByText(getMobileLabels().chat.runErrors[preview])).toBeTruthy();
+    expect(screen.queryByText(preview)).toBeNull();
+    expect(screen.getByText('Ordinary message preview')).toBeTruthy();
+    expect((await state.list.mock.results[0].value).items[0].lastMessagePreview).toBe(preview);
   });
 
 });

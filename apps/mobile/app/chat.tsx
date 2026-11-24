@@ -30,7 +30,7 @@ import {
 import { getMobileLabels, resolveMobileLocale } from '../lib/i18n';
 import { RemoteConversationSettings } from '../lib/RemoteConversationSettings';
 import { RemoteAgentPicker } from '../lib/RemoteAgentPicker';
-import { resolveMobileAgentRunError } from '../lib/agentRunErrorPresentation';
+import { localizeMobileConversationPreview, resolveMobileAgentRunError } from '../lib/agentRunErrorPresentation';
 
 const EMPTY_BRANCHES: ConversationBranchState[] = [];
 
@@ -297,7 +297,7 @@ export default function ChatScreen() {
               <List.Item key={conversation.conversationId}
                 title={conversation.title && conversation.title !== conversation.definitionId ? conversation.title : labels.chat.agent}
                 titleNumberOfLines={2}
-                description={conversation.lastMessagePreview || undefined}
+                description={localizeMobileConversationPreview(conversation.lastMessagePreview, labels)}
                 descriptionNumberOfLines={1}
                 left={props => <List.Icon {...props} icon={conversation.conversationId === session?.conversationId ? 'chat' : 'chat-outline'} />}
                 onPress={() => {

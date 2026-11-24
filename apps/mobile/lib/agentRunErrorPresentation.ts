@@ -18,3 +18,11 @@ export function resolveMobileAgentRunError(
   }
   return presentation;
 }
+
+/** Directory previews retain message keys; translate known keys only at display time. */
+export function localizeMobileConversationPreview(preview: string | undefined, labels: MobileLabels): string | undefined {
+  if (!preview) return undefined;
+  return Object.prototype.hasOwnProperty.call(labels.chat.runErrors, preview)
+    ? labels.chat.runErrors[preview as keyof typeof labels.chat.runErrors]
+    : preview;
+}
