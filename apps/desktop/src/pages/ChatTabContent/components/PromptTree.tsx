@@ -1,8 +1,6 @@
 import { Box, styled, Typography } from '@mui/material';
 import { IPrompt } from '@services/agentInstance/promptConcat/promptConcatSchema';
-import React, { memo, useCallback } from 'react';
-import { useShallow } from 'zustand/react/shallow';
-import { useAgentChatStore } from '../../Agent/store/agentChatStore/index';
+import React, { memo } from 'react';
 
 const TreeItem = styled(Box, {
   shouldForwardProp: (property: string) => property !== 'depth',
@@ -44,32 +42,28 @@ export const PromptTreeNode = memo(({
   node,
   depth,
   fieldPath = [],
+  onNavigate,
 }: {
   node: IPrompt;
   depth: number;
   fieldPath?: string[];
+  onNavigate?: (fieldPath: string[]) => void;
 }): React.ReactElement => {
   if (node.enabled === false) {
     return <></>;
   }
 
-  const { setFormFieldsToScrollTo } = useAgentChatStore(
-    useShallow((state) => ({
-      setFormFieldsToScrollTo: state.setFormFieldsToScrollTo,
-    })),
-  );
-  const handleNodeClick = useCallback((event: React.MouseEvent) => {
+  const handleNodeClick = (event: React.MouseEvent) => {
     event.stopPropagation();
-
     const targetFieldPath = (node.source && node.source.length > 0) ? node.source : [...fieldPath, node.id];
-
-    setFormFieldsToScrollTo(targetFieldPath);
-  }, [node.source, node.id, fieldPath, setFormFieldsToScrollTo]);
+    onNavigate?.(targetFieldPath);
+  };
 
   return (
     <TreeItem
       depth={depth}
       onClick={handleNodeClick}
+      sx={{ cursor: onNavigate ? 'pointer' : 'default' }}
     >
       <Typography variant='subtitle2' color='primary' gutterBottom>
         {node.caption || node.id || 'Prompt'}
@@ -95,6 +89,7 @@ export const PromptTreeNode = memo(({
             node={child}
             depth={depth + 1}
             fieldPath={childFieldPath}
+            onNavigate={onNavigate}
           />
         );
       })}
@@ -107,7 +102,13 @@ PromptTreeNode.displayName = 'PromptTreeNode';
  * Prompt tree component
  * Memoized to prevent unnecessary re-renders
  */
-export const PromptTree = memo(({ prompts }: { prompts?: IPrompt[] }): React.ReactElement => {
+export const PromptTree = memo(({
+  prompts,
+  onNavigate,
+}: {
+  prompts?: IPrompt[];
+  onNavigate?: (fieldPath: string[]) => void;
+}): React.ReactElement => {
   if (!prompts?.length) {
     return <EmptyState>No prompt tree to display</EmptyState>;
   }
@@ -118,7 +119,7 @@ export const PromptTree = memo(({ prompts }: { prompts?: IPrompt[] }): React.Rea
     <Box>
       {enabledPrompts.map((item) => {
         const fieldPath = ['prompts', item.id];
-        return <PromptTreeNode key={item.id} node={item} depth={0} fieldPath={fieldPath} />;
+        return <PromptTreeNode key={item.id} node={item} depth={0} fieldPath={fieldPath} onNavigate={onNavigate} />;
       })}
     </Box>
   );

@@ -4,8 +4,9 @@
  * Operates with approval mode "confirm" by default (user must approve each change).
  */
 import { t } from '@services/libs/i18n/placeholder';
+import type { AgentFrameworkConfig } from 'memeloop';
+import type { ToolDefinition } from 'memeloop/tools';
 import { z } from 'zod/v4';
-import { registerToolDefinition } from './defineTool';
 
 export const EditAgentDefinitionParameterSchema = z.object({
   toolListPosition: z.object({
@@ -60,7 +61,7 @@ const EditAgentPromptToolSchema = z.object({
   description: "Modify a field in this agent's framework configuration (e.g. system prompt customization). Requires user approval.",
 });
 
-const editAgentDefinitionDefinition = registerToolDefinition({
+export const editAgentDefinitionToolDefinition = {
   toolId: 'editAgentDefinition',
   displayName: 'Edit Agent Definition',
   description: 'Modify own heartbeat schedule and framework configuration',
@@ -77,7 +78,7 @@ const editAgentDefinitionDefinition = registerToolDefinition({
   },
 
   async onResponseComplete({ toolCall, executeToolCall, agentFrameworkContext }) {
-    if (!toolCall) return;
+    if (!toolCall?.found) return;
     const agentId = agentFrameworkContext.agent.id;
 
     if (toolCall.toolId === 'edit-heartbeat') {
@@ -110,7 +111,7 @@ const editAgentDefinitionDefinition = registerToolDefinition({
         const serviceIdentifier = (await import('@services/serviceIdentifier')).default;
         const agentInstanceService = container.get<import('../interface').IAgentInstanceService>(serviceIdentifier.AgentInstance);
 
-        const agent = await agentInstanceService.getAgent(agentId);
+        const agent = await agentInstanceService.getAgentMetadata(agentId);
         if (!agent) throw new Error(`Agent not found: ${agentId}`);
 
         const { container: iocContainer } = await import('@services/container');
@@ -119,8 +120,11 @@ const editAgentDefinitionDefinition = registerToolDefinition({
         const agentDefinition = await agentDefinitionService.getAgentDef(agent.agentDefId);
         if (!agentDefinition) throw new Error(`Agent definition not found: ${agent.agentDefId}`);
 
-        const updatedConfig = {
-          ...(agentDefinition.agentFrameworkConfig ?? {}),
+        const currentConfig = agentDefinition.agentFrameworkConfig;
+        if (!currentConfig) throw new Error('Agent framework config is not configured');
+
+        const updatedConfig: AgentFrameworkConfig = {
+          ...currentConfig,
           [parameters.field]: parameters.value,
         };
 
@@ -133,6 +137,7 @@ const editAgentDefinitionDefinition = registerToolDefinition({
       });
     }
   },
-});
-
-export const editAgentDefinitionTool = editAgentDefinitionDefinition.tool;
+} satisfies ToolDefinition<typeof EditAgentDefinitionParameterSchema, {
+  'edit-heartbeat': typeof EditHeartbeatToolSchema;
+  'edit-agent-prompt-config': typeof EditAgentPromptToolSchema;
+}>;

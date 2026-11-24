@@ -121,7 +121,7 @@ interface PromptPreviewStore {
 
 ## Data Flow
 
-1. User clicks "Git Tools" in tree view
+1. User clicks "Web Tools" in tree view
 2. `PromptTree` reads `node.source` → `['plugins', 'g3f4e5d6-7e8f-9g0h-1i2j-l3m4n5o6p7q8']`
 3. Calls `setFormFieldsToScrollTo(['plugins', 'g3f4e5d6-7e8f-9g0h-1i2j-l3m4n5o6p7q8'])`
 4. `RootObjectFieldTemplate` detects path[0] = 'plugins' → switches to plugins tab

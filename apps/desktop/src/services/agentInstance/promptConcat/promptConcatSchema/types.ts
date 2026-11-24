@@ -6,6 +6,9 @@ export interface ModelSelection {
 
 export interface ModelParameters {
   temperature?: number;
+  /** Canonical AI SDK output-token limit. */
+  maxOutputTokens?: number;
+  /** Legacy UI alias retained for existing request configurations. */
   maxTokens?: number;
   topP?: number;
   [key: string]: unknown;

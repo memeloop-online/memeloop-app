@@ -1,10 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { type INewTab, TabState, TabType } from '@/pages/Agent/types/tab';
 import { ThemeProvider } from '@mui/material/styles';
 import { lightTheme } from '@services/theme/defaultTheme';
+import { useTabStore } from '../../../store/tabStore';
 import { NewTabContent } from '../NewTabContent';
 
 // Mock backend services
@@ -36,6 +37,7 @@ Object.defineProperty(window, 'service', {
 describe('NewTabContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useTabStore.setState({ tabs: [], activeTabId: null, closedTabs: [] });
     mockGetAllTabs.mockResolvedValue([]);
     mockGetActiveTabId.mockResolvedValue(null);
     mockCreateAgent.mockResolvedValue({
@@ -108,6 +110,49 @@ describe('NewTabContent', () => {
 
     // The button should be clickable and not cause errors
     expect(createDefaultAgentButton).toBeInTheDocument();
+  });
+
+  it.each(
+    [
+      ['create-default-agent-button', TabType.CHAT],
+      ['create-new-agent-button', TabType.CREATE_NEW_AGENT],
+    ] as const,
+  )('finishes closing the temporary tab before %s creates its replacement', async (testId, type) => {
+    let resolveClose!: () => void;
+    const closeTab = vi.fn(() =>
+      new Promise<void>(resolve => {
+        resolveClose = resolve;
+      })
+    );
+    const original = useTabStore.getState();
+    const addTab = vi.fn().mockResolvedValue({});
+    const temporaryTab: INewTab = {
+      id: 'temporary-tab',
+      type: TabType.NEW_TAB,
+      title: 'New',
+      state: TabState.ACTIVE,
+      isPinned: false,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    useTabStore.setState({ tabs: [temporaryTab], activeTabId: temporaryTab.id, closeTab, addTab });
+    try {
+      renderComponent();
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId(testId));
+      expect(closeTab).toHaveBeenCalledWith(temporaryTab.id);
+      expect(addTab).not.toHaveBeenCalled();
+      await act(async () => {
+        resolveClose();
+      });
+      await waitFor(() => {
+        expect(addTab).toHaveBeenCalledWith(type, expect.any(Object));
+      });
+    } finally {
+      act(() => {
+        useTabStore.setState(original);
+      });
+    }
   });
 
   it('should render search interface', () => {

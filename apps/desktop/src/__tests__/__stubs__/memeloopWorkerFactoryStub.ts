@@ -1,5 +1,14 @@
-export default function MemeLoopWorkerFactoryStub(): Worker {
+export default function MemeLoopWorkerFactoryStub(): {
+  pid: number;
+  kill: () => boolean;
+  on: (...arguments_: unknown[]) => undefined;
+  off: (...arguments_: unknown[]) => undefined;
+  once: (...arguments_: unknown[]) => undefined;
+  postMessage: (...arguments_: unknown[]) => undefined;
+} {
   const workerLike = {
+    pid: 1,
+    kill: () => true,
     on: () => undefined,
     off: () => undefined,
     once: () => undefined,
@@ -8,5 +17,5 @@ export default function MemeLoopWorkerFactoryStub(): Worker {
     removeEventListener: () => undefined,
     terminate: () => undefined,
   };
-  return workerLike as unknown as Worker;
+  return workerLike;
 }

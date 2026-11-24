@@ -5,7 +5,7 @@ import { DataSource, Equal, Not, Repository } from 'typeorm';
 
 import { TEMP_TAB_ID_PREFIX } from '@/pages/Agent/constants/tab';
 import { TabCloseDirection } from '@/pages/Agent/store/tabStore/types';
-import type { IChatTab, ISplitViewTab } from '@/pages/Agent/types/tab';
+import type { IChatTab } from '@/pages/Agent/types/tab';
 import type { IAgentInstanceService } from '@services/agentInstance/interface';
 import { container } from '@services/container';
 import { logger } from '@services/libs/log';
@@ -711,6 +711,12 @@ export class AgentBrowserService implements IAgentBrowserService {
       };
 
       const createdTab = await this.addTab(chatTab);
+      // `initialMessage` is renderer-only metadata and is intentionally not
+      // persisted with the tab. Deliver the selection after the durable tab
+      // creation so the system-menu Ask AI action cannot silently lose text.
+      await agentInstanceService.sendMsgToAgent(agent.id, {
+        text: selectionText,
+      });
       logger.info('Created new Talk with AI tab', { tabId: createdTab.id });
       return createdTab.id;
     } catch (error) {

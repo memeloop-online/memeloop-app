@@ -22,7 +22,7 @@ export interface TabsState {
 
   // Basic tab operations
   addTab: (tabType: TabType, initialData?: Partial<TabItem> & { insertPosition?: number }) => Promise<TabItem>;
-  closeTab: (tabId: string) => void;
+  closeTab: (tabId: string) => Promise<void>;
   setActiveTab: (tabId: string) => void;
   pinTab: (tabId: string, isPinned: boolean) => void;
   updateTabData: (tabId: string, data: Partial<TabItem>) => void;

@@ -3,7 +3,7 @@
  * Uses best-effort-json-parser to recover from malformed JSON files.
  *
  * ⚠️ NOTE: This file must NOT import logger or any module that transitively imports 'electron'
- * because it may be used by tidgiConfig.ts which is bundled with Worker code.
+ * because callers may run inside bundled worker code.
  * Logger is injected via initJsonRepairLogger() to avoid this issue.
  */
 import { parse as bestEffortJsonParser } from 'best-effort-json-parser';

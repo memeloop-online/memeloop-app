@@ -1,25 +1,8 @@
-import {
-  Box,
-  Button,
-  Checkbox,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  FormControlLabel,
-  FormGroup,
-  InputLabel,
-  MenuItem,
-  Select,
-  TextField,
-  Typography,
-} from '@mui/material';
-import defaultProvidersConfig from '@services/providerRegistry/defaultProviders';
-import { ModelFeature, ModelInfo } from '@services/providerRegistry/interface';
-import { useEffect, useRef } from 'react';
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, InputLabel, MenuItem, Select, TextField, Typography } from '@mui/material';
+import type { ProviderModelRoute } from 'memeloop';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ModelFeatureChip } from './ModelFeatureChip';
+import { type ModelFormState, reasoningEffortOptions, validateModelForm } from './modelForm';
 
 interface ModelDialogProps {
   open: boolean;
@@ -27,17 +10,11 @@ interface ModelDialogProps {
   onAddModel: () => void;
   currentProvider: string | null;
   providerClass?: string;
-  newModelForm: {
-    name: string;
-    caption: string;
-    features: ModelFeature[];
-    parameters?: Record<string, unknown>;
-  };
-  availableDefaultModels: ModelInfo[];
+  newModelForm: ModelFormState;
+  availableDefaultModels: readonly ProviderModelRoute[];
   selectedDefaultModel: string;
   onSelectDefaultModel: (model: string) => void;
-  onModelFormChange: (field: string, value: string | ModelFeature[] | Record<string, unknown>) => void;
-  onFeatureChange: (feature: ModelFeature, checked: boolean) => void;
+  onModelFormChange: <K extends keyof ModelFormState>(field: K, value: ModelFormState[K]) => void;
   editMode?: boolean;
 }
 
@@ -52,174 +29,173 @@ export function NewModelDialog({
   selectedDefaultModel,
   onSelectDefaultModel,
   onModelFormChange,
-  onFeatureChange,
   editMode = false,
 }: ModelDialogProps) {
   const { t } = useTranslation(['translation', 'agent']);
   const lastSelectedModelReference = useRef<string | null>(null);
+  const validationErrors = validateModelForm(newModelForm);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
-  // Handle workflow file selection for ComfyUI
-  const handleSelectWorkflowFile = async () => {
-    const result = await window.service.native.pickFile([{ name: 'JSON Files', extensions: ['json'] }]);
-
-    if (result.length > 0) {
-      const workflowPath = result[0];
-      const parameters = { ...(newModelForm.parameters || {}), workflowPath };
-      onModelFormChange('parameters', parameters);
-    }
-  };
-
-  // When a preset model is selected, fill in its details to the form
   useEffect(() => {
-    // 只有当选择的模型与上次不同时才进行更新
-    if (selectedDefaultModel !== lastSelectedModelReference.current) {
-      lastSelectedModelReference.current = selectedDefaultModel;
+    if (open) setAdvancedOpen(false);
+  }, [open]);
 
-      if (selectedDefaultModel) {
-        const selectedModel = availableDefaultModels.find(m => m.name === selectedDefaultModel);
-        if (selectedModel) {
-          onModelFormChange('name', selectedModel.name);
-          onModelFormChange('caption', selectedModel.caption || '');
-          onModelFormChange('features', selectedModel.features || ['language' as ModelFeature]);
-        }
-      }
-    }
-  }, [selectedDefaultModel, availableDefaultModels, onModelFormChange]);
+  useEffect(() => {
+    if (selectedDefaultModel === lastSelectedModelReference.current) return;
+    lastSelectedModelReference.current = selectedDefaultModel;
+    if (!selectedDefaultModel) return;
+    const selectedRoute = availableDefaultModels.find(route => route.modelId === selectedDefaultModel);
+    if (!selectedRoute) return;
+    const fields: Array<readonly [keyof ModelFormState, ModelFormState[keyof ModelFormState]]> = [
+      ...(!editMode ? [['modelId', selectedRoute.modelId] as const] : []),
+      ['wireModelId', selectedRoute.wireModelId],
+      ['apiMode', selectedRoute.apiMode],
+      ['maxOutputTokens', selectedRoute.requestDefaults?.maxOutputTokens?.toString() ?? ''],
+      ['temperature', selectedRoute.requestDefaults?.temperature?.toString() ?? ''],
+      ['topP', selectedRoute.requestDefaults?.topP?.toString() ?? ''],
+      ['reasoningEffort', selectedRoute.requestDefaults?.reasoningEffort ?? ''],
+    ];
+    fields.forEach(([field, value]) => {
+      onModelFormChange(field, value);
+    });
+  }, [availableDefaultModels, editMode, onModelFormChange, selectedDefaultModel]);
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth='sm' fullWidth>
-      <DialogTitle>{t('Preference.AddNewModel', { ns: 'agent' })}</DialogTitle>
+      <DialogTitle>{editMode ? t('Preference.EditModel', { ns: 'agent' }) : t('Preference.AddNewModel', { ns: 'agent' })}</DialogTitle>
       <DialogContent>
-        {currentProvider && (
-          <>
-            {availableDefaultModels.length > 0 && (
-              <Box sx={{ mb: 3, mt: 1 }}>
-                <Typography variant='subtitle2' gutterBottom>
-                  {t('Preference.SelectFromPresets', { ns: 'agent' })}
-                </Typography>
+        <Typography variant='subtitle2' sx={{ mt: 2 }}>{t('Preference.ModelDetails', { ns: 'agent' })}</Typography>
+        <TextField
+          label={t('Preference.WireModelId', { ns: 'agent' })}
+          value={newModelForm.wireModelId}
+          onChange={event => {
+            onModelFormChange('wireModelId', event.target.value);
+          }}
+          fullWidth
+          margin='normal'
+          error={Boolean(validationErrors.modelId)}
+          helperText={validationErrors.modelId ? t(validationErrors.modelId, { ns: 'agent' }) : undefined}
+          slotProps={{ htmlInput: { 'data-testid': 'new-model-name-input' } }}
+        />
+        <TextField
+          label={t('Preference.ModelCaption', { ns: 'agent' })}
+          helperText={t('Preference.ModelCaptionHelp', { ns: 'agent' })}
+          value={newModelForm.displayName ?? ''}
+          onChange={event => {
+            onModelFormChange('displayName', event.target.value);
+          }}
+          fullWidth
+          margin='normal'
+        />
 
-                <FormControl fullWidth margin='dense'>
-                  <InputLabel>{t('Preference.PresetModels', { ns: 'agent' })}</InputLabel>
-                  <Select
-                    value={selectedDefaultModel}
-                    onChange={(event) => {
-                      onSelectDefaultModel(event.target.value);
-                    }}
-                    label={t('Preference.PresetModels', { ns: 'agent' })}
-                    renderValue={(selected) => {
-                      if (!selected) return t('Preference.NoPresetSelected', { ns: 'agent' });
-                      const model = availableDefaultModels.find(m => m.name === selected);
-                      if (model) return model.caption || model.name;
-                      return selected;
-                    }}
-                  >
-                    <MenuItem value=''>{t('Preference.NoPresetSelected', { ns: 'agent' })}</MenuItem>
-                    {availableDefaultModels.map((model) => (
-                      <MenuItem key={model.name} value={model.name} sx={{ py: 1 }}>
-                        <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%', gap: 0.5 }}>
-                          <Typography variant='body1'>
-                            {model.caption || model.name}
-                          </Typography>
-                          {model.features && model.features.length > 0 && (
-                            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                              {model.features.map(feature => <ModelFeatureChip key={feature} feature={feature} />)}
-                            </Box>
-                          )}
-                        </Box>
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Box>
-            )}
-
-            <Box sx={{ mt: 2 }}>
-              <Typography variant='subtitle2' gutterBottom>
-                {t('Preference.ModelDetails', { ns: 'agent' })}
-              </Typography>
-
-              <TextField
-                label={t('Preference.ModelName', { ns: 'agent' })}
-                value={newModelForm.name}
-                onChange={(event) => {
-                  onModelFormChange('name', event.target.value);
+        <Box
+          component='details'
+          open={advancedOpen}
+          onToggle={event => {
+            setAdvancedOpen(event.currentTarget.open);
+          }}
+          sx={{ mt: 2 }}
+        >
+          <Box component='summary' data-testid='model-advanced-toggle' sx={{ cursor: 'pointer', py: 1 }}>{t('Preference.ModelAdvanced', { ns: 'agent' })}</Box>
+          {currentProvider && availableDefaultModels.length > 0 && (
+            <FormControl fullWidth margin='dense'>
+              <InputLabel>{t('Preference.PresetModels', { ns: 'agent' })}</InputLabel>
+              <Select
+                value={selectedDefaultModel}
+                onChange={event => {
+                  onSelectDefaultModel(event.target.value);
                 }}
-                fullWidth
-                margin='normal'
-                slotProps={{ htmlInput: { 'data-testid': 'new-model-name-input' } }}
-              />
+                label={t('Preference.PresetModels', { ns: 'agent' })}
+              >
+                <MenuItem value=''>{t('Preference.NoPresetSelected', { ns: 'agent' })}</MenuItem>
+                {availableDefaultModels.map(route => <MenuItem key={route.modelId} value={route.modelId}>{route.modelId}</MenuItem>)}
+              </Select>
+            </FormControl>
+          )}
 
-              <TextField
-                label={t('Preference.ModelCaption', { ns: 'agent' })}
-                value={newModelForm.caption}
-                onChange={(event) => {
-                  onModelFormChange('caption', event.target.value);
+          {(providerClass === 'openAICompatible' || providerClass === 'openai') && (
+            <FormControl fullWidth margin='normal'>
+              <InputLabel>{t('Preference.APIMode', { ns: 'agent' })}</InputLabel>
+              <Select
+                value={newModelForm.apiMode}
+                label={t('Preference.APIMode', { ns: 'agent' })}
+                onChange={event => {
+                  onModelFormChange('apiMode', event.target.value === 'responses' ? 'responses' : 'chat-completions');
                 }}
-                fullWidth
-                margin='normal'
-                helperText={t('Preference.ModelCaptionHelp', { ns: 'agent' })}
-              />
+              >
+                <MenuItem value='chat-completions'>{t('Preference.ChatCompletionsAPIMode', { ns: 'agent' })}</MenuItem>
+                <MenuItem value='responses'>{t('Preference.ResponsesAPIMode', { ns: 'agent' })}</MenuItem>
+              </Select>
+            </FormControl>
+          )}
 
-              <Typography variant='subtitle2' sx={{ mt: 2, mb: 1 }}>
-                {t('Preference.ModelFeatures', { ns: 'agent' })}
-              </Typography>
-
-              <FormGroup>
-                {defaultProvidersConfig.modelFeatures.map((feature) => (
-                  <FormControlLabel
-                    key={feature.value}
-                    data-testid={`feature-checkbox-${feature.value}`}
-                    control={
-                      <Checkbox
-                        checked={newModelForm.features.includes(feature.value as ModelFeature)}
-                        onChange={(event) => {
-                          onFeatureChange(feature.value as ModelFeature, event.target.checked);
-                        }}
-                      />
-                    }
-                    label={t(feature.i18nKey, { ns: 'agent' })}
-                  />
-                ))}
-              </FormGroup>
-
-              {/* ComfyUI workflow path */}
-              {providerClass === 'comfyui' && (
-                <Box sx={{ mt: 2 }}>
-                  <Typography variant='subtitle2' gutterBottom>
-                    {t('Preference.WorkflowFile', { ns: 'agent' })}
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                    <TextField
-                      label={t('Preference.WorkflowFilePath', { ns: 'agent' })}
-                      value={(newModelForm.parameters?.workflowPath as string) || ''}
-                      onChange={(event) => {
-                        const parameters = { ...(newModelForm.parameters || {}), workflowPath: event.target.value };
-                        onModelFormChange('parameters', parameters);
-                      }}
-                      fullWidth
-                      margin='normal'
-                      slotProps={{ htmlInput: { 'data-testid': 'workflow-path-input' } }}
-                      helperText={t('Preference.WorkflowFileHelp', { ns: 'agent' })}
-                    />
-                    <Button
-                      variant='outlined'
-                      onClick={handleSelectWorkflowFile}
-                      data-testid='select-workflow-button'
-                      sx={{ mt: 1 }}
-                    >
-                      {t('Preference.Browse', { ns: 'agent' })}
-                    </Button>
-                  </Box>
-                </Box>
-              )}
-            </Box>
-          </>
-        )}
+          <TextField
+            label={t('Preference.MaxOutputTokens', { ns: 'agent' })}
+            value={newModelForm.maxOutputTokens}
+            onChange={event => {
+              onModelFormChange('maxOutputTokens', event.target.value);
+            }}
+            fullWidth
+            margin='normal'
+            error={Boolean(validationErrors.maxOutputTokens)}
+            helperText={validationErrors.maxOutputTokens ? t(validationErrors.maxOutputTokens, { ns: 'agent' }) : undefined}
+            slotProps={{ htmlInput: { min: 1, step: 1, type: 'number' } }}
+          />
+          <TextField
+            label={t('Preference.TemperatureDefault', { ns: 'agent' })}
+            value={newModelForm.temperature}
+            onChange={event => {
+              onModelFormChange('temperature', event.target.value);
+            }}
+            fullWidth
+            margin='normal'
+            error={Boolean(validationErrors.temperature)}
+            helperText={validationErrors.temperature ? t(validationErrors.temperature, { ns: 'agent' }) : undefined}
+            slotProps={{ htmlInput: { min: 0, max: 1, step: 0.01, type: 'number' } }}
+          />
+          <TextField
+            label={t('Preference.TopPDefault', { ns: 'agent' })}
+            value={newModelForm.topP}
+            onChange={event => {
+              onModelFormChange('topP', event.target.value);
+            }}
+            fullWidth
+            margin='normal'
+            error={Boolean(validationErrors.topP)}
+            helperText={validationErrors.topP ? t(validationErrors.topP, { ns: 'agent' }) : undefined}
+            slotProps={{ htmlInput: { min: 0, max: 1, step: 0.01, type: 'number' } }}
+          />
+          <FormControl fullWidth margin='normal'>
+            <InputLabel>{t('Preference.ReasoningEffortDefault', { ns: 'agent' })}</InputLabel>
+            <Select
+              value={newModelForm.reasoningEffort}
+              label={t('Preference.ReasoningEffortDefault', { ns: 'agent' })}
+              onChange={event => {
+                onModelFormChange('reasoningEffort', reasoningEffortOptions.find(effort => effort === event.target.value) ?? '');
+              }}
+            >
+              <MenuItem value=''>{t('Preference.ReasoningEffortNone', { ns: 'agent' })}</MenuItem>
+              {reasoningEffortOptions.map(effort => (
+                <MenuItem key={effort} value={effort}>{t(`Preference.ReasoningEffort${effort[0].toUpperCase()}${effort.slice(1)}`, { ns: 'agent' })}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Box>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>{t('Cancel')}</Button>
-        <Button onClick={onAddModel} variant='contained' color='primary' data-testid='save-model-button'>
-          {editMode ? t('Update') : t('Save')}
+        <Button onClick={onClose}>{t('Preference.Cancel', { ns: 'agent' })}</Button>
+        <Button
+          onClick={() => {
+            if (Object.values(validationErrors).some(Boolean)) {
+              setAdvancedOpen(true);
+              return;
+            }
+            onAddModel();
+          }}
+          variant='contained'
+          disabled={Boolean(validationErrors.modelId)}
+        >
+          {editMode ? t('Preference.Save', { ns: 'agent' }) : t('Preference.AddNewModel', { ns: 'agent' })}
         </Button>
       </DialogActions>
     </Dialog>

@@ -1,8 +1,10 @@
 import { logger } from '@services/libs/log';
 
-import { AiAPIConfig } from '@services/agentInstance/promptConcat/promptConcatSchema';
-import { AuthenticationError, MissingAPIKeyError, MissingBaseURLError } from './errors';
-import type { AIProviderConfig, AITranscriptionResponse } from './interface';
+import type { ModelAssignments } from 'memeloop';
+import { AuthenticationError } from './errors';
+import type { AITranscriptionResponse } from './interface';
+import { resolveProviderTransport } from './providerTransport';
+import type { ProviderRuntimeConfig } from './runtimeTypes';
 
 interface TranscriptionOptions {
   /** Language of the audio (ISO-639-1 format, e.g., 'en', 'zh') */
@@ -20,9 +22,9 @@ interface TranscriptionOptions {
  */
 export async function generateTranscriptionFromProvider(
   audioFile: File | Blob,
-  config: AiAPIConfig,
+  config: ModelAssignments,
   signal: AbortSignal,
-  providerConfig?: AIProviderConfig,
+  providerConfig?: ProviderRuntimeConfig,
   options: TranscriptionOptions = {},
 ): Promise<AITranscriptionResponse> {
   // Extract provider and model from config
@@ -31,58 +33,15 @@ export async function generateTranscriptionFromProvider(
   if (!transcriptionsConfig) {
     throw new Error('No transcriptions model or default model configured');
   }
-  const provider = transcriptionsConfig.provider;
-  const model = transcriptionsConfig.model;
+  const provider = transcriptionsConfig.providerId;
+  const model = transcriptionsConfig.modelId;
 
   logger.info(`Using AI transcription provider: ${provider}, model: ${model}`);
 
   try {
-    // Check if API key is required
-    const isOllama = providerConfig?.providerClass === 'ollama';
-    const isLocalOpenAICompatible = providerConfig?.providerClass === 'openAICompatible' &&
-      providerConfig?.baseURL &&
-      (providerConfig.baseURL.includes('localhost') || providerConfig.baseURL.includes('127.0.0.1'));
-
-    if (!providerConfig?.apiKey && !isOllama && !isLocalOpenAICompatible) {
-      throw new MissingAPIKeyError(provider);
-    }
-
-    // Get base URL and prepare headers
-    let baseURL = providerConfig?.baseURL || '';
-    const headers: Record<string, string> = {};
-
-    // Set up provider-specific configuration
-    switch (providerConfig?.providerClass || provider) {
-      case 'openai':
-        baseURL = 'https://api.openai.com/v1';
-        headers['Authorization'] = `Bearer ${providerConfig?.apiKey}`;
-        break;
-      case 'openAICompatible':
-        if (!providerConfig?.baseURL) {
-          throw new MissingBaseURLError(provider);
-        }
-        baseURL = providerConfig.baseURL;
-        if (providerConfig.apiKey) {
-          headers['Authorization'] = `Bearer ${providerConfig.apiKey}`;
-        }
-        break;
-      case 'deepseek':
-        throw new Error(`DeepSeek provider does not support transcriptions`);
-      case 'anthropic':
-        throw new Error(`Anthropic provider does not support transcriptions`);
-      case 'ollama':
-        throw new Error(`Ollama provider does not support transcriptions via this API`);
-      default:
-        // For silicon flow and other openai-compatible providers
-        if (!providerConfig?.baseURL) {
-          throw new MissingBaseURLError(provider);
-        }
-        baseURL = providerConfig.baseURL;
-        if (providerConfig.apiKey) {
-          headers['Authorization'] = `Bearer ${providerConfig.apiKey}`;
-        }
-        break;
-    }
+    const transport = resolveProviderTransport(providerConfig, provider, 'transcription');
+    const baseURL = transport.baseURL;
+    const headers: Record<string, string> = { ...transport.headers };
 
     // Prepare FormData for multipart/form-data request
     const formData = new FormData();

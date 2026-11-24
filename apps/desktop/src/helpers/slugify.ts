@@ -3,7 +3,7 @@
  *
  * This function is used across the codebase to ensure consistent slug generation:
  * - In appPaths.ts for test scenario isolation
- * - In paths.ts for wiki folder paths
+ * - In application and test artifact paths
  * - In E2E tests for artifact directory names
  *
  * Rules:

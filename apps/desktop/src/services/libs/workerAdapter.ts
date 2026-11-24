@@ -1,17 +1,152 @@
 /**
- * Utility functions for Native Node.js Worker Threads communication
- * Replaces threads.js with native worker_threads API
+ * Utility functions for the isolated agent runtime transport.
  *
- * Note: Service registration for workers will be handled by electron-ipc-cat/worker in the future
- * This file contains TidGi-specific worker proxy functionality (e.g., git worker)
+ * The wire protocol is shared by the Electron UtilityProcess host and child.
+ * Keeping the protocol transport-agnostic lets adapter tests use a small
+ * in-memory message peer without introducing another runtime transport.
  */
 
 import { cloneDeep } from 'lodash';
-import { Observable, Subject } from 'rxjs';
-import { Worker } from 'worker_threads';
+import { Observable, Subject, type Subscription } from 'rxjs';
+
+/**
+ * Structured-clone traffic crosses an Electron process boundary.  Keep one
+ * conservative bound here so every caller (including host bridge calls) gets
+ * the same failure mode before Electron attempts to clone an unbounded value.
+ */
+export const WORKER_IPC_MAX_BYTES = 16 * 1024 * 1024;
+export const WORKER_IPC_MAX_DEPTH = 32;
+const WORKER_IPC_MAX_ITEMS = 100_000;
+
+interface MessagePeer {
+  postMessage(message: unknown): void;
+  on(event: string, listener: (...arguments_: unknown[]) => void): this;
+}
+
+export interface ParentPortPeer {
+  postMessage(message: unknown): void;
+  on(event: 'message', listener: (message: unknown) => void): unknown;
+}
+
+type SizeState = {
+  bytes: number;
+  items: number;
+  seen: WeakSet<object>;
+};
+
+const addSize = (state: SizeState, bytes: number): void => {
+  state.bytes += bytes;
+  if (state.bytes > WORKER_IPC_MAX_BYTES) {
+    throw new Error(`worker_ipc_message_too_large:${state.bytes}`);
+  }
+};
+
+/** Estimate structured-clone size while rejecting cycles/deep values. */
+export function assertWorkerIpcValue(value: unknown): void {
+  const state: SizeState = { bytes: 0, items: 0, seen: new WeakSet<object>() };
+  const visit = (current: unknown, depth: number): void => {
+    if (depth > WORKER_IPC_MAX_DEPTH) {
+      throw new Error(`worker_ipc_max_depth_exceeded:${WORKER_IPC_MAX_DEPTH}`);
+    }
+    if (current === null || current === undefined) {
+      addSize(state, 8);
+      return;
+    }
+    switch (typeof current) {
+      case 'string':
+        addSize(state, Buffer.byteLength(current, 'utf8') + 8);
+        return;
+      case 'number':
+      case 'boolean':
+      case 'bigint':
+        addSize(state, 16);
+        return;
+      case 'function':
+      case 'symbol':
+        throw new Error('worker_ipc_value_not_cloneable');
+      default:
+        break;
+    }
+
+    const objectValue = current;
+    if (state.seen.has(objectValue)) {
+      throw new Error('worker_ipc_cyclic_value');
+    }
+    state.seen.add(objectValue);
+    try {
+      if (Buffer.isBuffer(current) || ArrayBuffer.isView(current)) {
+        addSize(state, current.byteLength + 16);
+        return;
+      }
+      if (current instanceof ArrayBuffer) {
+        addSize(state, current.byteLength + 16);
+        return;
+      }
+      if (current instanceof Date) {
+        addSize(state, 32);
+        return;
+      }
+      if (current instanceof Map) {
+        if (current.size > WORKER_IPC_MAX_ITEMS) throw new Error('worker_ipc_too_many_items');
+        addSize(state, 16);
+        for (const [key, mapValue] of current) {
+          state.items += 1;
+          if (state.items > WORKER_IPC_MAX_ITEMS) throw new Error('worker_ipc_too_many_items');
+          visit(key, depth + 1);
+          visit(mapValue, depth + 1);
+        }
+        return;
+      }
+      if (current instanceof Set) {
+        if (current.size > WORKER_IPC_MAX_ITEMS) throw new Error('worker_ipc_too_many_items');
+        addSize(state, 16);
+        for (const item of current) {
+          state.items += 1;
+          if (state.items > WORKER_IPC_MAX_ITEMS) throw new Error('worker_ipc_too_many_items');
+          visit(item, depth + 1);
+        }
+        return;
+      }
+      if (Array.isArray(current)) {
+        if (current.length > WORKER_IPC_MAX_ITEMS) throw new Error('worker_ipc_too_many_items');
+        addSize(state, 16);
+        for (const item of current) {
+          state.items += 1;
+          if (state.items > WORKER_IPC_MAX_ITEMS) throw new Error('worker_ipc_too_many_items');
+          visit(item, depth + 1);
+        }
+        return;
+      }
+
+      const entries = Object.entries(current as Record<string, unknown>);
+      if (entries.length > WORKER_IPC_MAX_ITEMS) throw new Error('worker_ipc_too_many_items');
+      addSize(state, 16);
+      for (const [key, objectValue_] of entries) {
+        state.items += 1;
+        if (state.items > WORKER_IPC_MAX_ITEMS) throw new Error('worker_ipc_too_many_items');
+        addSize(state, Buffer.byteLength(key, 'utf8') + 8);
+        visit(objectValue_, depth + 1);
+      }
+    } finally {
+      state.seen.delete(objectValue);
+    }
+  };
+  visit(value, 0);
+}
+
+/** Post a bounded message without allowing transport errors to escape. */
+export function safePostMessage(peer: Pick<MessagePeer, 'postMessage'> | ParentPortPeer, message: unknown): boolean {
+  try {
+    assertWorkerIpcValue(message);
+    peer.postMessage(message);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export interface WorkerMessage<T = unknown> {
-  type: 'call' | 'response' | 'error' | 'stream' | 'complete';
+  type: 'call' | 'response' | 'error' | 'stream' | 'complete' | 'unsubscribe';
   id?: string;
   method?: string;
   args?: unknown[];
@@ -23,13 +158,57 @@ export interface WorkerMessage<T = unknown> {
   };
 }
 
+export interface WorkerProxyOptions {
+  /** Exact methods that return RxJS Observables. All other calls return Promises. */
+  observableMethods?: readonly string[];
+}
+
+function unwrapMessage(message: unknown): WorkerMessage {
+  if (message && typeof message === 'object' && 'data' in message) {
+    const data = (message as { data?: unknown }).data;
+    if (data && typeof data === 'object' && 'type' in data) {
+      return data as WorkerMessage;
+    }
+  }
+  return message as WorkerMessage;
+}
+
 /**
- * Create a worker proxy that mimics threads.js API
- * Usage: const proxy = createWorkerProxy<WorkerType>(worker);
+ * Resolve the Electron UtilityProcess parent message port. Electron delivers
+ * MessageEvent-like `{ data, ports }` objects to `process.parentPort`.
  */
-// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters, @typescript-eslint/no-explicit-any -- T is needed to provide type safety for the returned proxy object, any is needed to support various worker method signatures
-export function createWorkerProxy<T extends Record<string, (...arguments_: any[]) => any>>(
-  worker: Worker,
+export function getWorkerParentPort(): ParentPortPeer | null {
+  const utilityParentPort = (process as NodeJS.Process & {
+    parentPort?: {
+      postMessage(message: unknown): void;
+      on(event: 'message', listener: (event: unknown) => void): unknown;
+    };
+  }).parentPort;
+  if (!utilityParentPort) return null;
+  return {
+    postMessage: message => {
+      utilityParentPort.postMessage(message);
+    },
+    on: (_event, listener) => {
+      utilityParentPort.on('message', event => {
+        listener(unwrapMessage(event));
+      });
+    },
+  };
+}
+
+/**
+ * Create an isolated UtilityProcess proxy using the shared agent RPC protocol.
+ * Usage: const proxy = createWorkerProxy<RuntimeType>(peer, options);
+ */
+type TypedWorkerProxyOptions<T> = WorkerProxyOptions & {
+  /** Compile-time-only marker that keeps the proxy result type tied to its options. */
+  readonly __workerProxyType?: T;
+};
+
+export function createWorkerProxy<T extends Record<string, (...arguments_: never[]) => unknown>>(
+  peer: MessagePeer,
+  options?: TypedWorkerProxyOptions<T>,
 ): T {
   const pendingCalls = new Map<string, {
     resolve: (value: unknown) => void;
@@ -37,8 +216,9 @@ export function createWorkerProxy<T extends Record<string, (...arguments_: any[]
     subject?: Subject<unknown>;
   }>();
 
-  // Listen to worker messages
-  worker.on('message', (message: WorkerMessage) => {
+  // Listen to UtilityProcess messages
+  peer.on('message', (rawMessage: unknown) => {
+    const message = unwrapMessage(rawMessage);
     const pending = pendingCalls.get(message.id!);
     if (!pending) return;
 
@@ -49,9 +229,9 @@ export function createWorkerProxy<T extends Record<string, (...arguments_: any[]
         break;
       }
       case 'error': {
-        const error = new Error(message.error!.message);
-        error.name = message.error!.name || 'WorkerError';
-        error.stack = message.error!.stack;
+        const error = new Error(message.error?.message ?? 'Worker request failed');
+        error.name = message.error?.name || 'WorkerError';
+        error.stack = message.error?.stack;
         pending.reject(error);
         pendingCalls.delete(message.id!);
         break;
@@ -70,7 +250,7 @@ export function createWorkerProxy<T extends Record<string, (...arguments_: any[]
     }
   });
 
-  worker.on('error', (error) => {
+  const rejectPending = (error: Error): void => {
     // Reject all pending calls
     for (const [id, pending] of pendingCalls.entries()) {
       pending.reject(error);
@@ -79,6 +259,25 @@ export function createWorkerProxy<T extends Record<string, (...arguments_: any[]
       }
       pendingCalls.delete(id);
     }
+  };
+
+  peer.on('error', (...arguments_: unknown[]) => {
+    const [errorOrType, location, report] = arguments_;
+    const normalizedError = errorOrType instanceof Error
+      ? errorOrType
+      : new Error(
+        typeof errorOrType === 'string'
+          ? `${errorOrType}${typeof location === 'string' ? ` at ${location}` : ''}`
+          : String(errorOrType),
+      );
+    if (report && typeof report === 'string') normalizedError.stack = report;
+    rejectPending(normalizedError);
+  });
+
+  peer.on('exit', (...arguments_: unknown[]) => {
+    const [code] = arguments_;
+    const exitCode = typeof code === 'number' ? code : 'unknown';
+    rejectPending(new Error(`MemeLoop UtilityProcess exited with code ${exitCode}`));
   });
 
   // Create proxy object
@@ -98,12 +297,10 @@ export function createWorkerProxy<T extends Record<string, (...arguments_: any[]
       return (...arguments_: unknown[]) => {
         const id = `${method}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-        // Check if the return type should be Observable (for compatibility with existing code)
-        // We detect this by checking if the method name suggests streaming behavior
-        // Common patterns: init*, start*, sync*, commit*, clone*, force*, execute*, *Observer*, get*Observer
-        const isObservable = method.includes('init') || method.includes('sync') || method.includes('commit') ||
-          method.includes('start') || method.includes('clone') || method.includes('force') ||
-          method.includes('execute') || method.includes('subscribe') || method.toLowerCase().includes('observer');
+        // Observable methods are part of the explicit runtime contract. Every
+        // unlisted method is a request/response Promise; never infer streaming
+        // behavior from a method name.
+        const isObservable = options?.observableMethods?.includes(method) ?? false;
 
         if (isObservable) {
           // Return Observable for streaming responses
@@ -119,25 +316,36 @@ export function createWorkerProxy<T extends Record<string, (...arguments_: any[]
               subject,
             });
 
-            // Deep clone arguments to ensure they can be serialized
-            const serializedArguments = arguments_.map((argument) => cloneDeep(argument));
-
             try {
-              worker.postMessage({
+              // Deep clone arguments to ensure they can be serialized. Keep the
+              // clone inside this try so cycles/unsupported values reject the
+              // call and cannot leave a pending entry behind.
+              const serializedArguments = arguments_.map((argument) => cloneDeep(argument));
+              assertWorkerIpcValue({
                 type: 'call',
                 id,
                 method,
                 args: serializedArguments,
-              } as WorkerMessage);
+              });
+              peer.postMessage({
+                type: 'call',
+                id,
+                method,
+                args: serializedArguments,
+              });
             } catch (error) {
-              console.error(`[workerAdapter] postMessage failed for Observable method ${method}:`, error);
-              console.error(`[workerAdapter] Arguments:`, serializedArguments);
-              throw error;
+              pendingCalls.delete(id);
+              subject.error(error instanceof Error ? error : new Error(String(error)));
             }
 
             return () => {
-              // Cleanup on unsubscribe
               pendingCalls.delete(id);
+              // Propagate cancellation to the child so long-lived runtime
+              // subscriptions do not survive a renderer/service unsubscribe.
+              safePostMessage(peer, {
+                type: 'unsubscribe',
+                id,
+              });
             };
           });
         } else {
@@ -145,20 +353,26 @@ export function createWorkerProxy<T extends Record<string, (...arguments_: any[]
           return new Promise((resolve, reject) => {
             pendingCalls.set(id, { resolve, reject });
 
-            // Deep clone arguments to ensure they can be serialized
-            const serializedArguments = arguments_.map((argument) => cloneDeep(argument));
-
             try {
-              worker.postMessage({
+              // Deep clone arguments to ensure they can be serialized. Keep the
+              // clone inside this try so cycles/unsupported values reject the
+              // call and cannot leave a pending entry behind.
+              const serializedArguments = arguments_.map((argument) => cloneDeep(argument));
+              assertWorkerIpcValue({
                 type: 'call',
                 id,
                 method,
                 args: serializedArguments,
-              } as WorkerMessage);
+              });
+              peer.postMessage({
+                type: 'call',
+                id,
+                method,
+                args: serializedArguments,
+              });
             } catch (error) {
-              console.error(`[workerAdapter] postMessage failed for Promise method ${method}:`, error);
-              console.error(`[workerAdapter] Arguments:`, serializedArguments);
-              throw error;
+              pendingCalls.delete(id);
+              reject(error instanceof Error ? error : new Error(String(error)));
             }
           });
         }
@@ -168,52 +382,83 @@ export function createWorkerProxy<T extends Record<string, (...arguments_: any[]
 }
 
 /**
- * Worker-side message handler
- * Usage in worker: handleWorkerMessages({ methodName: implementation });
+ * UtilityProcess-side message handler.
+ * Usage in the child: handleWorkerMessages({ methodName: implementation });
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function handleWorkerMessages(methods: Record<string, (...arguments_: any[]) => any>): void {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { parentPort } = require('worker_threads') as typeof import('worker_threads');
+export function handleWorkerMessages(
+  methods: Record<string, (...arguments_: never[]) => unknown>,
+): void {
+  const parentPort = getWorkerParentPort();
 
   if (!parentPort) {
-    throw new Error('This function must be called in a worker thread');
+    throw new Error('This function must be called in the MemeLoop UtilityProcess');
   }
 
-  parentPort.on('message', async (message: WorkerMessage) => {
+  const activeSubscriptions = new Map<string, Subscription>();
+  const post = (message: unknown): boolean => safePostMessage(parentPort, message);
+  const postReply = (message: unknown, id?: string): boolean => {
+    if (post(message)) return true;
+    // Always give the caller a bounded terminal response when a result itself
+    // cannot cross the structured-clone boundary.
+    if (id) {
+      post({
+        type: 'error',
+        id,
+        error: {
+          message: 'worker_ipc_response_too_large_or_not_cloneable',
+          name: 'WorkerTransportError',
+        },
+      });
+    }
+    return false;
+  };
+
+  parentPort.on('message', async (rawMessage: unknown) => {
+    const message = unwrapMessage(rawMessage);
     const { id, method, args, type } = message;
+
+    if (type === 'unsubscribe' && id) {
+      activeSubscriptions.get(id)?.unsubscribe();
+      activeSubscriptions.delete(id);
+      return;
+    }
 
     if (type !== 'call' || !method) return;
 
     const implementation = methods[method];
     if (!implementation) {
-      parentPort.postMessage({
+      post({
         type: 'error',
         id,
         error: {
-          message: `Method '${method}' not found in worker`,
+          message: `Method '${method}' not found in UtilityProcess`,
           name: 'MethodNotFoundError',
         },
-      } as WorkerMessage);
+      });
       return;
     }
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      const result = implementation(...(args || []));
+      const result: unknown = Reflect.apply(implementation, undefined, args ?? []);
       // Check if result is Observable
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+
       if (result && typeof result === 'object' && 'subscribe' in result && typeof result.subscribe === 'function') {
-        (result as Observable<unknown>).subscribe({
+        const subscriptionReference: { current?: Subscription } = {};
+        const subscription = (result as Observable<unknown>).subscribe({
           next: (value: unknown) => {
-            parentPort.postMessage({
-              type: 'stream',
-              id,
-              result: value,
-            } as WorkerMessage);
+            if (
+              !postReply({
+                type: 'stream',
+                id,
+                result: value,
+              }, id)
+            ) {
+              subscriptionReference.current?.unsubscribe();
+            }
           },
           error: (error: Error) => {
-            parentPort.postMessage({
+            if (id) activeSubscriptions.delete(id);
+            postReply({
               type: 'error',
               id,
               error: {
@@ -221,50 +466,47 @@ export function handleWorkerMessages(methods: Record<string, (...arguments_: any
                 stack: error.stack,
                 name: error.name,
               },
-            } as WorkerMessage);
+            }, id);
           },
           complete: () => {
-            parentPort.postMessage({
+            if (id) activeSubscriptions.delete(id);
+            postReply({
               type: 'complete',
               id,
-            } as WorkerMessage);
+            }, id);
           },
         });
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        subscriptionReference.current = subscription;
+        if (id && !subscription.closed) {
+          activeSubscriptions.set(id, subscription);
+        }
       } else if (result && typeof result === 'object' && 'then' in result && typeof result.then === 'function') {
         // Handle Promise
         const resolvedValue = await (result as Promise<unknown>);
-        parentPort.postMessage({
+        postReply({
           type: 'response',
           id,
           result: resolvedValue,
-        } as WorkerMessage);
+        }, id);
       } else {
         // Handle synchronous result
-        parentPort.postMessage({
+        postReply({
           type: 'response',
           id,
           result,
-        } as WorkerMessage);
+        }, id);
       }
     } catch (error) {
       const error_ = error as Error;
-      parentPort.postMessage({
+      postReply({
         type: 'error',
         id,
         error: {
-          message: error_.message,
+          message: error_ instanceof Error ? error_.message : String(error),
           stack: error_.stack,
-          name: error_.name,
+          name: error_ instanceof Error ? error_.name : 'Error',
         },
-      } as WorkerMessage);
+      }, id);
     }
   });
-}
-
-/**
- * Terminate worker gracefully
- */
-export async function terminateWorker(worker: Worker): Promise<number> {
-  return await worker.terminate();
 }

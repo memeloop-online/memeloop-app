@@ -11,9 +11,6 @@ declare module '@mui/material/styles' {
     searchBar: {
       width: number;
     };
-    sidebar: {
-      width: number;
-    };
     workflow: {
       debugPanel: {
         cardSpacing: number;
@@ -37,7 +34,6 @@ declare module '@mui/material/styles' {
   // allow configuration using `createTheme`
   interface ThemeOptions {
     searchBar: Theme['searchBar'];
-    sidebar: Theme['sidebar'];
     workflow: Theme['workflow'];
   }
 }

@@ -20,7 +20,9 @@ const REFERENCE_SMOKE_DURATION_MS = 8000; // ~8s on CI
  */
 const MAX_MULTIPLIER = 5.0;
 
-const CALIBRATION_FILE = path.resolve(process.cwd(), 'test-artifacts', '.calibration.json');
+// Keep calibration outside test-artifacts: run-e2e clears per-run artifacts
+// before Cucumber starts, while calibration is intentionally reused.
+const CALIBRATION_FILE = path.resolve(process.cwd(), '.calibration.json');
 
 type CalibrationRecord = {
   measuredMs: number;
@@ -85,7 +87,7 @@ export function setCalibrationResult(actualDurationMs: number): void {
  * Returns calibrated value if smoke test has run, otherwise returns a conservative fallback.
  */
 export function getPerformanceMultiplier(): number {
-  if (process.env.TIDGI_E2E_IS_CALIBRATION === 'true') {
+  if (process.env.MEMELOOP_E2E_IS_CALIBRATION === 'true') {
     return MAX_MULTIPLIER;
   }
 

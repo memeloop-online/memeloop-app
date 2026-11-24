@@ -1,0 +1,44 @@
+diff --git a/lib/MessageContainer/index.js b/lib/MessageContainer/index.js
+index 964b4364a33e47272e009928210be5d01d53ed63..5f1d18c4f96b4231c50b8ad3f847609e48e867f0 100644
+--- a/lib/MessageContainer/index.js
++++ b/lib/MessageContainer/index.js
+@@ -157,6 +157,7 @@ function MessageContainer(props) {
+         const handleOnLayout = (event) => {
+             props.onLayout?.(event);
+             const { y, height } = event.nativeEvent.layout;
++            const messageId = props.item._id;
+             const newValue = {
+                 y,
+                 height,
+@@ -176,8 +177,7 @@ function MessageContainer(props) {
+                         delete value[key];
+                         break;
+                     }
+-                // @ts-expect-error: https://docs.swmansion.com/react-native-reanimated/docs/core/useSharedValue#remarks
+-                value[props.item._id] = newValue;
++                value[messageId] = newValue;
+                 return value;
+             });
+         };
+diff --git a/src/MessageContainer/index.tsx b/src/MessageContainer/index.tsx
+index 7ffb9d6fdc2d145135295d2c8b5edbb535c14c4e..8ce83dac81940d8eb31358d63a606b89f0adc8a4 100644
+--- a/src/MessageContainer/index.tsx
++++ b/src/MessageContainer/index.tsx
+@@ -267,6 +267,7 @@ function MessageContainer<TMessage extends IMessage = IMessage> (props: MessageC
+       props.onLayout?.(event)
+ 
+       const { y, height } = event.nativeEvent.layout
++      const messageId = (props.item as IMessage)._id
+ 
+       const newValue = {
+         y,
+@@ -294,8 +295,7 @@ function MessageContainer<TMessage extends IMessage = IMessage> (props: MessageC
+             break
+           }
+ 
+-        // @ts-expect-error: https://docs.swmansion.com/react-native-reanimated/docs/core/useSharedValue#remarks
+-        value[props.item._id] = newValue
++        value[messageId] = newValue
+         return value
+       })
+     }

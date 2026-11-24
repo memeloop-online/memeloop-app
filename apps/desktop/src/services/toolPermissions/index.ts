@@ -39,7 +39,7 @@ export class ToolPermissions implements IToolPermissionsService {
     return [...blacklist, ...whitelist];
   }
 
-  public async addPermission(
+  public addPermission(
     entry: Omit<IToolPermissionEntry, 'addedAt'>,
   ): Promise<void> {
     const key = this.getStorageKey(entry.listType);
@@ -47,10 +47,10 @@ export class ToolPermissions implements IToolPermissionsService {
       []) as IToolPermissionEntry[];
 
     const duplicate = existing.find(
-      (e) => e.toolName === entry.toolName && e.pattern === entry.pattern,
+      existingEntry => existingEntry.toolName === entry.toolName && existingEntry.pattern === entry.pattern,
     );
     if (duplicate) {
-      return;
+      return Promise.resolve();
     }
 
     const newEntry: IToolPermissionEntry = {
@@ -59,23 +59,26 @@ export class ToolPermissions implements IToolPermissionsService {
     };
 
     existing.push(newEntry);
-    await this.databaseService.setSetting(key, existing);
+    this.databaseService.setSetting(key, existing);
+    return Promise.resolve();
   }
 
-  public async removePermission(
+  public removePermission(
     toolName: string,
     listType: 'blacklist' | 'whitelist',
   ): Promise<void> {
     const key = this.getStorageKey(listType);
     const existing = (this.databaseService.getSetting(key) ??
       []) as IToolPermissionEntry[];
-    const filtered = existing.filter((e) => e.toolName !== toolName);
-    await this.databaseService.setSetting(key, filtered);
+    const filtered = existing.filter(existingEntry => existingEntry.toolName !== toolName);
+    this.databaseService.setSetting(key, filtered);
+    return Promise.resolve();
   }
 
-  public async clearList(listType: 'blacklist' | 'whitelist'): Promise<void> {
+  public clearList(listType: 'blacklist' | 'whitelist'): Promise<void> {
     const key = this.getStorageKey(listType);
-    await this.databaseService.setSetting(key, []);
+    this.databaseService.setSetting(key, []);
+    return Promise.resolve();
   }
 
   public async checkPermission(

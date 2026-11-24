@@ -1,30 +1,31 @@
 import { DatabaseChannel } from '@/constants/channels';
-import type { IUserInfos } from '@services/auth/interface';
 import type { IPreferences } from '@services/preferences/interface';
-import { AIGlobalSettings } from '@services/providerRegistry/interface';
 import type { IToolPermissionEntry } from '@services/toolPermissions/interface';
-import type { ISyncableWikiConfig, IWorkspace } from '@services/workspaces/interface';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
-import { DataSource } from 'typeorm';
+import type { ProviderAccountSettings } from 'memeloop';
+import type { DataSource } from 'typeorm';
+
+export interface IAnalyticsSecretSettings {
+  deviceFirstLaunchDate?: string;
+  deviceLastLaunchDate?: string;
+  /**
+   * Stable random UUID generated once on first launch and persisted forever.
+   * Used as Rybbit `user_id` so events from the same installation are always
+   * grouped under the same user regardless of IP or User-Agent changes.
+   */
+  deviceId?: string;
+}
 
 export interface ISettingFile {
+  analyticsSecrets?: IAnalyticsSecretSettings;
   preferences: IPreferences;
-  userInfos: IUserInfos;
-  workspaces: Record<string, IWorkspace>;
-  aiSettings?: AIGlobalSettings;
+  aiSettings?: ProviderAccountSettings;
   'toolPermissions.blacklist'?: IToolPermissionEntry[];
   'toolPermissions.whitelist'?: IToolPermissionEntry[];
 }
 
 /**
- * Database initialization options
- */
-export interface DatabaseInitOptions {
-  enableVectorSearch?: boolean;
-}
-
-/**
- * Allow wiki or external app to save/search external non-tiddlywiki store like sqlite (removed) or config file.
+ * Own application settings and per-feature SQLite stores.
  */
 export interface IDatabaseService {
   /**
@@ -45,27 +46,20 @@ export interface IDatabaseService {
   /**
    * Save setting that used by services to same file, will handle data race.
    * Normally you should use methods on other services instead of this, and they will can this method instead.
-   * @param key setting file top level key like `userInfos`
+   * @param key top-level setting key
    * @param value whole setting from a service
    */
-  setSetting<K extends keyof ISettingFile>(
-    key: K,
-    value: ISettingFile[K],
-  ): void;
+  setSetting<K extends keyof ISettingFile>(key: K, value: ISettingFile[K]): void;
 
   /**
    * Initialize database for specific key
    */
-  initializeDatabase(key: string, options?: DatabaseInitOptions): Promise<void>;
+  initializeDatabase(key: string): Promise<void>;
 
   /**
    * Get database connection for specific key
    */
-  getDatabase(
-    key: string,
-    options?: DatabaseInitOptions,
-    isRetry?: boolean,
-  ): Promise<DataSource>;
+  getDatabase(key: string): Promise<DataSource>;
 
   /**
    * Close database connection
@@ -92,28 +86,13 @@ export interface IDatabaseService {
    * Delete the database file for a given key and close any active connection.
    */
   deleteDatabase(key: string): Promise<void>;
-
-  /**
-   * Read tidgi.config.json from a wiki folder and return the syncable config.
-   * Exposed over IPC so the renderer can pre-fill the Add Workspace form when
-   * importing an existing wiki with "use tidgi.config" enabled.
-   */
-  readWikiConfig(
-    wikiFolderLocation: string,
-  ): Promise<Partial<ISyncableWikiConfig> | undefined>;
 }
 
 export const DatabaseServiceIPCDescriptor = {
   channel: DatabaseChannel.name,
   properties: {
-    getDataBasePath: ProxyPropertyType.Function,
-    initializeForApp: ProxyPropertyType.Function,
-    getDatabase: ProxyPropertyType.Function,
-    closeAppDatabase: ProxyPropertyType.Function,
-    closeAllDatabases: ProxyPropertyType.Function,
     getDatabaseInfo: ProxyPropertyType.Function,
     getDatabasePath: ProxyPropertyType.Function,
     deleteDatabase: ProxyPropertyType.Function,
-    readWikiConfig: ProxyPropertyType.Function,
   },
 };

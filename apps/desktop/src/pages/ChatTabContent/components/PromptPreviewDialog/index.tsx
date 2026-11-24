@@ -1,29 +1,18 @@
-import { useAgentFrameworkConfigManagement } from '@/windows/Preferences/sections/ExternalAPI/useAgentFrameworkConfigManagement';
-import ArticleIcon from '@mui/icons-material/Article';
-import CloseIcon from '@mui/icons-material/Close';
-import EditIcon from '@mui/icons-material/Edit';
-import FullscreenIcon from '@mui/icons-material/Fullscreen';
-import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
-import SaveIcon from '@mui/icons-material/Save';
-import ViewSidebarIcon from '@mui/icons-material/ViewSidebar';
-import Box from '@mui/material/Box';
-import Dialog from '@mui/material/Dialog';
-import MuiDialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
-import IconButton from '@mui/material/IconButton';
-import Snackbar from '@mui/material/Snackbar';
-import Tooltip from '@mui/material/Tooltip';
-import React, { useCallback, useEffect, useState } from 'react';
+import { PromptExecutionInspector } from '@memeloop/react-ui/agent/prompts';
+import { Box, Button, CircularProgress, Dialog, DialogContent, DialogTitle, Typography } from '@mui/material';
+import type { AgentFrameworkConfig, PromptPreviewDialogState } from 'memeloop';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useShallow } from 'zustand/react/shallow';
-import { useAgentChatStore } from '../../../Agent/store/agentChatStore/index';
-import { EditView } from './EditView';
-import { PreviewProgressBar } from './PreviewProgressBar';
-import { PreviewTabsView } from './PreviewTabsView';
+
+import { createDesktopPromptPreviewController, toCoreAgentFrameworkConfig } from '@/pages/ChatTabContent/promptPreviewClient';
+import { useAgentFrameworkConfigManagement } from '@/windows/Preferences/sections/ExternalAPI/useAgentFrameworkConfigManagement';
+import { PromptConfigForm } from './PromptConfigForm';
 
 interface PromptPreviewDialogProps {
   open: boolean;
   onClose: () => void;
+  agentId: string;
+  agentDefId?: string;
   inputText?: string;
   initialBaseMode?: 'preview' | 'edit';
 }
@@ -31,249 +20,169 @@ interface PromptPreviewDialogProps {
 export const PromptPreviewDialog: React.FC<PromptPreviewDialogProps> = ({
   open,
   onClose,
-  inputText = '',
+  agentId,
+  agentDefId,
+  inputText,
   initialBaseMode = 'preview',
 }) => {
   const { t } = useTranslation('agent');
-  const agent = useAgentChatStore(state => state.agent);
-
-  const [isFullScreen, setIsFullScreen] = useState(false);
+  const controller = useMemo(() => createDesktopPromptPreviewController(), [agentId]);
+  const [state, setState] = useState<PromptPreviewDialogState>(() => controller.getState());
+  const [failed, setFailed] = useState(false);
+  const [fullScreen, setFullScreen] = useState(false);
   const [baseMode, setBaseMode] = useState<'preview' | 'edit'>(initialBaseMode);
-  const [showSideBySide, setShowSideBySide] = useState(false);
-  const [baseModeBeforeSideBySide, setBaseModeBeforeSideBySide] = useState<'preview' | 'edit'>(initialBaseMode);
-  const [savedSnackbarOpen, setSavedSnackbarOpen] = useState(false);
+  const [fieldPaths, setFieldPaths] = useState<string[]>([]);
+  const formContainer = useRef<HTMLDivElement>(null);
+  const { loading, config, schema, handleConfigChange } = useAgentFrameworkConfigManagement({ agentDefId, agentId });
 
-  const {
-    loading: agentFrameworkConfigLoading,
-    config: agentFrameworkConfig,
-  } = useAgentFrameworkConfigManagement({
-    agentDefId: agent?.agentDefId,
-    agentId: agent?.id,
-  });
-
-  /** Copy current instance prompt config to the agent definition */
-  const handleSaveToDefinition = useCallback(async () => {
-    if (!agent?.agentDefId || !agentFrameworkConfig) return;
-    try {
-      const agentDefinition = await window.service.agentDefinition.getAgentDef(agent.agentDefId);
-      if (agentDefinition) {
-        await window.service.agentDefinition.updateAgentDef({
-          ...agentDefinition,
-          agentFrameworkConfig,
-        });
-        setSavedSnackbarOpen(true);
-      }
-    } catch (error) {
-      void window.service.native.log('error', 'Failed to save config to definition', { error });
-    }
-  }, [agent?.agentDefId, agentFrameworkConfig]);
-
-  const {
-    getPreviewPromptResult,
-    previewLoading,
-  } = useAgentChatStore(
-    useShallow((state) => ({
-      getPreviewPromptResult: state.getPreviewPromptResult,
-      previewLoading: state.previewLoading,
-    })),
-  );
-  useEffect(() => {
-    const fetchInitialPreview = async () => {
-      if (!agent?.agentDefId || agentFrameworkConfigLoading || !agentFrameworkConfig || !open) {
-        return;
-      }
-      try {
-        await getPreviewPromptResult(inputText, agentFrameworkConfig);
-      } catch (error) {
-        console.error('PromptPreviewDialog: Error fetching initial preview:', error);
-      }
-    };
-    void fetchInitialPreview();
-  }, [agent?.agentDefId, agentFrameworkConfig, agentFrameworkConfigLoading, inputText, open]); // 移除 getPreviewPromptResult
-
-  const handleToggleFullScreen = useCallback((): void => {
-    setIsFullScreen(previous => !previous);
-  }, []);
-
-  const handleToggleEditMode = useCallback((): void => {
-    setShowSideBySide(previous => {
-      if (!previous) {
-        // Entering side-by-side, save current baseMode
-        setBaseModeBeforeSideBySide(baseMode);
-      } else {
-        // Exiting side-by-side, restore previous baseMode
-        setBaseMode(baseModeBeforeSideBySide);
-      }
-      return !previous;
-    });
-  }, [baseMode, baseModeBeforeSideBySide]);
-
-  // Listen for form field scroll targets to automatically switch to side-by-side mode
-  const { formFieldsToScrollTo } = useAgentChatStore(
-    useShallow((state) => ({
-      formFieldsToScrollTo: state.formFieldsToScrollTo,
-    })),
-  );
-  useEffect(() => {
-    if (formFieldsToScrollTo.length > 0) {
-      // Save current baseMode before switching to side-by-side
-      setBaseModeBeforeSideBySide(baseMode);
-      setBaseMode('edit');
-      setShowSideBySide(true); // Show side-by-side when clicking from PromptTree
-    }
-  }, [formFieldsToScrollTo, baseMode]);
-
+  useEffect(() => controller.subscribe(setState), [controller]);
+  useEffect(() => () => {
+    controller.close();
+  }, [controller]);
   useEffect(() => {
     if (open) {
       setBaseMode(initialBaseMode);
-      setShowSideBySide(false);
-    }
-  }, [initialBaseMode, open]);
+      controller.open(initialBaseMode);
+    } else controller.close();
+  }, [controller, initialBaseMode, open]);
+  useEffect(() => {
+    if (!open || loading) return;
+    let active = true;
+    setFailed(false);
+    void (async () => {
+      await controller.generate(toCoreAgentFrameworkConfig(config ?? { prompts: [], plugins: [] }), agentId, inputText);
+    })().catch((error: unknown) => {
+      if (!active) return;
+      setFailed(true);
+      void window.service.native.log('warn', 'Prompt preview generation failed', { agentId, error });
+    });
+    return () => {
+      active = false;
+    };
+  }, [agentId, config, loading, controller, inputText, open]);
+  useEffect(() => {
+    if (baseMode !== 'edit' || loading || !fieldPaths.length) return;
+    const frame = requestAnimationFrame(() => {
+      for (const path of fieldPaths) {
+        const id = `root_${path.replaceAll(/[.[\]]+/g, '_').replace(/_$/, '')}`;
+        const field = formContainer.current?.querySelector<HTMLElement>(`#${CSS.escape(id)}`);
+        if (!field) continue;
+        field.scrollIntoView({ block: 'center' });
+        field.focus();
+        break;
+      }
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [baseMode, fieldPaths, loading]);
 
-  const showPreview = showSideBySide || baseMode === 'preview';
-  const showEdit = showSideBySide || baseMode === 'edit';
-  const isSideBySide = showSideBySide;
-
-  const sideBySideTooltip = isSideBySide
-    ? t('Prompt.ExitSideBySide')
-    : baseMode === 'edit'
-    ? t('Prompt.EnterPreviewSideBySide')
-    : t('Prompt.EnterEditSideBySide');
+  const close = () => {
+    controller.close();
+    onClose();
+  };
+  const saveToDefinition = async () => {
+    if (!agentDefId || !config) return;
+    const definition = await window.service.agentDefinition.getAgentDef(agentDefId);
+    if (definition) await window.service.agentDefinition.updateAgentDef({ ...definition, agentFrameworkConfig: config });
+  };
 
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      maxWidth={isFullScreen ? false : 'md'}
-      fullWidth
-      fullScreen={isFullScreen}
-      slotProps={{
-        paper: {
-          sx: {
-            ...(isFullScreen && {
-              m: 0,
-              width: '100%',
-              height: '100%',
-              maxHeight: '100%',
-              maxWidth: '100%',
-              borderRadius: 0,
-            }),
-          },
-        },
-      }}
-    >
+    <Dialog open={open} onClose={close} maxWidth={fullScreen ? false : 'md'} fullWidth fullScreen={fullScreen}>
       <DialogTitle>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-          <Box>{t('Prompt.Preview')}</Box>
-          <Box sx={{ display: 'flex' }}>
-            {/* Save to definition button — only in edit mode */}
-            {(showEdit || showSideBySide) && agent?.agentDefId && (
-              <Tooltip title={t('Preference.SaveToDefinition')}>
-                <IconButton
-                  aria-label='save-to-definition'
-                  onClick={() => {
-                    void handleSaveToDefinition();
-                  }}
-                  sx={{ mr: 1 }}
-                  data-testid='save-to-definition-button'
-                >
-                  <SaveIcon />
-                </IconButton>
-              </Tooltip>
-            )}
-            <Tooltip title={sideBySideTooltip}>
-              <IconButton
-                aria-label={sideBySideTooltip}
-                onClick={handleToggleEditMode}
-                sx={{ mr: 1 }}
-                color={isSideBySide ? 'primary' : 'default'}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Typography>{baseMode === 'edit' ? t('Prompt.Edit') : t('Prompt.Preview')}</Typography>
+          <Box>
+            {baseMode === 'edit' && agentDefId && (
+              <Button
+                onClick={() => {
+                  void saveToDefinition();
+                }}
               >
-                {isSideBySide ? <ViewSidebarIcon /> : baseMode === 'edit' ? <ArticleIcon /> : <EditIcon />}
-              </IconButton>
-            </Tooltip>
-            <IconButton
+                {t('Preference.SaveToDefinition')}
+              </Button>
+            )}
+            <Button
+              onClick={() => {
+                setBaseMode(mode => mode === 'preview' ? 'edit' : 'preview');
+              }}
+            >
+              {baseMode === 'preview' ? t('Prompt.Edit') : t('Prompt.Preview')}
+            </Button>
+            <Button
               aria-label='toggle-fullscreen'
-              onClick={handleToggleFullScreen}
-              sx={{ mr: 1 }}
-              title={isFullScreen ? t('Prompt.ExitFullScreen') : t('Prompt.EnterFullScreen')}
+              onClick={() => {
+                setFullScreen(value => !value);
+              }}
             >
-              {isFullScreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
-            </IconButton>
-            <IconButton
-              aria-label='close'
-              onClick={onClose}
-            >
-              <CloseIcon />
-            </IconButton>
+              ↗
+            </Button>
+            <Button aria-label='close' onClick={close}>×</Button>
           </Box>
         </Box>
       </DialogTitle>
-      <MuiDialogContent
-        sx={{
-          ...(isFullScreen && {
-            padding: 0,
-            overflow: 'hidden',
-            height: 'calc(100vh - 64px)',
-          }),
-        }}
-      >
-        {showPreview && showEdit && (
-          <Box sx={{ display: 'flex', gap: 2, height: isFullScreen ? '100%' : '70vh' }}>
-            <Box
-              sx={{
-                flex: '1',
-                overflow: 'hidden',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              <PreviewProgressBar show={previewLoading} />
-              <PreviewTabsView
-                isFullScreen={isFullScreen}
+      <DialogContent sx={{ minHeight: fullScreen ? 0 : '65vh', display: 'flex', flexDirection: 'column' }}>
+        {baseMode === 'edit'
+          ? (
+            <Box ref={formContainer}>
+              <PromptConfigForm
+                schema={schema}
+                formData={config}
+                loading={loading}
+                onChange={(next: AgentFrameworkConfig) => {
+                  void handleConfigChange(next);
+                }}
               />
             </Box>
-            <Box
-              sx={{
-                flex: '0 0 50%',
-                overflow: 'hidden',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              <EditView
-                isFullScreen={isFullScreen}
-                inputText={inputText}
-              />
+          )
+          : failed
+          ? <Typography color='error'>{t('Chat.RunError.OperationFailed')}</Typography>
+          : state.loading || !state.result
+          ? (
+            <Box sx={{ flex: 1, display: 'grid', placeItems: 'center' }}>
+              <CircularProgress />
             </Box>
-          </Box>
-        )}
-
-        {showPreview && !showEdit && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', height: isFullScreen ? '100%' : '70vh' }}>
-            <PreviewProgressBar show={previewLoading} />
-            <PreviewTabsView
-              isFullScreen={isFullScreen}
+          )
+          : (
+            <PromptExecutionInspector
+              audit={state.result.audit}
+              controller={controller}
+              labels={{
+                tree: t('Prompt.Tree'),
+                flat: t('Prompt.Flat'),
+                request: t('Chat.Experience.Request'),
+                back: t('Browser.Back'),
+                earlier: t('Chat.Experience.Previous'),
+                later: t('Chat.Experience.Next'),
+                loading: t('Prompt.Loading'),
+                error: t('Chat.RunError.OperationFailed'),
+                empty: t('Prompt.NoMessages'),
+                editSource: t('Chat.Experience.EditSource'),
+                source: source =>
+                  ({
+                    prompt: t('Chat.Experience.Instructions'),
+                    system: t('Chat.Experience.System'),
+                    tool: t('Chat.Experience.Tools'),
+                    'conversation-message': t('Chat.Experience.Conversation'),
+                    'context-compaction-summary': t('Chat.Experience.Summary'),
+                    'preview-input': t('Chat.Experience.Current'),
+                  })[source],
+                role: role =>
+                  ({
+                    system: t('Chat.Experience.System'),
+                    user: t('Chat.Actions.User'),
+                    assistant: t('Chat.Actions.Agent'),
+                    agent: t('Chat.Actions.Agent'),
+                    tool: t('Chat.Experience.Tools'),
+                  })[role] ?? role,
+              }}
+              onFieldSelect={paths => {
+                setFieldPaths(paths);
+                setBaseMode('edit');
+              }}
             />
-          </Box>
-        )}
-
-        {showEdit && !showPreview && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', height: isFullScreen ? '100%' : '70vh' }}>
-            <EditView
-              isFullScreen={isFullScreen}
-              inputText={inputText}
-            />
-          </Box>
-        )}
-      </MuiDialogContent>
-      <Snackbar
-        open={savedSnackbarOpen}
-        autoHideDuration={2000}
-        onClose={() => {
-          setSavedSnackbarOpen(false);
-        }}
-        message={t('Preference.SaveToDefinitionDescription')}
-      />
+          )}
+      </DialogContent>
     </Dialog>
   );
 };

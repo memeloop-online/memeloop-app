@@ -1,48 +1,74 @@
-import { View, StyleSheet } from 'react-native';
-import { Text, Card, Button } from 'react-native-paper';
+import { ScrollView, StyleSheet } from 'react-native';
+import { Text, Card, useTheme } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+
+import { getMobileLabels } from '../lib/i18n';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const labels = getMobileLabels();
+  const theme = useTheme();
 
   return (
-    <View style={styles.container}>
-      <Text variant="headlineMedium" style={styles.title}>
-        MemeLoop Mobile
-      </Text>
-      <Text variant="bodyMedium" style={styles.subtitle}>
-        Distributed AI Agent Companion
-      </Text>
+    <SafeAreaView
+      edges={['left', 'right', 'bottom']}
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+    >
+      <ScrollView contentContainerStyle={styles.content}>
+        <Text variant="headlineMedium" style={styles.title}>
+          {labels.home.title}
+        </Text>
+        <Text variant="bodyMedium" style={styles.subtitle}>
+          {labels.home.subtitle}
+        </Text>
 
-      <Card style={styles.card} onPress={() => router.push('/chat')}>
-        <Card.Title title="Agent Chat" subtitle="Start a conversation" />
-        <Card.Content>
-          <Text>Chat with AI agents running on your local network</Text>
-        </Card.Content>
-      </Card>
+        <Card style={styles.card} onPress={() => router.push('/chat')}>
+          <Card.Title
+            title={labels.home.chatTitle}
+            subtitle={labels.home.chatSubtitle}
+            titleNumberOfLines={2}
+            subtitleNumberOfLines={2}
+          />
+          <Card.Content>
+            <Text style={styles.body}>{labels.home.chatDescription}</Text>
+          </Card.Content>
+        </Card>
 
-      <Card style={styles.card} onPress={() => router.push('/nodes')}>
-        <Card.Title title="Connected Nodes" subtitle="Manage memeloop nodes" />
-        <Card.Content>
-          <Text>View and connect to memeloop nodes on your network</Text>
-        </Card.Content>
-      </Card>
+        <Card style={styles.card} onPress={() => router.push('/nodes')}>
+          <Card.Title
+            title={labels.home.nodesTitle}
+            subtitle={labels.home.nodesSubtitle}
+            titleNumberOfLines={2}
+            subtitleNumberOfLines={2}
+          />
+          <Card.Content>
+            <Text style={styles.body}>{labels.home.nodesDescription}</Text>
+          </Card.Content>
+        </Card>
 
-      <Card style={styles.card} onPress={() => router.push('/settings')}>
-        <Card.Title title="Settings" subtitle="Configure your agent" />
-        <Card.Content>
-          <Text>Provider settings, cloud auth, and node management</Text>
-        </Card.Content>
-      </Card>
-    </View>
+        <Card style={styles.card} onPress={() => router.push('/settings')}>
+          <Card.Title
+            title={labels.home.settingsTitle}
+            subtitle={labels.home.settingsSubtitle}
+            titleNumberOfLines={2}
+            subtitleNumberOfLines={2}
+          />
+          <Card.Content>
+            <Text style={styles.body}>{labels.home.settingsDescription}</Text>
+          </Card.Content>
+        </Card>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  content: {
     padding: 16,
-    backgroundColor: '#f5f5f5',
   },
   title: {
     marginTop: 32,
@@ -52,6 +78,9 @@ const styles = StyleSheet.create({
   subtitle: {
     marginBottom: 24,
     opacity: 0.7,
+  },
+  body: {
+    flexShrink: 1,
   },
   card: {
     marginBottom: 12,

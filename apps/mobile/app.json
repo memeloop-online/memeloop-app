@@ -4,25 +4,42 @@
     "slug": "memeloop-mobile",
     "version": "0.1.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "../desktop/build-resources/icon.png",
     "scheme": "memeloop",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
-    "splash": {
-      "backgroundColor": "#1a1a2e"
-    },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.memeloop.mobile"
+      "bundleIdentifier": "com.memeloop.mobile",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "MemeLoop discovers and connects to your trusted devices on the local network."
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#1a1a2e"
+        "backgroundColor": "#1a1a2e",
+        "foregroundImage": "../desktop/build-resources/icon.png"
       },
       "package": "com.memeloop.mobile"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#1a1a2e",
+          "image": "../desktop/build-resources/icon.png",
+          "imageWidth": 160
+        }
+      ]
     ]
   }
 }

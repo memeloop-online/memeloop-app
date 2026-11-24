@@ -1,101 +1,81 @@
-import { render, screen } from '@testing-library/react';
+import type { DialogProps } from '@mui/material';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-
+import { createEmptyModelForm } from '../modelForm';
 import { NewModelDialog } from '../NewModelDialog';
 
-describe('NewModelDialog - ComfyUI workflow support', () => {
-  const mockOnClose = vi.fn();
-  const mockOnAddModel = vi.fn();
-  const mockOnSelectDefaultModel = vi.fn();
-  const mockOnModelFormChange = vi.fn();
-  const mockOnFeatureChange = vi.fn();
+vi.mock('@mui/material', async importOriginal => {
+  const material = await importOriginal<typeof import('@mui/material')>();
+  return { ...material, Dialog: ({ children, open }: Pick<DialogProps, 'children' | 'open'>) => open ? <div role='dialog'>{children}</div> : null };
+});
 
-  const defaultProps = {
+describe('NewModelDialog', () => {
+  const props = {
     open: true,
-    onClose: mockOnClose,
-    onAddModel: mockOnAddModel,
-    currentProvider: 'comfyui',
-    providerClass: 'comfyui',
-    newModelForm: {
-      name: 'flux',
-      caption: 'Flux',
-      features: ['imageGeneration' as const],
-      parameters: {},
-    },
+    onClose: vi.fn(),
+    onAddModel: vi.fn(),
+    currentProvider: 'openai',
+    providerClass: 'openai',
+    newModelForm: { ...createEmptyModelForm(), wireModelId: 'gpt-test', displayName: 'Friendly model' },
     availableDefaultModels: [],
     selectedDefaultModel: '',
-    onSelectDefaultModel: mockOnSelectDefaultModel,
-    onModelFormChange: mockOnModelFormChange,
-    onFeatureChange: mockOnFeatureChange,
+    onSelectDefaultModel: vi.fn(),
+    onModelFormChange: vi.fn(),
     editMode: false,
   };
 
-  it('should show workflow file input for ComfyUI provider', async () => {
-    render(<NewModelDialog {...defaultProps} />);
-
-    // ComfyUI should show workflow file input
-    expect(await screen.findByTestId('workflow-path-input')).toBeInTheDocument();
-    expect(await screen.findByTestId('select-workflow-button')).toBeInTheDocument();
+  it('asks for provider model ID and display name without exposing an internal ID', () => {
+    render(<NewModelDialog {...props} />);
+    expect(screen.getByDisplayValue('gpt-test')).toBeInTheDocument();
+    expect(screen.getByLabelText('Preference.ModelCaption')).toHaveValue('Friendly model');
+    expect(screen.queryByLabelText('Preference.ModelName')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Preference.WireModelId')).toBeInTheDocument();
+    expect(screen.getByTestId('model-advanced-toggle').parentElement).not.toHaveAttribute('open');
+    expect(screen.getByLabelText('Preference.MaxOutputTokens')).not.toBeVisible();
+    expect(screen.getByRole('button', { name: 'Preference.AddNewModel' })).toBeInTheDocument();
   });
 
-  it('should not show workflow file input for non-ComfyUI providers', async () => {
+  it('keeps advanced values through expansion and resets to collapsed when reopened', async () => {
+    const configured = { ...props, newModelForm: { ...props.newModelForm, maxOutputTokens: '1200', temperature: '0.3' } };
+    const view = render(<NewModelDialog {...configured} />);
+    fireEvent.click(screen.getByTestId('model-advanced-toggle'));
+    await waitFor(() => expect(screen.getByTestId('model-advanced-toggle').parentElement).toHaveAttribute('open'));
+    expect(screen.getByLabelText('Preference.MaxOutputTokens')).toHaveValue(1200);
+    expect(screen.getByLabelText('Preference.TemperatureDefault')).toHaveValue(0.3);
+    view.rerender(<NewModelDialog {...configured} open={false} />);
+    view.rerender(<NewModelDialog {...configured} />);
+    await waitFor(() => expect(screen.getByTestId('model-advanced-toggle').parentElement).not.toHaveAttribute('open'));
+    expect(screen.getByLabelText('Preference.MaxOutputTokens')).toHaveValue(1200);
+  });
+
+  it('reveals invalid optional settings instead of silently disabling save', async () => {
+    const onAddModel = vi.fn();
+    render(<NewModelDialog {...props} newModelForm={{ ...props.newModelForm, maxOutputTokens: '-1' }} onAddModel={onAddModel} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Preference.AddNewModel' }));
+    await waitFor(() => expect(screen.getByTestId('model-advanced-toggle').parentElement).toHaveAttribute('open'));
+    expect(screen.getByText('Preference.MaxOutputTokensInvalid')).toBeVisible();
+    expect(onAddModel).not.toHaveBeenCalled();
+  });
+
+  it('saves a valid model without opening advanced settings', () => {
+    const onAddModel = vi.fn();
+    render(<NewModelDialog {...props} onAddModel={onAddModel} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Preference.AddNewModel' }));
+    expect(onAddModel).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('model-advanced-toggle').parentElement).not.toHaveAttribute('open');
+  });
+
+  it('loads selected preset route into the form', () => {
+    const onModelFormChange = vi.fn();
     render(
       <NewModelDialog
-        {...defaultProps}
-        currentProvider='openai'
-        providerClass='openai'
+        {...props}
+        availableDefaultModels={[{ modelId: 'preset', wireModelId: 'preset-wire', apiMode: 'responses', requestDefaults: { maxOutputTokens: 200 } }]}
+        selectedDefaultModel='preset'
+        onModelFormChange={onModelFormChange}
       />,
     );
-
-    // Non-ComfyUI providers should not show workflow input
-    expect(screen.queryByTestId('workflow-path-input')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('select-workflow-button')).not.toBeInTheDocument();
-  });
-
-  it('should render workflow input correctly for ComfyUI', async () => {
-    render(<NewModelDialog {...defaultProps} />);
-
-    // data-testid is on the input element itself via slotProps.htmlInput
-    const workflowInput = await screen.findByTestId('workflow-path-input');
-    expect(workflowInput).toBeInTheDocument();
-    expect(workflowInput).toHaveAttribute('type', 'text');
-  });
-
-  it('should render browse button for ComfyUI', async () => {
-    render(<NewModelDialog {...defaultProps} />);
-
-    const browseButton = await screen.findByTestId('select-workflow-button');
-    expect(browseButton).toBeInTheDocument();
-    expect(browseButton).toHaveTextContent('Preference.Browse');
-  });
-
-  it('should display existing workflow path in edit mode', async () => {
-    render(
-      <NewModelDialog
-        {...defaultProps}
-        newModelForm={{
-          ...defaultProps.newModelForm,
-          parameters: {
-            workflowPath: 'C:\\existing\\workflow.json',
-          },
-        }}
-        editMode={true}
-      />,
-    );
-
-    const workflowInput = await screen.findByTestId('workflow-path-input');
-    expect(workflowInput).toHaveValue('C:\\existing\\workflow.json');
-  });
-
-  it('should show Update button in edit mode', async () => {
-    render(<NewModelDialog {...defaultProps} editMode={true} />);
-
-    expect(await screen.findByText('Update')).toBeInTheDocument();
-  });
-
-  it('should show Save button in add mode', async () => {
-    render(<NewModelDialog {...defaultProps} editMode={false} />);
-
-    expect(await screen.findByText('Save')).toBeInTheDocument();
+    expect(onModelFormChange).toHaveBeenCalledWith('modelId', 'preset');
+    expect(onModelFormChange).toHaveBeenCalledWith('wireModelId', 'preset-wire');
   });
 });

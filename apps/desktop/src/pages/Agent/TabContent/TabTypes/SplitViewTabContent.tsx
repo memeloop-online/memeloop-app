@@ -137,7 +137,7 @@ export const SplitViewTabContent: React.FC<SplitViewTabContentProps> = ({ tab })
       void (async () => {
         await updateSplitRatio(temporarySplitRatioReference.current);
         // Re-align views after a short delay to ensure the UI has updated
-        // (workspace view realignment removed with wiki functionality)
+        // Keep both panes inside the current App viewport.
       })();
     };
 

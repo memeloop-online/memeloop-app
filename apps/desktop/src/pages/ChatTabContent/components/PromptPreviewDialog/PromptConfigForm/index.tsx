@@ -1,14 +1,14 @@
-import type { ExtendedFormContext as MemeloopExtendedFormContext } from '@memeloop/prompt-editor/web';
+import type { ExtendedFormContext as MemeloopExtendedFormContext } from '@memeloop/react-ui/web';
 import { Box, CircularProgress, Paper, Typography } from '@mui/material';
 import { IChangeEvent } from '@rjsf/core';
 import Form, { Theme } from '@rjsf/mui';
 import { ObjectFieldTemplateProps, RJSFSchema, RJSFValidationError } from '@rjsf/utils';
 import validator from '@rjsf/validator-ajv8';
 
-/** Same as `@memeloop/prompt-editor/web` Theme defaults; use local Theme so bundler resolves one @rjsf/mui + React. */
+/** Same as `@memeloop/react-ui/web` Theme defaults; use local Theme so bundler resolves one @rjsf/mui + React. */
 const baseTemplates = Theme.templates ?? {};
 const baseWidgets = Theme.widgets ?? {};
-import { AgentFrameworkConfig } from '@services/agentInstance/promptConcat/promptConcatSchema';
+import type { AgentFrameworkConfig } from 'memeloop';
 import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ErrorDisplay } from './components/ErrorDisplay';
@@ -19,11 +19,12 @@ import { ArrayFieldItemTemplate, ArrayFieldTemplate, FieldTemplate, ObjectFieldT
 import { widgets } from './widgets';
 
 /** Desktop form context: memeloop core + optional callback for cross-field updates */
-export interface ExtendedFormContext extends MemeloopExtendedFormContext {
+export interface ExtendedFormContext extends Omit<MemeloopExtendedFormContext, 'rootFormData'> {
+  rootFormData?: AgentFrameworkConfig;
   onFormDataChange?: (formData: AgentFrameworkConfig) => void;
 }
 
-export type { ConditionalFieldConfig } from '@memeloop/prompt-editor/web';
+export type { ConditionalFieldConfig } from '@memeloop/react-ui/web';
 
 interface PromptConfigFormProps {
   /** JSON Schema for form validation and generation */
@@ -44,7 +45,7 @@ interface PromptConfigFormProps {
 
 /**
  * React JSON Schema Form component for prompt configuration.
- * Merges @memeloop/prompt-editor/web Theme templates/widgets with TidGi custom layout/widgets; hooks stay local to avoid duplicate React.
+ * Merges @memeloop/react-ui/web theme templates with App-specific layout widgets; hooks stay local to avoid duplicate React.
  */
 export const PromptConfigForm: React.FC<PromptConfigFormProps> = ({
   schema,

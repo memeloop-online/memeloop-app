@@ -3,9 +3,8 @@ import { ListItemButton } from '@mui/material';
 import { Trans, useTranslation } from 'react-i18next';
 import semver from 'semver';
 
-import { ListItem, ListItemText } from '@/components/ListItem';
+import { ListItemText } from '@/components/ListItem';
 import { usePromiseValue } from '@/helpers/useServiceValue';
-import { Link } from '../PreferenceComponents';
 
 export function NotificationTestItem(): React.JSX.Element | null {
   const { t } = useTranslation();
@@ -31,10 +30,10 @@ export function NotificationTestItem(): React.JSX.Element | null {
           secondary={(() => {
             if (platform === 'darwin' && oSVersion !== undefined && semver.gte(oSVersion, '10.15.0')) {
               return (
-                <Trans t={t} i18nKey='Preference.TestNotificationDescription'>
+                <Trans t={t} i18nKey='Preference.MemeLoopTestNotificationDescription'>
                   <span>
-                    If notifications dont show up, make sure you enable notifications in
-                    <b>macOS Preferences → Notifications → TidGi</b>.
+                    If notifications do not appear, enable MemeLoop in
+                    <b>System Settings → Notifications</b>.
                   </span>
                 </Trans>
               );
@@ -44,34 +43,5 @@ export function NotificationTestItem(): React.JSX.Element | null {
         <ChevronRightIcon color='action' />
       </ListItemButton>
     </>
-  );
-}
-
-export function NotificationHelpTextItem(): React.JSX.Element {
-  const { t } = useTranslation();
-  return (
-    <ListItem>
-      <ListItemText
-        secondary={
-          <Trans t={t} i18nKey='Preference.HowToEnableNotifications'>
-            <span>
-              TidGi supports notifications out of the box. But for some cases, to receive notifications, you will need to manually configure additional web app settings.
-            </span>
-            <Link
-              onClick={async () => {
-                await window.service.native.openURI('https://github.com/atomery/webcatalog/wiki/How-to-Enable-Notifications-in-Web-Apps');
-              }}
-              onKeyDown={(event: React.KeyboardEvent<HTMLSpanElement>) => {
-                if (event.key !== 'Enter') return;
-                void window.service.native.openURI('https://github.com/atomery/webcatalog/wiki/How-to-Enable-Notifications-in-Web-Apps');
-              }}
-            >
-              Learn more
-            </Link>
-            <span>.</span>
-          </Trans>
-        }
-      />
-    </ListItem>
   );
 }

@@ -3,33 +3,17 @@ import { BrowserWindow } from 'electron';
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
 import { WindowMeta, WindowNames } from './WindowProperties';
 
-export interface IWindowOpenConfig<N extends WindowNames> {
+export interface IWindowOpenConfig {
   /**
    * Allow multiple window with same name
    */
   multiple?: boolean;
-  /**
-   * If recreate is true, we will close the window if it is already opened, and create a new one.
-   * Can be a function that receives the current window meta and returns true to recreate.
-   * NOTE: function form only works when called from main process. When calling via IPC from renderer,
-   * use `recreateUnlessWorkspaceID` instead (it is serializable).
-   */
-  recreate?: boolean | ((windowMeta: WindowMeta[N]) => boolean);
-  /**
-   * IPC-serializable alternative to the function form of `recreate`.
-   * When provided, the window is closed and recreated unless the stored meta's
-   * `workspaceID` already matches this value.
-   * Use this from renderer code (window.service.window.open) so the comparison
-   * survives IPC serialization.
-   */
-  recreateUnlessWorkspaceID?: string;
 }
 
 /**
  * Create and manage window open and destroy, you can get all opened electron window instance here
  */
 export interface IWindowService {
-  clearStorageData(workspaceID: string, windowName?: WindowNames): Promise<void>;
   /** cleanup all window references for GC */
   clearWindowsReference(): Promise<void>;
   /**
@@ -50,14 +34,6 @@ export interface IWindowService {
    */
   hide(windowName: WindowNames): Promise<void>;
   isFullScreen(windowName?: WindowNames): Promise<boolean | undefined>;
-  /**
-   * Check if tidgi mini window is visible (open and showing on screen)
-   */
-  isTidgiMiniWindowOpen(): Promise<boolean>;
-  /**
-   * Check if tidgi mini window exists (created but may be hidden)
-   */
-  isTidgiMiniWindowExists(): boolean;
   loadURL(windowName: WindowNames, newUrl?: string): Promise<void>;
   maximize(): Promise<void>;
   /**
@@ -65,9 +41,9 @@ export interface IWindowService {
    * See `src/services/windows/handleCreateBasicWindow.ts` for `new BrowserWindow` process.
    * @param returnWindow Return created window or not. Usually false, so this method can be call IPC way (because window will cause `Failed to serialize arguments`).
    */
-  open<N extends WindowNames>(windowName: N, meta?: WindowMeta[N], config?: IWindowOpenConfig<N>): Promise<undefined>;
-  open<N extends WindowNames>(windowName: N, meta: WindowMeta[N] | undefined, config: IWindowOpenConfig<N> | undefined, returnWindow: true): Promise<BrowserWindow>;
-  open<N extends WindowNames>(windowName: N, meta?: WindowMeta[N], config?: IWindowOpenConfig<N>, returnWindow?: boolean): Promise<undefined | BrowserWindow>;
+  open<N extends WindowNames>(windowName: N, meta?: WindowMeta[N], config?: IWindowOpenConfig): Promise<undefined>;
+  open<N extends WindowNames>(windowName: N, meta: WindowMeta[N] | undefined, config: IWindowOpenConfig | undefined, returnWindow: true): Promise<BrowserWindow>;
+  open<N extends WindowNames>(windowName: N, meta?: WindowMeta[N], config?: IWindowOpenConfig, returnWindow?: boolean): Promise<undefined | BrowserWindow>;
   reload(windowName: WindowNames): Promise<void>;
   requestRestart(): Promise<void>;
   sendToAllWindows: (channel: Channels, ...arguments_: unknown[]) => Promise<void>;
@@ -75,49 +51,19 @@ export interface IWindowService {
   set(windowName: WindowNames, win: BrowserWindow | undefined): void;
   setWindowMeta<N extends WindowNames>(windowName: N, meta?: WindowMeta[N]): Promise<void>;
   stopFindInPage(close?: boolean, windowName?: WindowNames): Promise<void>;
-  toggleTidgiMiniWindow(): Promise<void>;
   updateWindowMeta<N extends WindowNames>(windowName: N, meta?: WindowMeta[N]): Promise<void>;
-  /**
-   * Initialize tidgi mini window on app startup.
-   * Creates window, determines target workspace based on preferences, and sets up view.
-   */
-  initializeTidgiMiniWindow(): Promise<void>;
-  /** Open tidgi mini window without restart - hot reload. enableIt=true means fully enable and open. */
-  openTidgiMiniWindow(enableIt?: boolean, showWindow?: boolean): Promise<void>;
-  /** Close tidgi mini window. disableIt=true means fully disable and cleanup tray. */
-  closeTidgiMiniWindow(disableIt?: boolean): Promise<void>;
   /** Update window properties without restart - hot reload */
   updateWindowProperties(windowName: WindowNames, properties: { alwaysOnTop?: boolean }): Promise<void>;
-  /** React to preference changes related to windows (tidgi mini window etc.) */
+  /** Apply live window preference changes. */
   reactWhenPreferencesChanged(key: string, value: unknown): Promise<void>;
 }
 export const WindowServiceIPCDescriptor = {
   channel: WindowChannel.name,
   properties: {
-    clearStorageData: ProxyPropertyType.Function,
-    close: ProxyPropertyType.Function,
     findInPage: ProxyPropertyType.Function,
-    get: ProxyPropertyType.Function,
-    getWindowMeta: ProxyPropertyType.Function,
-    goBack: ProxyPropertyType.Function,
-    goForward: ProxyPropertyType.Function,
-    goHome: ProxyPropertyType.Function,
-    isFullScreen: ProxyPropertyType.Function,
-    initializeTidgiMiniWindow: ProxyPropertyType.Function,
-    isTidgiMiniWindowExists: ProxyPropertyType.Function,
-    isTidgiMiniWindowOpen: ProxyPropertyType.Function,
-    loadURL: ProxyPropertyType.Function,
-    maximize: ProxyPropertyType.Function,
     open: ProxyPropertyType.Function,
-    reload: ProxyPropertyType.Function,
     requestRestart: ProxyPropertyType.Function,
-    sendToAllWindows: ProxyPropertyType.Function,
-    setWindowMeta: ProxyPropertyType.Function,
     stopFindInPage: ProxyPropertyType.Function,
-    toggleTidgiMiniWindow: ProxyPropertyType.Function,
     updateWindowMeta: ProxyPropertyType.Function,
-    openTidgiMiniWindow: ProxyPropertyType.Function,
-    closeTidgiMiniWindow: ProxyPropertyType.Function,
-    updateWindowProperties: ProxyPropertyType.Function,
   },
 };

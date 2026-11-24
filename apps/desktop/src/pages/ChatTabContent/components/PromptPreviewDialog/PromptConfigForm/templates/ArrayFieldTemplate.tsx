@@ -10,14 +10,23 @@ import { ArrayItemProvider } from '../context/ArrayItemContext';
 import { ExtendedFormContext } from '../index';
 import { useArrayFieldStore } from '../store/arrayFieldStore';
 
+function asUnknownArray(value: unknown): unknown[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.map((item: unknown) => item);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /**
  * Enhanced Array Field Template with zustand state management
  * Uses store to manage expanded states independently from RJSF
  */
 export const ArrayFieldTemplate: React.FC<ArrayFieldTemplateProps> = (props) => {
-  const { items, onAddClick, canAdd, title, schema, registry } = props;
-  const formData = props.formData as unknown[] | undefined;
-  const fieldPathId = (props as unknown as { fieldPathId?: { path: (string | number)[]; $id?: string } }).fieldPathId;
+  const { items, onAddClick, canAdd, title, schema, registry, fieldPathId } = props;
+  const formDataValue: unknown = props.formData;
+  const formData = asUnknownArray(formDataValue);
   const { t } = useTranslation('agent');
 
   // Get formContext for direct data manipulation
@@ -167,26 +176,28 @@ export const ArrayFieldTemplate: React.FC<ArrayFieldTemplateProps> = (props) => 
     // thanks to the optimistic update above
     const path = fieldPathId?.path;
     if (!path || path.length === 0) {
-      // If no path, this array is the root (unlikely but handle it)
-      formContext.onFormDataChange(newArrayData as never);
+      // The prompt schema root is an object; an array root cannot be adapted to
+      // the desktop AgentFrameworkConfig callback without dropping type data.
       return;
     }
 
     // Deep clone and update the nested array
     const newRootData = structuredClone(formContext.rootFormData);
-    let current: Record<string, unknown> = newRootData;
+    let current: unknown = newRootData;
 
     // Navigate to parent of the array
     for (let pathIndex = 0; pathIndex < path.length - 1; pathIndex++) {
       const key = path[pathIndex];
-      current = current[key] as Record<string, unknown>;
+      if (!isRecord(current)) return;
+      current = current[key];
     }
 
     // Set the array at the final path segment
     const finalKey = path[path.length - 1];
+    if (!isRecord(current)) return;
     current[finalKey] = newArrayData;
 
-    formContext.onFormDataChange(newRootData as never);
+    formContext.onFormDataChange(newRootData);
   }, [formData, formContext, fieldPathId, itemIds, moveItem, fieldPath]);
 
   const handleDragCancel = useCallback(() => {

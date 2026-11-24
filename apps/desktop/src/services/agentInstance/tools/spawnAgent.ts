@@ -6,9 +6,11 @@ import { container } from '@services/container';
 import { t } from '@services/libs/i18n/placeholder';
 import { logger } from '@services/libs/log';
 import serviceIdentifier from '@services/serviceIdentifier';
+import { assertCanonicalChatMessageProjection, type ChatMessage, type ConversationMessageListProjection } from 'memeloop';
+import type { ToolDefinition } from 'memeloop/tools';
 import { z } from 'zod/v4';
 import type { IAgentInstanceService } from '../interface';
-import { registerToolDefinition, type ToolExecutionResult } from './defineTool';
+import type { ToolExecutionResult } from './toolExecutionResult';
 
 export const SpawnAgentParameterSchema = z.object({
   toolListPosition: z.object({
@@ -28,7 +30,7 @@ const SpawnAgentToolSchema = z.object({
   }),
   context: z.string().optional().meta({
     title: 'Additional context',
-    description: 'Extra context to pass to the sub-agent (e.g., relevant tiddler contents, search results).',
+    description: 'Extra context to pass to the sub-agent (for example relevant files or search results).',
   }),
   agentDefinitionId: z.string().optional().meta({
     title: 'Agent definition ID',
@@ -39,8 +41,8 @@ const SpawnAgentToolSchema = z.object({
   description:
     'Delegate a sub-task to a new agent instance. The sub-agent runs independently with its own conversation, tools, and context. Use this for complex tasks that benefit from focused, isolated processing. The sub-agent result will be returned to you.',
   examples: [
-    { task: 'Search for all tiddlers tagged "Project" and create a summary note.' },
-    { task: 'Analyze the backlinks of the "JavaScript" tiddler and suggest related topics.', context: 'The user is building a programming knowledge base.' },
+    { task: 'Review the project files and create a concise architecture summary.' },
+    { task: 'Analyze the failing test logs and suggest likely causes.', context: 'The failure started after a dependency update.' },
   ],
 });
 
@@ -73,24 +75,49 @@ async function executeSpawnAgent(
     // Send message and wait for completion with timeout
     const resultPromise = new Promise<ToolExecutionResult>((resolve) => {
       let resolved = false;
+      let latestAssistantTurnId: string | undefined;
       const subscription = agentInstanceService.subscribeToAgentUpdates(childAgent.id).subscribe({
-        next: (agent) => {
-          if (resolved || !agent) return;
-          const state = agent.status?.state;
+        next: (update) => {
+          if (resolved || !update) return;
+          if (update.message?.role === 'assistant') latestAssistantTurnId = update.message.turnId;
+          const state = update.agent.status?.state;
           if (state === 'completed' || state === 'failed' || state === 'canceled') {
             resolved = true;
             subscription.unsubscribe();
-
-            // Get the last assistant message as the result
-            const lastAssistant = [...(agent.messages || [])].reverse().find(m => m.role === 'assistant');
-            const resultText = lastAssistant?.content || agent.status?.message?.content || '(sub-agent completed with no output)';
-
-            resolve({
-              success: state === 'completed',
-              data: state === 'completed' ? resultText : undefined,
-              error: state !== 'completed' ? `Sub-agent ${state}: ${resultText}` : undefined,
-              metadata: { childAgentId: childAgent.id, state },
-            });
+            void (async () => {
+              // Live updates carry only the turn identity. Read the bounded
+              // canonical turn detail and derive text from its structured
+              // parts; the legacy content projection is never used here.
+              const turnId = latestAssistantTurnId ?? update.agent.status?.message?.turnId;
+              let resultText: string | undefined;
+              if (turnId) {
+                try {
+                  const detail = await agentInstanceService.getAgentConversationTurnDetail({
+                    conversationId: childAgent.id,
+                    turnId,
+                    limit: 50,
+                    maxBytes: 256 * 1024,
+                  });
+                  const assistantMessage = detail.items.find(message => message.role === 'assistant');
+                  if (assistantMessage) {
+                    resultText = await loadAssistantMessageText(agentInstanceService, assistantMessage);
+                  }
+                } catch (error) {
+                  logger.warn('Failed to read canonical sub-agent turn detail', {
+                    childAgentId: childAgent.id,
+                    turnId,
+                    error,
+                  });
+                }
+              }
+              const output = resultText || '(sub-agent completed with no output)';
+              resolve({
+                success: state === 'completed',
+                data: state === 'completed' ? output : undefined,
+                error: state !== 'completed' ? `Sub-agent ${state}: ${output}` : undefined,
+                metadata: { childAgentId: childAgent.id, state },
+              });
+            })();
           }
         },
         error: (error) => {
@@ -126,7 +153,34 @@ async function executeSpawnAgent(
   }
 }
 
-const spawnAgentDefinition = registerToolDefinition({
+async function loadAssistantMessageText(
+  service: IAgentInstanceService,
+  projection: ConversationMessageListProjection,
+): Promise<string | undefined> {
+  const detail = await service.getAgentConversationMessageDetail({
+    conversationId: projection.conversationId,
+    messageId: projection.messageId,
+  });
+  if (!detail.found || detail.encoding !== 'base64-json') return undefined;
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.from(detail.data, 'base64').toString('utf8')) as unknown;
+  } catch {
+    return undefined;
+  }
+  assertCanonicalChatMessageProjection(value, projection.conversationId);
+  return assistantMessageText(value);
+}
+
+function assistantMessageText(message: ChatMessage): string | undefined {
+  const text = message.parts
+    ?.filter((part): part is Extract<NonNullable<ChatMessage['parts']>[number], { type: 'text' }> => part.type === 'text')
+    .map(part => part.text)
+    .join('');
+  return text || undefined;
+}
+
+export const spawnAgentToolDefinition = {
   toolId: 'spawnAgent',
   displayName: 'Spawn Sub-Agent',
   description: 'Delegate a sub-task to a new agent instance',
@@ -140,12 +194,10 @@ const spawnAgentDefinition = registerToolDefinition({
   },
 
   async onResponseComplete({ toolCall, executeToolCall, agentFrameworkContext, config }) {
-    if (!toolCall || toolCall.toolId !== 'spawn-agent') return;
-    if (agentFrameworkContext.isCancelled()) return;
+    if (!toolCall?.found || toolCall.toolId !== 'spawn-agent') return;
+    if (agentFrameworkContext.operationSignal?.aborted) return;
 
     const timeoutMs = config?.defaultTimeoutMs ?? 120000;
-    await executeToolCall('spawn-agent', (parameters) => executeSpawnAgent(parameters, agentFrameworkContext.agent.id, agentFrameworkContext.agentDef.id, timeoutMs));
+    await executeToolCall('spawn-agent', (parameters) => executeSpawnAgent(parameters, agentFrameworkContext.agent.id, agentFrameworkContext.agent.agentDefId, timeoutMs));
   },
-});
-
-export const spawnAgentTool = spawnAgentDefinition.tool;
+} satisfies ToolDefinition<typeof SpawnAgentParameterSchema, { 'spawn-agent': typeof SpawnAgentToolSchema }>;

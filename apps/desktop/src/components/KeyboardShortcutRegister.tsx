@@ -94,8 +94,8 @@ export const KeyboardShortcutRegister: React.FC<KeyboardShortcutRegisterProps> =
       // Update current shortcut combination
       const newCombo = combo.join('+');
       setCurrentKeyCombo(newCombo);
-    } catch {
-      // Handle error silently
+    } catch (error) {
+      console.debug('Failed to resolve platform while registering keyboard shortcut', { error });
     }
   }, [onChange, currentKeyCombo]);
 

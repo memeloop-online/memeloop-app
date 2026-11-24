@@ -1,18 +1,25 @@
 import { Box } from '@mui/material';
 import { styled } from '@mui/material/styles';
+import React from 'react';
 import { TabListDropdown } from '../components/TabBar/TabListDropdown';
 import { TEMP_TAB_ID_PREFIX } from '../constants/tab';
 import { useTabStore } from '../store/tabStore';
 import { TabState, TabType } from '../types/tab';
 
 import { TabContentView } from './TabContentView';
-import { NewTabContent } from './TabTypes/NewTabContent';
+
+const NewTabContent = React.lazy(async () => {
+  const module = await import('./TabTypes/NewTabContent');
+  return { default: module.NewTabContent };
+});
 
 const ContentContainer = styled(Box)`
   flex: 1;
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
+  min-width: 0;
   position: relative;
   overflow: hidden;
   background-color: ${props => props.theme.palette.background.paper};
@@ -47,17 +54,19 @@ export const TabContentArea: React.FC = () => {
       <FallbackHeader>
         <TabListDropdown />
       </FallbackHeader>
-      <NewTabContent
-        tab={{
-          id: `${TEMP_TAB_ID_PREFIX}new-tab`,
-          type: TabType.NEW_TAB,
-          title: '',
-          state: TabState.INACTIVE,
-          isPinned: false,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        }}
-      />
+      <React.Suspense fallback={null}>
+        <NewTabContent
+          tab={{
+            id: `${TEMP_TAB_ID_PREFIX}new-tab`,
+            type: TabType.NEW_TAB,
+            title: '',
+            state: TabState.INACTIVE,
+            isPinned: false,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          }}
+        />
+      </React.Suspense>
     </ContentContainer>
   );
 };

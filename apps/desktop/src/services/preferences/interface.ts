@@ -1,7 +1,6 @@
 import { ProxyPropertyType } from 'electron-ipc-cat/common';
 
 import { PreferenceChannel } from '@/constants/channels';
-import type { HunspellLanguages } from '@/constants/hunspellLanguages';
 import type { BehaviorSubject } from 'rxjs';
 
 /**
@@ -10,69 +9,39 @@ import type { BehaviorSubject } from 'rxjs';
  * The Zod schema in definitions/registry.ts validates against this at runtime.
  */
 export interface IPreferences {
-  aiGenerateBackupTitle: boolean;
-  aiGenerateBackupTitleTimeout: number;
   allowPrerelease: boolean;
   alwaysOnTop: boolean;
+  analyticsEnabled: boolean;
+  analyticsHost: string;
+  analyticsHostname: string;
+  analyticsSiteId: string;
   askForDownloadPath: boolean;
-  disableAntiAntiLeech: boolean;
-  disableAntiAntiLeechForUrls: string[];
   downloadPath: string;
   externalAPIDebug: boolean;
-  hibernateUnusedWorkspacesAtLaunch: boolean;
-  hideMenuBar: boolean;
-  ignoreCertificateErrors: boolean;
-  keyboardShortcuts: Record<string, string>;
   language: string;
-  memeloopNodePort: number;
   pauseNotifications?: string;
   pauseNotificationsBySchedule: boolean;
   pauseNotificationsByScheduleFrom: string;
   pauseNotificationsByScheduleTo: string;
   pauseNotificationsMuteAudio: boolean;
-  rememberLastPageVisited: boolean;
   runOnBackground: boolean;
-  shareWorkspaceBrowsingData: boolean;
-  showSideBarIcon: boolean;
-  showSideBarText: boolean;
-  sidebar: boolean;
-  spellcheck: boolean;
-  spellcheckLanguages: HunspellLanguages[];
-  swipeToNavigate: boolean;
-  syncBeforeShutdown: boolean;
-  syncDebounceInterval: number;
-  syncOnlyWhenNoDraft: boolean;
   themeSource: 'system' | 'light' | 'dark';
-  tidgiMiniWindow: boolean;
-  tidgiMiniWindowAlwaysOnTop: boolean;
-  tidgiMiniWindowFixedWorkspaceId?: string;
-  tidgiMiniWindowShowSidebar: boolean;
-  tidgiMiniWindowShowTitleBar: boolean;
-  tidgiMiniWindowSyncWorkspaceWithMainWindow: boolean;
   titleBar: boolean;
   unreadCountBadge: boolean;
   useHardwareAcceleration: boolean;
 }
 
 export enum PreferenceSections {
-  developers = 'developers',
   downloads = 'downloads',
-  friendLinks = 'friendLinks',
   general = 'general',
   languages = 'languages',
-  tidgiMiniWindow = 'tidgiMiniWindow',
-  misc = 'misc',
-  network = 'network',
   notifications = 'notifications',
   performance = 'performance',
-  privacy = 'privacy',
-  search = 'search',
-  sync = 'sync',
   system = 'system',
   updates = 'updates',
-  wiki = 'wiki',
   externalAPI = 'externalAPI',
   aiAgent = 'aiAgent',
+  aiModels = 'aiModels',
 }
 
 /**

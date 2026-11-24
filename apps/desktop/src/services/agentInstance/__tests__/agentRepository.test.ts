@@ -9,10 +9,13 @@ describe('agentRepository.createAgent', () => {
   const mockDefinition: AgentDefinition = {
     id: 'agent-def-1',
     name: 'Test Agent',
+    description: 'Test agent',
+    systemPrompt: 'You are a helpful assistant.',
+    tools: [],
+    version: '1.0.0',
     avatarUrl: 'avatar.png',
-    aiApiConfig: { default: { provider: 'openai', model: 'gpt-5.3-codex' } },
     agentFrameworkID: 'basicPromptConcatHandler',
-    agentFrameworkConfig: {},
+    agentFrameworkConfig: { prompts: [], plugins: [] },
   };
 
   const createMockRepo = () => {

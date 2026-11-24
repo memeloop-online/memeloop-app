@@ -1,0 +1,89 @@
+name: Trial Android builds
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - master
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-trial-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android arm64 trial APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: "true"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install Android build tools
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+      - name: Install Mobile workspace
+        run: pnpm install --frozen-lockfile
+      - name: Check Mobile
+        run: |
+          pnpm --filter @memeloop/mobile run typecheck
+          pnpm --filter @memeloop/mobile run test
+          pnpm --filter @memeloop/mobile run lint
+      - name: Generate Android project
+        working-directory: apps/mobile
+        run: pnpm exec expo prebuild --platform android --no-install
+      - name: Build development APK
+        working-directory: apps/mobile/android
+        run: ./gradlew :app:assembleDebug --no-daemon --max-workers=2 -PreactNativeArchitectures=arm64-v8a -PreactNativeDevServerPort=8096
+      - name: Upload development APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MemeLoop-Mobile-android-arm64-debug-${{ github.sha }}
+          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Build standalone trial APK
+        working-directory: apps/mobile/android
+        # Expo's generated release variant embeds JavaScript and uses its trial debug key.
+        run: ./gradlew :app:assembleRelease --no-daemon --max-workers=2 -PreactNativeArchitectures=arm64-v8a
+      - name: Verify standalone APK and write checksum
+        working-directory: apps/mobile/android/app/build/outputs/apk/release
+        run: |
+          unzip -l app-release.apk | grep 'assets/index.android.bundle'
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose app-release.apk
+          sha256sum app-release.apk > SHA256SUMS.txt
+      - name: Upload standalone trial APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MemeLoop-Mobile-android-arm64-${{ github.sha }}
+          path: |
+            apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+            apps/mobile/android/app/build/outputs/apk/release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14

@@ -51,30 +51,13 @@ export class Preference implements IPreferenceService {
     const databaseService = container.get<IDatabaseService>(serviceIdentifier.Database);
     let preferencesFromDisk = databaseService.getSetting(`preferences`) ?? {};
     preferencesFromDisk = typeof preferencesFromDisk === 'object' && !Array.isArray(preferencesFromDisk) ? preferencesFromDisk : {};
-    return { ...defaultPreferences, ...this.sanitizePreference(preferencesFromDisk) };
+    return { ...defaultPreferences, ...preferencesFromDisk };
   };
-
-  /**
-   * Pure function that make sure loaded or input preference are good, reset some bad values in preference
-   * @param preferenceToSanitize User input preference or loaded preference, that may contains bad values
-   */
-  private sanitizePreference(preferenceToSanitize: Partial<IPreferences>): Partial<IPreferences> {
-    const { syncDebounceInterval } = preferenceToSanitize;
-    if (
-      typeof syncDebounceInterval !== 'number' ||
-      syncDebounceInterval > 86_400_000 ||
-      syncDebounceInterval < -86_400_000 ||
-      !Number.isInteger(syncDebounceInterval)
-    ) {
-      preferenceToSanitize.syncDebounceInterval = defaultPreferences.syncDebounceInterval;
-    }
-    return preferenceToSanitize;
-  }
 
   public async set<K extends keyof IPreferences>(key: K, value: IPreferences[K]): Promise<void> {
     const preferences = this.getPreferences();
     preferences[key] = value;
-    await this.setPreferences({ ...preferences, ...this.sanitizePreference(preferences) });
+    await this.setPreferences(preferences);
     await this.reactWhenPreferencesChanged(key, value);
   }
 

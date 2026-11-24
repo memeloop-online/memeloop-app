@@ -32,10 +32,9 @@ export function useAskAIWithSelection(): void {
         // Navigate to Agent page
         setLocationReference.current(`/${PageType.agent}`);
 
-        // Small delay to ensure navigation completes
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        // Find or create "Talk with AI" tab
+        // Find or create "Talk with AI" tab. Navigation is independent of the
+        // persisted tab operation, so do not rely on a fixed renderer delay
+        // to make this race-safe.
         const tabId = await window.service.agentBrowser.findOrCreateTalkWithAITab(
           data.agentDefId,
           data.selectionText,

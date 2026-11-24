@@ -37,15 +37,6 @@ export const enumPreferenceItemSchema = definitionBaseSchema.extend({
 });
 export type IEnumPreferenceItem = z.infer<typeof enumPreferenceItemSchema>;
 
-export const numberPreferenceItemSchema = definitionBaseSchema.extend({
-  type: z.literal('preference-number'),
-  key: z.string() as z.ZodType<keyof IPreferences>,
-  needsRestart: z.boolean().optional(),
-  sideEffectId: z.string().optional(),
-  zod: z.custom<z.ZodNumber>(),
-});
-export type INumberPreferenceItem = z.infer<typeof numberPreferenceItemSchema>;
-
 export const stringPreferenceItemSchema = definitionBaseSchema.extend({
   type: z.literal('preference-string'),
   key: z.string() as z.ZodType<keyof IPreferences>,
@@ -55,15 +46,6 @@ export const stringPreferenceItemSchema = definitionBaseSchema.extend({
   zod: z.custom<z.ZodString | z.ZodOptional<z.ZodString>>(),
 });
 export type IStringPreferenceItem = z.infer<typeof stringPreferenceItemSchema>;
-
-export const stringArrayPreferenceItemSchema = definitionBaseSchema.extend({
-  type: z.literal('preference-string-array'),
-  key: z.string() as z.ZodType<keyof IPreferences>,
-  needsRestart: z.boolean().optional(),
-  sideEffectId: z.string().optional(),
-  zod: z.custom<z.ZodType>(),
-});
-export type IStringArrayPreferenceItem = z.infer<typeof stringArrayPreferenceItemSchema>;
 
 export const actionItemSchema = definitionBaseSchema.extend({
   type: z.literal('action'),
@@ -95,9 +77,7 @@ export type IDividerItem = z.infer<typeof dividerItemSchema>;
 export const preferenceItemDefinitionSchema = z.discriminatedUnion('type', [
   booleanPreferenceItemSchema,
   enumPreferenceItemSchema,
-  numberPreferenceItemSchema,
   stringPreferenceItemSchema,
-  stringArrayPreferenceItemSchema,
   actionItemSchema,
   actionInputItemSchema,
   customItemSchema,
@@ -123,12 +103,12 @@ export interface ISectionDefinition extends ISectionDefinitionData {
   CustomSectionComponent?: React.ComponentType<ICustomSectionProps>;
 }
 
-// ─── Generic section definition for non-preference settings (e.g. workspace) ─
+// ─── Generic section definition for non-preference settings ─
 
 /**
  * A section definition whose items use plain string keys instead of IPreferences keys.
  * Structurally identical to ISectionDefinition at runtime — only the TS key constraint differs.
- * This lets workspace (and future) settings reuse the same renderer and sidebar.
+ * This lets future record-backed settings reuse the same renderer and sidebar.
  */
 export interface IGenericSectionDefinition {
   id: string;
@@ -151,6 +131,7 @@ export interface IGenericBooleanItem {
   platform?: PlatformCondition;
   needsRestart?: boolean;
   sideEffectId?: string;
+  testId?: string;
 }
 export interface IGenericEnumItem {
   type: 'preference-enum';

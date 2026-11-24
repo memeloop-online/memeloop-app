@@ -35,12 +35,9 @@ export const ConditionalField: React.FC<FieldProps> = (props) => {
 
     const dependentValue = (parentData as Record<string, unknown>)[dependsOn];
 
-    let conditionMet = false;
-    if (Array.isArray(showWhen)) {
-      conditionMet = showWhen.includes(String(dependentValue));
-    } else {
-      conditionMet = dependentValue === showWhen;
-    }
+    const conditionMet = Array.isArray(showWhen)
+      ? showWhen.includes(String(dependentValue))
+      : dependentValue === showWhen;
 
     return hideWhen ? !conditionMet : conditionMet;
   }, [condition, registry.formContext, fieldPathId?.$id]);

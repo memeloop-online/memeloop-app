@@ -15,23 +15,10 @@ export enum ContextChannel {
   name = 'ContextChannel',
 }
 export enum DatabaseChannel {
-  getTiddlers = 'get-tiddlers',
-  insertTiddlers = 'insert-tiddlers',
   name = 'DatabaseChannel',
-  searchTiddlers = 'search-tiddlers',
-}
-export enum GitChannel {
-  name = 'GitChannel',
-}
-export enum GitServerChannel {
-  name = 'GitServerChannel',
-}
-export enum MenuChannel {
-  name = 'MenuChannel',
 }
 export enum NativeChannel {
   name = 'NativeChannel',
-  showElectronMessageBoxSync = 'show-electron-message-box-sync',
 }
 export enum NotificationChannel {
   name = 'NotificationChannel',
@@ -65,9 +52,6 @@ export enum WindowChannel {
   closeFindInPage = 'close-find-in-page',
   name = 'WindowChannel',
   openFindInPage = 'open-find-in-page',
-  // TODO: add back the listener as https://github.com/webcatalog/neutron/blob/52a35f103761d82ae5a35e5f90fc39024830bc63/src/listeners/index.js#L80
-  updateCanGoBack = 'update-can-go-back',
-  updateCanGoForward = 'update-can-go-forward',
 }
 
 /**
@@ -100,90 +84,42 @@ export enum MetaDataChannel {
   pushViewMetaData = 'pushViewMetaData',
 }
 
-export enum SyncChannel {
-  name = 'SyncChannel',
-}
-
 export enum AgentChannel {
   definition = 'AgentDefinitionChannel',
   instance = 'AgentInstanceChannel',
   browser = 'AgentBrowserChannel',
 }
 
-export enum ExternalAPIChannel {
-  name = 'ExternalAPIChannel',
+export enum ProviderRegistryChannel {
+  name = 'ProviderRegistryChannel',
 }
 
-export enum MemeloopNodeChannel {
-  name = 'MemeloopNodeChannel',
+export enum AnalyticsChannel {
+  name = 'AnalyticsChannel',
+}
+
+export enum DeviceNetworkChannel {
+  name = 'DeviceNetworkChannel',
 }
 
 export enum ToolPermissionsChannel {
   name = 'ToolPermissionsChannel',
 }
 
-export enum RemoteTerminalChannel {
-  name = 'RemoteTerminalChannel',
-}
-
-// Deprecated: Wiki-related channels kept for backward compatibility with agent tools
-export enum WikiChannel {
-  addTiddler = 'wiki-add-tiddler',
-  createProgress = 'wiki-create-progress',
-  deleteTiddler = 'wiki-delete-tiddler',
-  dispatchEvent = 'wiki-send-action-message',
-  generalNotification = 'wiki-notification-tiddly-git',
-  getTiddler = 'wiki-get-tiddler',
-  getTiddlerText = 'wiki-get-tiddler-text',
-  getTiddlersAsJson = 'get-tiddlers-as-json',
-  invokeActionsByTag = 'wiki-invoke-actions-by-tag',
-  name = 'WikiChannel',
-  openTiddler = 'wiki-open-tiddler',
-  renderTiddlerOuterHTML = 'render-tiddler',
-  renderWikiText = 'render-wiki-text',
-  runFilter = 'wiki-run-filter',
-  setState = 'wiki-set-state',
-  setTiddlerText = 'wiki-set-tiddler-text',
-  syncProgress = 'wiki-sync-progress',
-}
-export enum WikiGitWorkspaceChannel {
-  name = 'WikiGitWorkspaceChannel',
-}
-export enum WorkspaceChannel {
-  focusWorkspace = 'focus-workspace',
-  name = 'WorkspaceChannel',
-}
-export enum WorkspaceViewChannel {
-  name = 'WorkspaceViewChannel',
-}
-export enum WikiEmbeddingChannel {
-  name = 'WikiEmbeddingChannel',
-}
-
 export type Channels =
   | MainChannel
   | AuthenticationChannel
   | ContextChannel
-  | GitChannel
-  | MenuChannel
   | NativeChannel
   | NotificationChannel
   | SystemPreferenceChannel
   | UpdaterChannel
   | ViewChannel
-  | WikiChannel
-  | WikiGitWorkspaceChannel
-  | WorkspaceChannel
-  | WorkspaceViewChannel
   | DatabaseChannel
   | PreferenceChannel
   | WindowChannel
   | ThemeChannel
   | I18NChannels
   | MetaDataChannel
-  | SyncChannel
   | AgentChannel
-  | WikiEmbeddingChannel
-  | MemeloopNodeChannel
-  | ToolPermissionsChannel
-  | RemoteTerminalChannel;
+  | ToolPermissionsChannel;

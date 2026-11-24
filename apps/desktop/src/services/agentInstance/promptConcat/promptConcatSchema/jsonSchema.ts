@@ -1,3 +1,4 @@
+import type { ToolSchemaCatalog } from '@services/agentInstance/tools/schemaRegistry';
 import { z } from 'zod/v4';
 import { getFrameworkConfigSchema } from './index';
 
@@ -11,7 +12,7 @@ import { getFrameworkConfigSchema } from './index';
  *
  * Description field is i18n key, use i18nAlly extension to see it on VSCode. And use react-i18next to translate it on frontend.
  */
-export function getPromptConcatAgentFrameworkConfigJsonSchema() {
-  const dynamicFrameworkConfigSchema = getFrameworkConfigSchema();
+export function getPromptConcatAgentFrameworkConfigJsonSchema(toolCatalog: ToolSchemaCatalog) {
+  const dynamicFrameworkConfigSchema = getFrameworkConfigSchema(toolCatalog);
   return z.toJSONSchema(dynamicFrameworkConfigSchema, { target: 'draft-7' });
 }
